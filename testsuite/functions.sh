@@ -1,7 +1,7 @@
 #!/bin/sh
-CC=${CC:-gcc}
+CC="${CC:-gcc} ${LINKOPTS}"
 CCLINK=${CCLINK:-${CC} -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`}
-CXX=${CXX:-g++}
+CXX="${CXX:-g++} ${LINKOPTS}"
 CXXLINK=${CXXLINK:-${CXX} -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`}
 PRELINK=${PRELINK:-../src/prelink -c ./prelink.conf -C ./prelink.cache --ld-library-path=. --dynamic-linker=`echo ./ld*.so.*[0-9]`}
 srcdir=${srcdir:-`dirname $0`}

@@ -469,7 +469,7 @@ prelink_prepare (DSO *dso)
       if (rinfo.plt)
 	start = dso->shdr[rinfo.plt].sh_addr + dso->shdr[rinfo.plt].sh_size;
       else
-	start = dso->shdr[rinfo.first].sh_addr + dso->shdr[rinfo.first].sh_size;
+	start = dso->shdr[rinfo.last].sh_addr + dso->shdr[rinfo.last].sh_size;
 
       adjust1 = 0;
       adjust2 = 0;

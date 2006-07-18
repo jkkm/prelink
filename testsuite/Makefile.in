@@ -104,8 +104,8 @@ TESTS = movelibs.sh \
 
 TESTS_ENVIRONMENT = \
 	PRELINK="../src/prelink -c ./prelink.conf -C ./prelink.cache --ld-library-path=. --dynamic-linker=`echo ./ld*.so.*[0-9]`" \
-	CC="$(CC)" CCLINK="$(CC) -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`" \
-	CXX="$(CXX)" CXXLINK="$(CXX) -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`" \
+	CC="$(CC) $(LINKOPTS)" CCLINK="$(CC) -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`" \
+	CXX="$(CXX) $(LINKOPTS)" CXXLINK="$(CXX) -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`" \
 	$(SHELL)
 
 
@@ -321,7 +321,10 @@ check-cycle:
 	    PRELINK_OPTS="$$PRELINK_OPTS" $(MAKE) $(AM_MAKEFLAGS) check || exit; \
 	    $(MAKE) $(AM_MAKEFLAGS) clean || exit; \
 	  done; \
-	done
+	done; \
+	echo "Checking with -Wl,-z,nocombreloc"; \
+	LINKOPTS=-Wl,-z,nocombreloc $(MAKE) $(AM_MAKEFLAGS) check || exit; \
+	$(MAKE) $(AM_MAKEFLAGS) clean || exit
 
 check-harder:
 	@CHECK_ME_HARDER=1 $(MAKE) $(AM_MAKEFLAGS) check || exit
