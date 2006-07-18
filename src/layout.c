@@ -36,13 +36,8 @@ print_ent (struct prelink_entry *e)
 static void
 print_list (struct prelink_entry *e)
 {
-  struct prelink_entry *f;
-
-  if (! e)
-    return;
-  print_ent (e);
-  for (f = e->next; f != e; f = f->next)
-    print_ent (f);
+  for (; e; e = e->next)
+    print_ent (e);
   printf ("\n");
 }
 #endif
@@ -130,12 +125,12 @@ int
 layout_libs (void)
 {
   struct layout_libs l;
-  int i, j, k, m;
+  int i, j, k, m, done;
   int class;
-  GElf_Addr mmap_start, mmap_base, mmap_end, page_size;
+  GElf_Addr mmap_start, mmap_base, mmap_end, mmap_fin, page_size;
   GElf_Addr base, size;
   DSO *dso;
-  struct prelink_entry *list = NULL, *low = NULL, *e;
+  struct prelink_entry *list = NULL, *e;
 
   l.libs =
     (struct prelink_entry **) alloca (prelink_entry_count
@@ -152,6 +147,10 @@ layout_libs (void)
     error (EXIT_FAILURE, 0, "Could not assign base addresses to libraries");
   mmap_base = dso->arch->mmap_base;
   mmap_end = dso->arch->mmap_end;
+  /* The code below relies on having a VA slot as big as <mmap_base,mmap_end)
+     above mmap_end for -R.  */
+  if (mmap_end + (mmap_end - mmap_base) <= mmap_end)
+    random_base = 0;
   page_size = dso->arch->page_size;
   class = dso->arch->class;
   close_dso (dso);
@@ -169,17 +168,20 @@ layout_libs (void)
   j = 0;
   if (i < l.nlibs && l.libs[i]->done)
     {
+      if (l.libs[i]->base < mmap_base)
+	random_base = 0;
       for (j = i + 1; j < l.nlibs; ++j)
 	{
 	  if (! l.libs[j]->done || l.libs[j]->base >= mmap_end)
 	    break;
 
+	  if (l.libs[j]->base < mmap_base || l.libs[j]->end > mmap_end)
+	    random_base = 0;
 	  l.libs[j]->prev = l.libs[j - 1];
 	  l.libs[j - 1]->next = l.libs[j];
 	}
       list = l.libs[i];
       list->prev = l.libs[j - 1];
-      l.libs[j - 1]->next = list;
       while (j < l.nlibs && l.libs[j]->done) ++j;
     }
 
@@ -190,6 +192,8 @@ layout_libs (void)
 
   qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), refs_cmp);
   mmap_start = 0;
+  mmap_fin = mmap_end;
+  done = 1;
   if (random_base)
     {
       int fd = open ("/dev/urandom", O_RDONLY);
@@ -207,31 +211,56 @@ layout_libs (void)
 	  close (fd);
 	}
 
-      if (! mmap_base)
+      if (! mmap_start)
 	{
 	  mmap_start = ((mmap_end - mmap_base) >> 16)
 		       * (time (NULL) & 0xffff);
 	  mmap_start += mmap_base;
+	}
+
+      mmap_start = (mmap_start + page_size - 1) & ~(page_size - 1);
+      if (list)
+	{
+	  for (e = list; e != NULL; e = e->next)
+	    {
+	      if (e->base >= mmap_start)
+		break;
+	      if (e->end > mmap_start)
+		mmap_start = (e->end + page_size - 1) & ~(page_size - 1);
+	      e->base += mmap_end - mmap_base;
+	      e->end += mmap_end - mmap_base;
+	      e->done |= 0x80;
+	    }
+
+	  if (mmap_start < mmap_end)
+	    {
+	      if (e && e != list)
+		{
+		  list->prev->next = list;
+		  list = e;
+		  list->prev->next = NULL;
+		  list->prev = NULL;
+		}
+	      done |= 0x80;
+	      mmap_fin = mmap_end + (mmap_start - mmap_base);
+	    }
+	  else
+	    {
+	      mmap_start = mmap_base;
+	      for (e = list; e != NULL; e = e->next)
+		if (e->done & 0x80)
+		  {
+		    e->done &= ~0x80;
+		    e->base -= mmap_end - mmap_base;
+		    e->end -= mmap_end - mmap_base;
+		  }
+	    }
 	}
     }
   else
     mmap_start = mmap_base;
 
   mmap_start = (mmap_start + page_size - 1) & ~(page_size - 1);
-
-  if (list)
-    {
-      low = list;
-      e = list;
-      do
-	{
-	  if (e->end > mmap_start)
-	    {
-	      list = e;
-	      break;
-	    }
-	} while ((e = e->next) != list);
-    }
 
   for (i = 0; i < l.nlibs; ++i)
     l.libs[i]->u.tmp = -1;
@@ -260,185 +289,91 @@ layout_libs (void)
 
 	size = l.libs[i]->end - l.libs[i]->base;
 	base = mmap_start;
-	j = 0;
-	if ((e = list) != NULL)
-	  do
+	for (e = list; e; e = e->next)
+	  if (e->u.tmp == m)
 	    {
-	      if (e->u.tmp == m)
-		{
-		  if (e->end < mmap_start && ! j)
-		    {
-		      j = 1;
-		      if (base + size < mmap_end)
-			goto found;
-		      base = mmap_base;
-		      if (base == mmap_start)
-			goto not_found;
-		    }
+	      if (base < mmap_end && base + size > mmap_end)
+		base = mmap_end;
 
-		  if (base + size <= e->base)
-		    goto found;
+	      if (base + size <= e->base)
+		goto found;
 
-		  if (base < mmap_start && e->end >= mmap_start)
-		    goto not_found;
+	      if (base < e->end)
+		base = e->end;
+	    }
 
-		  if (base < e->end)
-		    base = e->end;
-		}
-	    } while ((e = e->next) != list);
-
-	if (base + size >= mmap_end)
-	  {
-	    base = mmap_base;
-	    j = 1;
-	    if (base == mmap_start)
-	      goto not_found;
-	  }
-	if (j && base <= mmap_start)
-	  {
-	    if (base + size > mmap_start)
-	      goto not_found;
-
-	    if (list && list->u.tmp == m && base + size > list->base)
-	      goto not_found;
-	  }
-
+	if (base + size > mmap_fin)
+	  goto not_found;
 found:
 	l.libs[i]->base = base;
 	l.libs[i]->end = base + size;
-	l.libs[i]->done = 1;
-	if (e)
-	  {
-	    struct prelink_entry *f;
-
-	    if (e->base > base)
-	      {
-		for (f = e->prev; f != low->prev; f = f->prev)
-		  if (f->base <= base)
-		    break;
-	      }
-	    else
-	      {
-		for (f = e->next; f != low; f = f->next)
-		  if (f->base >= base)
-		    break;
-		f = f->prev;
-	      }
-	    e = f;
-	    if (f->base == base && f->end > base + size)
-	      {
-		for (e = f->prev; e != f; e = e->prev)
-		  if (e->base != base || e->end <= base + size)
-		    break;
-	      }
-	    else if (f->next->base == base && f->next->end < base + size)
-	      {
-		for (e = f->next; e != f; e = e->next)
-		  if (e->base != base || e->end >= base + size)
-		    break;
-		e = e->prev;
-	      }
-	    f = l.libs[i];
-	    f->next = e->next;
-	    e->next->prev = f;
-	    e->next = f;
-	    f->prev = e;
-
-	    /* Adjust list pointer if necessary.  */
-	    if (f->end <= list->end && f->end > mmap_start)
-	      {
-		for (list = f->prev; list != f; list = list->prev)
-		  if (list->end > f->end || list->end <= mmap_start)
-		    break;
-		list = list->next;
-	      }
-
-	    /* Adjust low pointer if necessary.  */
-	    if (f->base <= low->base)
-	      {
-		if (f->base < low->base)
-		  low = f;
-		else
-		  {
-		    for (low = f->prev; low != f; low = low->prev)
-		      if (low->base != f->base)
-			break;
-		    low = low->next;
-		  }
-	      }
-	  }
+	if (base >= mmap_end)
+	  l.libs[i]->done = done;
 	else
+	  l.libs[i]->done = 1;
+	if (list == NULL)
 	  {
 	    list = l.libs[i];
 	    list->prev = list;
-	    list->next = list;
-	    low = list;
 	  }
-
+	else
+	  {
+	    if (e == NULL)
+	      e = list->prev;
+	    else
+	      e = e->prev;
+	    while (e != list && e->base > base)
+	      e = e->prev;
+	    if (e->base > base)
+	      {
+		l.libs[i]->next = list;
+		l.libs[i]->prev = list->prev;
+		list->prev = l.libs[i];
+		list = l.libs[i];
+	      }
+	    else
+	      {
+		l.libs[i]->next = e->next;
+		l.libs[i]->prev = e;
+		if (e->next)
+		  e->next->prev = l.libs[i];
+		else
+		  list->prev = l.libs[i];
+		e->next = l.libs[i];
+	      }
+	  }
 #ifdef DEBUG_LAYOUT
-	for (e = list->next, k = 0; e != list; e = e->next)
-	  {
-	    if (e->base < e->prev->base)
-	      {
-	        if (k)
-	          {
-	            printf ("internal error #1 %d\n", i);
-	            print_ent (l.libs[i]);
-	            printf ("\n");
-	            print_list (list);
-	            fflush (NULL);
-	            abort ();
-	          }
-	        k = 1;
-	        continue;
-	      }
-	    if (k && e->base > list->base)
-	      {
-		printf ("internal error #2 %d\n", i);
-		print_ent (l.libs[i]);
-		printf ("\n");
-		print_list (list);
-		fflush (NULL);
+	{
+	  struct prelink_entry *last = list;
+	  base = 0;
+	  for (e = list; e; last = e, e = e->next)
+	    {
+	      if (e->base < base)
 		abort ();
-	      }
-	    if (e->base == e->prev->base && e->end < e->prev->end)
-	      {
-		printf ("internal error #3 %d\n", i);
-		print_ent (l.libs[i]);
-		printf ("\n");
-		print_list (list);
-		fflush (NULL);
+	      base = e->base;
+	      if ((e == list && e->prev->next != NULL)
+		  || (e != list && e->prev->next != e))
 		abort ();
-	      }
-	  }
-	if (list->end > mmap_start && list->prev->end > mmap_start
-	    && list->prev->base < list->base)
-	  {
-	    printf ("internal error #4 %d\n", i);
-	    print_ent (l.libs[i]);
-	    printf ("\n");
-	    print_list (list);
-	    fflush (NULL);
+	    }
+	  if (list->prev != last)
 	    abort ();
-	  }
-	if (low->base > low->prev->base
-	    || (low->base == low->prev->base && low->end > low->prev->end))
-	  {
-	    printf ("internal error #5 %d\n", i);
-	    print_ent (l.libs[i]);
-	    printf ("\n");
-	    print_list (list);
-	    fflush (NULL);
-	    abort ();
-	  }
+	}
 #endif
-
 	continue;
 
 not_found:
 	error (EXIT_FAILURE, 0, "Could not find virtual address slot for %s",
 	       l.libs[i]->filename);
       }
+
+  if (done & 0x80)
+    for (e = list; e != NULL; e = e->next)
+      if (e->done & 0x80)
+	{
+	  e->done &= ~0x80;
+	  e->base -= mmap_end - mmap_base;
+	  e->end -= mmap_end - mmap_base;
+	}
 
   if (verbose)
     {

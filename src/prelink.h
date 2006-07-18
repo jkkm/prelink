@@ -95,10 +95,14 @@ struct PLArch
 		     GElf_Addr adjust);
   int (*adjust_rela) (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 		      GElf_Addr adjust);
-  int (*prelink_rel) (struct prelink_info *info, GElf_Rel *rel);
-  int (*prelink_rela) (struct prelink_info *info, GElf_Rela *rela);
-  int (*prelink_conflict_rel) (struct prelink_info *info, GElf_Rel *rel);
-  int (*prelink_conflict_rela) (struct prelink_info *info, GElf_Rela *rela);
+  int (*prelink_rel) (struct prelink_info *info, GElf_Rel *rel,
+		      GElf_Addr reladdr);
+  int (*prelink_rela) (struct prelink_info *info, GElf_Rela *rela,
+		       GElf_Addr relaaddr);
+  int (*prelink_conflict_rel) (DSO *dso, struct prelink_info *info,
+			       GElf_Rel *rel, GElf_Addr reladdr);
+  int (*prelink_conflict_rela) (DSO *dso, struct prelink_info *info,
+  				GElf_Rela *rela, GElf_Addr relaaddr);
   int (*apply_conflict_rela) (struct prelink_info *info, GElf_Rela *rela,
 			      char *buf);
   int (*apply_rel) (struct prelink_info *info, GElf_Rel *rel, char *buf);
@@ -213,7 +217,7 @@ struct prelink_entry
   struct prelink_link *hardlink;
   GElf_Word timestamp;
   GElf_Word checksum;
-  GElf_Addr base, end;
+  GElf_Addr base, end, pltgot;
   dev_t dev;
   ino64_t ino;
 #define ET_BAD		(ET_NUM)
@@ -282,6 +286,7 @@ struct prelink_info
   GElf_Addr symtab_start, symtab_end;
   GElf_Addr (*resolve) (struct prelink_info *info, GElf_Word r_sym,
 			 int reloc_type);
+  struct prelink_entry *resolveent;
 };
 
 int prelink_prepare (DSO *dso);

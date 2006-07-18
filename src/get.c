@@ -424,6 +424,11 @@ prelink_get_relocations (struct prelink_info *info)
 	  return 0;
 	}
     }
+  else
+    {
+      info->ent->base = dso->base;
+      info->ent->end = dso->end;
+    }
 
   if (is_ldso_soname (info->dso->soname))
     return 1;

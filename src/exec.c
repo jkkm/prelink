@@ -77,15 +77,18 @@ prelink_conflict_rel (DSO *dso, int n, struct prelink_info *info)
 
   while ((data = elf_getdata (scn, data)) != NULL)
     {
+      GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
+
       maxndx = data->d_size / dso->shdr[n].sh_entsize;
-      for (ndx = 0; ndx < maxndx; ++ndx)
+      for (ndx = 0; ndx < maxndx;
+	   ++ndx, addr += dso->shdr[n].sh_entsize)
 	{
 	  gelfx_getrel (dso->elf, data, ndx, &rel);
 	  sec = addr_to_sec (dso, rel.r_offset);
 	  if (sec == -1)
 	    continue;
 
-	  if (dso->arch->prelink_conflict_rel (info, &rel))
+	  if (dso->arch->prelink_conflict_rel (dso, info, &rel, addr))
 	    return 1;
 	}
     }
@@ -102,15 +105,18 @@ prelink_conflict_rela (DSO *dso, int n, struct prelink_info *info)
 
   while ((data = elf_getdata (scn, data)) != NULL)
     {
+      GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
+      
       maxndx = data->d_size / dso->shdr[n].sh_entsize;
-      for (ndx = 0; ndx < maxndx; ++ndx)
+      for (ndx = 0; ndx < maxndx;
+	   ++ndx, addr += dso->shdr[n].sh_entsize)
 	{
 	  gelfx_getrela (dso->elf, data, ndx, &rela);
 	  sec = addr_to_sec (dso, rela.r_offset);
 	  if (sec == -1)
 	    continue;
 
-	  if (dso->arch->prelink_conflict_rela (info, &rela))
+	  if (dso->arch->prelink_conflict_rela (dso, info, &rela, addr))
 	    return 1;
 	}
     }

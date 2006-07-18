@@ -35,11 +35,17 @@ resolve_ldso (struct prelink_info *info, GElf_Word r_sym,
      all symbols resolve to themselves with the exception
      of SHN_UNDEF symbols which resolve to 0.  */
   if (info->symtab[r_sym].st_shndx == SHN_UNDEF)
-    return 0;
+    {
+      info->resolveent = NULL;
+      return 0;
+    }
   else
-    /* As the dynamic linker is relocated first,
-       l_addr will be 0.  */
-    return 0 + info->symtab[r_sym].st_value;
+    {
+      /* As the dynamic linker is relocated first,
+	 l_addr will be 0.  */
+      info->resolveent = info->ent;
+      return 0 + info->symtab[r_sym].st_value;
+    }
 }
 
 static GElf_Addr
@@ -54,8 +60,12 @@ resolve_dso (struct prelink_info *info, GElf_Word r_sym,
       break;
 
   if (s == NULL || s->ent == NULL)
-    return 0;
+    {
+      info->resolveent = NULL;
+      return 0;
+    }
 
+  info->resolveent = s->ent;
   return s->ent->base + s->value;
 }
 
@@ -70,16 +80,18 @@ prelink_rel (DSO *dso, int n, struct prelink_info *info)
   while ((data = elf_getdata (scn, data)) != NULL)
     {
       int ndx, maxndx;
+      GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
 
       maxndx = data->d_size / dso->shdr[n].sh_entsize;
-      for (ndx = 0; ndx < maxndx; ++ndx)
+      for (ndx = 0; ndx < maxndx;
+	   ++ndx, addr += dso->shdr[n].sh_entsize)
 	{
 	  gelfx_getrel (dso->elf, data, ndx, &rel);
 	  sec = addr_to_sec (dso, rel.r_offset);
 	  if (sec == -1)
 	    continue;
 
-	  if (dso->arch->prelink_rel (info, &rel))
+	  if (dso->arch->prelink_rel (info, &rel, addr))
 	    return 1;
 	}
     }
@@ -97,16 +109,18 @@ prelink_rela (DSO *dso, int n, struct prelink_info *info)
   while ((data = elf_getdata (scn, data)) != NULL)
     {
       int ndx, maxndx;
+      GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
 
       maxndx = data->d_size / dso->shdr[n].sh_entsize;
-      for (ndx = 0; ndx < maxndx; ++ndx)
+      for (ndx = 0; ndx < maxndx;
+	   ++ndx, addr += dso->shdr[n].sh_entsize)
 	{
 	  gelfx_getrela (dso->elf, data, ndx, &rela);
 	  sec = addr_to_sec (dso, rela.r_offset);
 	  if (sec == -1)
 	    continue;
 
-	  if (dso->arch->prelink_rela (info, &rela))
+	  if (dso->arch->prelink_rela (info, &rela, addr))
 	    return 1;
 	}
     }
@@ -677,6 +691,8 @@ prelink (DSO *dso, struct prelink_entry *ent)
   Elf_Scn *scn;
   Elf_Data *data;
   struct prelink_info info;
+
+  ent->pltgot = dso->info[DT_PLTGOT];
 
   if (! dso->info[DT_SYMTAB])
     return 0;

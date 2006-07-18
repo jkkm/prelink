@@ -54,6 +54,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   if (check_dso (dso))
     goto error_out;
 
+  ent->pltgot = dso->info[DT_PLTGOT];
   ent->soname = strdup (dso->soname);
   if (ent->soname == NULL)
     {

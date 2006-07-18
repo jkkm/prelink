@@ -102,12 +102,13 @@ i386_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 }
 
 static int
-i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel)
+i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
 {
   DSO *dso;
   GElf_Addr value;
 
-  if (GELF_R_TYPE (rel->r_info) == R_386_RELATIVE)
+  if (GELF_R_TYPE (rel->r_info) == R_386_RELATIVE
+      || GELF_R_TYPE (rel->r_info) == R_386_NONE)
     /* Fast path: nothing to do.  */
     return 0;
   dso = info->dso;
@@ -120,14 +121,10 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel)
       write_le32 (dso, rel->r_offset, value);
       break;
     case R_386_32:
-      write_le32 (dso, rel->r_offset,
-		  read_ule32 (dso, rel->r_offset) + value);
-      break;
     case R_386_PC32:
-      write_le32 (dso, rel->r_offset,
-		  read_ule32 (dso, rel->r_offset)
-		  + value - rel->r_offset);
-      break;
+      error (0, 0, "%s: R_386_%s32 relocs should not be present in prelinked REL sections",
+	     dso->filename, GELF_R_TYPE (rel->r_info) == R_386_32 ? "" : "PC");
+      return 1;
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
 	/* COPY relocs are handled specially in generic code.  */
@@ -143,12 +140,14 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel)
 }
 
 static int
-i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela)
+i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
+		   GElf_Addr relaaddr)
 {
   DSO *dso;
   GElf_Addr value;
 
-  if (GELF_R_TYPE (rela->r_info) == R_386_RELATIVE)
+  if (GELF_R_TYPE (rela->r_info) == R_386_RELATIVE
+      || GELF_R_TYPE (rela->r_info) == R_386_NONE)
     /* Fast path: nothing to do.  */
     return 0;
   dso = info->dso;
@@ -204,16 +203,18 @@ i386_apply_rel (struct prelink_info *info, GElf_Rel *rel, char *buf)
 			 GELF_R_TYPE (rel->r_info));
   switch (GELF_R_TYPE (rel->r_info))    
     {
+    case R_386_NONE:
+      break;
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
       buf_write_le32 (buf, value);
       break;
     case R_386_32:
-      buf_write_le32 (buf, buf_read_ule32 (buf) + value);
-      break;
     case R_386_PC32:
-      buf_write_le32 (buf, buf_read_ule32 (buf) + value - rel->r_offset);
-      break;
+      error (0, 0, "%s: R_386_%s32 relocs should not be present in prelinked REL sections",
+	     info->dso->filename,
+	     GELF_R_TYPE (rel->r_info) == R_386_32 ? "" : "PC");
+      return 1;
     case R_386_COPY:
       abort ();
     case R_386_RELATIVE:
@@ -234,6 +235,8 @@ i386_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
 			 GELF_R_TYPE (rela->r_info));
   switch (GELF_R_TYPE (rela->r_info))    
     {
+    case R_386_NONE:
+      break;
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
     case R_386_32:
@@ -254,17 +257,17 @@ i386_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
 }
 
 static int
-i386_prelink_conflict_rel (struct prelink_info *info, GElf_Rel *rel)
+i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
+			   GElf_Addr reladdr)
 {
-  DSO *dso;
-  GElf_Addr value, oldvalue;
+  GElf_Addr value;
   struct prelink_conflict *conflict;
   GElf_Rela *ret;
 
-  if (GELF_R_TYPE (rel->r_info) == R_386_RELATIVE)
+  if (GELF_R_TYPE (rel->r_info) == R_386_RELATIVE
+      || GELF_R_TYPE (rel->r_info) == R_386_NONE)
     /* Fast path: nothing to do.  */
     return 0;
-  dso = info->dso;
   conflict = prelink_conflict (info, GELF_R_SYM (rel->r_info),
 			       GELF_R_TYPE (rel->r_info));
   if (conflict == NULL)
@@ -283,10 +286,9 @@ i386_prelink_conflict_rel (struct prelink_info *info, GElf_Rel *rel)
       break;
     case R_386_32:
     case R_386_PC32:
-      oldvalue = read_ule32 (dso, rel->r_offset);
-      value += oldvalue - (conflict->conflictent->base + conflict->conflictval);
-      ret->r_addend = value;
-      break;
+      error (0, 0, "%s: R_386_%s32 relocs should not be present in prelinked REL sections",
+	     dso->filename, GELF_R_TYPE (rel->r_info) == R_386_32 ? "" : "PC");
+      return 1;
     case R_386_COPY:
       error (0, 0, "R_386_COPY should not be present in shared libraries");
       return 1;
@@ -299,17 +301,17 @@ i386_prelink_conflict_rel (struct prelink_info *info, GElf_Rel *rel)
 }
 
 static int
-i386_prelink_conflict_rela (struct prelink_info *info, GElf_Rela *rela)
+i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
+			    GElf_Rela *rela, GElf_Addr relaaddr)
 {
-  DSO *dso;
   GElf_Addr value;
   struct prelink_conflict *conflict;
   GElf_Rela *ret;
 
-  if (GELF_R_TYPE (rela->r_info) == R_386_RELATIVE)
+  if (GELF_R_TYPE (rela->r_info) == R_386_RELATIVE
+      || GELF_R_TYPE (rela->r_info) == R_386_NONE)
     /* Fast path: nothing to do.  */
     return 0;
-  dso = info->dso;
   conflict = prelink_conflict (info, GELF_R_SYM (rela->r_info),
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
