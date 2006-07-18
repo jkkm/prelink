@@ -31,36 +31,37 @@ static int
 ia64_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		 GElf_Addr adjust)
 {
-  if (dyn->d_tag == DT_PLTGOT)
+  if (dyn->d_tag == DT_IA64_PLT_RESERVE)
     {
       int sec = addr_to_sec (dso, dyn->d_un.d_ptr);
-      Elf32_Addr data;
+      Elf64_Addr data;
 
-      if (sec == -1)
-	return 1;
+      if (sec != -1)
+	{                                
+	  data = read_ule64 (dso, dyn->d_un.d_ptr + 8);
 
-      data = read_ule32 (dso, dyn->d_un.d_ptr);
-      /* If .got[0] points to _DYNAMIC, it needs to be adjusted.  */
-      if (data == dso->shdr[n].sh_addr && data >= start)
-	write_le32 (dso, dyn->d_un.d_ptr, data + adjust);
+	  /* If .got[1] points to .plt + 0x30, it needs to be adjusted.  */
+	  if (data && data >= start)
+	    {
+	      int i;
 
-      data = read_ule32 (dso, dyn->d_un.d_ptr + 4);
-      /* If .got[1] points to .plt + 0x16, it needs to be adjusted.  */
-      if (data && data >= start)
-	{
-	  int i;
-
-	  for (i = 1; i < dso->ehdr.e_shnum; i++)
-	    if (data == dso->shdr[i].sh_addr + 0x16
-		&& dso->shdr[i].sh_type == SHT_PROGBITS
-		&& strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-					dso->shdr[i].sh_name), ".plt") == 0)
-	      {
-		write_le32 (dso, dyn->d_un.d_ptr + 4, data + adjust);
-		break;
-	      }
+	      for (i = 1; i < dso->ehdr.e_shnum; i++)
+		if (data == dso->shdr[i].sh_addr + 0x30
+		    && dso->shdr[i].sh_type == SHT_PROGBITS
+		    && strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				       dso->shdr[i].sh_name), ".plt") == 0)
+		  {
+		    write_le64 (dso, dyn->d_un.d_ptr + 8, data + adjust);
+		    break;
+		  }
+	    }
 	}
+
+      if (dyn->d_un.d_ptr >= start)
+	dyn->d_un.d_ptr += adjust;
+      return 1;
     }
+
   return 0;
 }
 
@@ -195,14 +196,41 @@ static int
 ia64_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  if (GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
     {
-    case R_386_GLOB_DAT:
-    case R_386_JMP_SLOT:
-    case R_386_32:
-    case R_386_PC32:
-      buf_write_le32 (buf, rela->r_addend);
-      break;
+      GElf_Addr gp = 0;
+      int i;
+
+      for (i = 0; i < info->ent->ndepends; ++i)
+	if (info->ent->depends[i]->base <= rela->r_addend
+	    && info->ent->depends[i]->end > rela->r_addend)
+	  {
+	    gp = info->resolveent->pltgot;
+	    break;
+	  }
+
+      if (i == info->ent->ndepends)
+	abort ();
+
+      if (GELF_R_TYPE (rela->r_info) & 1)
+	{
+	  buf_write_le64 (buf, value);
+	  buf_write_le64 (buf + 8, gp);
+	}
+      else
+	{
+	  buf_write_be64 (buf, value);
+	  buf_write_be64 (buf + 8, gp);
+	}
+      return 0;
+    }
+
+  switch (GELF_R_TYPE (rela->r_info))
+    {
+    case R_IA64_DIR32MSB: buf_write_be32 (buf, value); break;
+    case R_IA64_DIR32LSB: buf_write_le32 (buf, value); break;
+    case R_IA64_DIR64MSB: buf_write_be64 (buf, value); break;
+    case R_IA64_DIR64LSB: buf_write_le64 (buf, value); break;
     default:
       abort ();
     }
@@ -223,23 +251,44 @@ ia64_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
 
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  value += rela->r_addend;
+  if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_DIR32MSB)
     {
-    case R_386_GLOB_DAT:
-    case R_386_JMP_SLOT:
-    case R_386_32:
-      buf_write_le32 (buf, value + rela->r_addend);
-      break;
-    case R_386_PC32:
-      buf_write_le32 (buf, value + rela->r_addend - rela->r_offset);
-      break;
-    case R_386_COPY:
-      abort ();
-    case R_386_RELATIVE:
-      error (0, 0, "%s: R_386_RELATIVE in ET_EXEC object?", info->dso->filename);
-      return 1;
-    default:
-      return 1;
+      /* Nothing to do.  */
+    }
+  else if (GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_PCREL32MSB)
+    {
+      value -= rela->r_offset & -16;
+    }
+  else if (GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_FPTR32MSB)
+    {
+      /* FIXME */
+    }
+  else if (GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
+    {
+      GElf_Addr gp = info->resolveent->pltgot;
+
+      if (GELF_R_TYPE (rela->r_info) & 1)
+	{
+	  buf_write_le64 (buf, value);
+	  buf_write_le64 (buf + 8, gp);
+	}
+      else
+	{
+	  buf_write_be64 (buf, value);
+	  buf_write_be64 (buf + 8, gp);
+	}
+      return 0;
+    }
+  else
+    return 1;
+
+  switch (GELF_R_TYPE (rela->r_info) & 3)
+    {
+    case 0: buf_write_be32 (buf, value); break;
+    case 1: buf_write_le32 (buf, value); break;
+    case 2: buf_write_be64 (buf, value); break;
+    case 3: buf_write_le64 (buf, value); break;
     }
   return 0;
 }
@@ -260,7 +309,8 @@ ia64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   struct prelink_conflict *conflict;
   GElf_Rela *ret;
 
-  if (GELF_R_TYPE (rela->r_info) == R_386_RELATIVE)
+  if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_REL32MSB
+      || GELF_R_TYPE (rela->r_info) == R_IA64_NONE)
     /* Fast path: nothing to do.  */
     return 0;
   conflict = prelink_conflict (info, GELF_R_SYM (rela->r_info),
@@ -273,26 +323,27 @@ ia64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     return 1;
   ret->r_offset = rela->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_DIR32MSB
+      || (GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
     {
-    case R_386_GLOB_DAT:
-    case R_386_JMP_SLOT:
       ret->r_addend = value + rela->r_addend;
-      break;
-    case R_386_32:
-    case R_386_PC32:
-      value += rela->r_addend;
-      ret->r_addend = value;
-      break;
-    case R_386_COPY:
-      error (0, 0, "R_386_COPY should not be present in shared libraries");
-      return 1;
-    default:
-      error (0, 0, "%s: Unknown ia64 relocation type %d", dso->filename,
-	     (int) GELF_R_TYPE (rela->r_info));
+      return 0;
+    }
+  else if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_PCREL32MSB)
+    {
+      ret->r_addend = value + rela->r_addend - (rela->r_offset & -16);
+      ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info)
+				    + R_IA64_DIR32MSB - R_IA64_PCREL32MSB);
+      return 0;
+    }
+  else if (GELF_R_TYPE (rela->r_info) == R_IA64_COPY)
+    {
+      error (0, 0, "R_IA64_COPY should not be present in shared libraries");
       return 1;
     }
-  return 0;
+  error (0, 0, "%s: Unknown ia64 relocation type %d", dso->filename,
+	 (int) GELF_R_TYPE (rela->r_info));
+  return 1;
 }
 
 static int
@@ -311,38 +362,55 @@ ia64_need_rel_to_rela (DSO *dso, int first, int last)
 static int
 ia64_arch_prelink (DSO *dso)
 {
-  int i;
+  int plt = -1, got = -1, i;
+  const char *name;
+  
+  /* Write address of .plt + 0x30 into .got[1].
+     .plt + 0x30 is what .IA_64.pltoff[0] contains unless prelinking.  */
 
-  if (dso->info[DT_PLTGOT])
+  for (i = 1; i < dso->ehdr.e_shnum; i++)
+    if (dso->shdr[i].sh_type == SHT_PROGBITS)
+      {
+	name = strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[i].sh_name);
+	if (! strcmp (name, ".got"))
+	  {
+	    if (got != -1)
+	      {
+		error (0, 0, "%s: More than one .got section", dso->filename);
+		return 1;
+	      }
+	    got = i;
+	  }
+	else if (! strcmp (name, ".plt"))
+	  {
+	    if (plt != -1)
+	      {
+		error (0, 0, "%s: More than one .plt section", dso->filename);
+		return 1;
+	      }
+	    plt = i;
+	  }
+      }
+
+  if (plt == -1)
+    return 0;
+
+  if (got == -1)
     {
-      /* Write address of .plt + 0x16 into got[1].
-	 .plt + 0x16 is what got[3] contains unless prelinking.  */
-      int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
-      Elf32_Addr data;
-
-      if (sec == -1)
-	return 1;
-
-      for (i = 1; i < dso->ehdr.e_shnum; i++)
-	if (dso->shdr[i].sh_type == SHT_PROGBITS
-	    && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-				 dso->shdr[i].sh_name),
-			 ".plt"))
-	break;
-
-      assert (i < dso->ehdr.e_shnum);
-      data = dso->shdr[i].sh_addr + 0x16;
-      write_le32 (dso, dso->info[DT_PLTGOT] + 4, data);
+      error (0, 0, "%s: Has .plt section but not .got section", dso->filename);
+      return 1;
     }
 
+  write_le64 (dso, dso->shdr[got].sh_addr + 8, dso->shdr[plt].sh_addr + 0x30);
   return 0;
 }
 
 static int
 ia64_reloc_size (int reloc_type)
 {
-  assert (reloc_type != R_386_COPY);
-  return 4;
+  if ((reloc_type & ~1) == R_IA64_IPLTMSB)
+    return 16;
+  return (reloc_type & 2) ? 8 : 4;
 }
 
 static int
@@ -379,14 +447,14 @@ PL_ARCH = {
   .need_rel_to_rela = ia64_need_rel_to_rela,
   .reloc_size = ia64_reloc_size,
   .reloc_class = ia64_reloc_class,
-  .max_reloc_size = 8,
+  .max_reloc_size = 16,
   .arch_prelink = ia64_arch_prelink,
-  /* Although TASK_UNMAPPED_BASE is 0x40000000, we leave some
+  /* Although TASK_UNMAPPED_BASE is 0x2000000000000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc
      does not take some library's VA slot.
      Also, if this guard area isn't too small, typically
      even dlopened libraries will get the slots they desire.  */
-  .mmap_base = 0x41000000,
-  .mmap_end =  0x50000000,
-  .page_size = 0x1000
+  .mmap_base = 0x2000000010000000,
+  .mmap_end =  0x4000000000000000,
+  .page_size = 0x10000
 };

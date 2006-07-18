@@ -37,7 +37,7 @@ s390_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
       Elf64_Addr data;
 
       if (sec == -1)
-	return 1;
+	return 0;
 
       data = read_ube32 (dso, dyn->d_un.d_ptr);
       /* If .got[0] points to _DYNAMIC, it needs to be adjusted.  */
@@ -45,13 +45,13 @@ s390_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 	write_be32 (dso, dyn->d_un.d_ptr, data + adjust);
 
       data = read_ube32 (dso, dyn->d_un.d_ptr + 4);
-      /* If .got[1] points to .plt + 0x20, it needs to be adjusted.  */
+      /* If .got[1] points to .plt + 0x2c, it needs to be adjusted.  */
       if (data && data >= start)
 	{
 	  int i;
 
 	  for (i = 1; i < dso->ehdr.e_shnum; i++)
-	    if (data == dso->shdr[i].sh_addr + 0x20
+	    if (data == dso->shdr[i].sh_addr + 0x2c
 		&& dso->shdr[i].sh_type == SHT_PROGBITS
 		&& strcmp (strptr (dso, dso->ehdr.e_shstrndx,
 					dso->shdr[i].sh_name), ".plt") == 0)
@@ -269,8 +269,8 @@ s390_arch_prelink (DSO *dso)
 
   if (dso->info[DT_PLTGOT])
     {
-      /* Write address of .plt + 0x20 into got[1].
-	 .plt + 0x20 is what got[3] contains unless prelinking.  */
+      /* Write address of .plt + 0x2c into got[1].
+	 .plt + 0x2c is what got[3] contains unless prelinking.  */
       int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
       Elf64_Addr data;
 
@@ -285,7 +285,7 @@ s390_arch_prelink (DSO *dso)
 	break;
 
       assert (i < dso->ehdr.e_shnum);
-      data = dso->shdr[i].sh_addr + 0x20;
+      data = dso->shdr[i].sh_addr + 0x2c;
       write_be32 (dso, dso->info[DT_PLTGOT] + 4, data);
     }
 

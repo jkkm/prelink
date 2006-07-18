@@ -37,7 +37,7 @@ x86_64_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
       Elf64_Addr data;
 
       if (sec == -1)
-	return 1;
+	return 0;
 
       data = read_ule64 (dso, dyn->d_un.d_ptr);
       /* If .got[0] points to _DYNAMIC, it needs to be adjusted.  */

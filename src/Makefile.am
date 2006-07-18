@@ -10,7 +10,7 @@ sbin_PROGRAMS = prelink
 
 prelink_SYSDEPS = arch-i386.c arch-alpha.c arch-ppc.c \
 		  arch-sparc.c arch-sparc64.c arch-x86_64.c \
-		  arch-s390.c arch-s390x.c
+		  arch-s390.c arch-s390x.c arch-arm.c
 prelink_SOURCES = cache.c conflict.c cxx.c data.c doit.c dso.c dwarf2.c	     \
 		  dwarf2.h exec.c execle_open.c get.c gather.c hashtab.c     \
 		  hashtab.h layout.c main.c mdebug.c prelink.c prelink.h     \
