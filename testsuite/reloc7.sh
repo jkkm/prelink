@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 . `dirname $0`/functions.sh
 rm -f reloc7 reloc7lib*.so reloc7.log
 rm -f prelink.cache

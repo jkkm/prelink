@@ -189,7 +189,7 @@ prelink_prepare (DSO *dso)
 			 + gelf_fsize (dso->elf, ELF_T_SHDR,
 				       dso->ehdr.e_shnum - 1, EV_CURRENT);
       dso->undo.d_buf = malloc (dso->undo.d_size);
-      if (dso->undo.d_buf == 0)
+      if (dso->undo.d_buf == NULL)
 	{
 	  error (0, ENOMEM, "%s: Could not create .gnu.prelink_undo section",
 		 dso->filename);
@@ -631,12 +631,15 @@ prelink_dso (struct prelink_info *info)
 
 	  assert (data->d_buf == NULL);
 	  assert (data->d_size == dso->shdr[j].sh_size);
-	  data->d_buf = calloc (dso->shdr[j].sh_size, 1);
-	  if (data->d_buf == NULL)
+	  if (data->d_size)
 	    {
-	      error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
-		     dso->filename);
-	      return 1;
+	      data->d_buf = calloc (data->d_size, 1);
+	      if (data->d_buf == NULL)
+		{
+		  error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
+			 dso->filename);
+		  return 1;
+		}
 	    }
 	  data->d_type = ELF_T_BYTE;
 	  dso->shdr[j].sh_type = SHT_PROGBITS;

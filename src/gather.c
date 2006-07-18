@@ -200,13 +200,18 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   free (line);
   line = NULL;
 
-  ent->depends =
-    (struct prelink_entry **)
-    malloc (ndepends * sizeof (struct prelink_entry *));
-  if (ent->depends == NULL)
+  if (ndepends == 0)
+    ent->depends = NULL;
+  else
     {
-      error (0, ENOMEM, "%s: Could not record dependencies", ent->filename);
-      goto error_out;
+      ent->depends =
+	(struct prelink_entry **)
+	malloc (ndepends * sizeof (struct prelink_entry *));
+      if (ent->depends == NULL)
+	{
+	  error (0, ENOMEM, "%s: Could not record dependencies", ent->filename);
+	  goto error_out;
+	}
     }
 
   ent->ndepends = ndepends;

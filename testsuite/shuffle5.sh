@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 . `dirname $0`/functions.sh
 rm -f shuffle5 shuffle5lib*.so shuffle5.log shuffle5.lds
 rm -f prelink.cache

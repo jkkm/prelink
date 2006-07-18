@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 CC="${CC:-gcc} ${LINKOPTS}"
 CCLINK=${CCLINK:-${CC} -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`}
 CXX="${CXX:-g++} ${LINKOPTS}"

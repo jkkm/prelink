@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 . `dirname $0`/functions.sh
 # First check if __thread is supported by ld.so/gcc/ld/as:
 rm -f tlstest

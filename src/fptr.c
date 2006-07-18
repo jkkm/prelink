@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -128,9 +128,14 @@ opd_init (struct prelink_info *info)
   if (l == NULL)
     goto error_mem;
   l->nrefs = (info->symtab_end - info->symtab_start) / info->symtab_entsize;
-  l->u.refp = calloc (l->nrefs, sizeof (struct opd_ref *));
-  if (l->u.refp == NULL)
-    goto error_mem;
+  if (l->nrefs)
+    {
+      l->u.refp = calloc (l->nrefs, sizeof (struct opd_ref *));
+      if (l->u.refp == NULL)
+	goto error_mem;
+    }
+  else
+    l->u.refp = NULL;
   tabent_htab = htab_try_create (100, opd_tabent_hash, opd_tabent_eq, opd_del);
   refent_htab = htab_try_create (100, opd_refent_hash, opd_refent_eq, opd_del);
   l->htab = htab_try_create (100, opd_refent_hash, opd_refent_eq, opd_del);

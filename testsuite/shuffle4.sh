@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 . `dirname $0`/functions.sh
 # Kernels before 2.4.10 are known not to work
 case "`uname -r`" in

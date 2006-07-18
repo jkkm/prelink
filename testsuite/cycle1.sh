@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 . `dirname $0`/functions.sh
 rm -f cycle1 cycle1lib*.so cycle1.log
 rm -f prelink.cache

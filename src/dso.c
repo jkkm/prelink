@@ -781,12 +781,18 @@ reopen_dso (DSO *dso, struct section_move *move)
 		  assert (dso->shdr[j].sh_size == 0);
 		  continue;
 		}
-	      data.d_buf = calloc (1, data.d_size);
-	      if (data.d_buf == NULL)
+	      if (data.d_size != 0)
 		{
-		  error (0, ENOMEM, "%s: Could not copy section", dso->filename);
-		  goto error_out;
+		  data.d_buf = calloc (1, data.d_size);
+		  if (data.d_buf == NULL)
+		    {
+		      error (0, ENOMEM, "%s: Could not copy section",
+			     dso->filename);
+		      goto error_out;
+		    }
 		}
+	      else
+		data.d_buf = NULL;
 	      data1 = NULL;
 	      while ((data1 = elf_getdata (dso->scn[j], data1))
 		     != NULL)

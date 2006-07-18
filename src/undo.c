@@ -623,7 +623,7 @@ prelink_undo (DSO *dso)
 	      scn = dso->scn[i];
 	      d = elf_getdata (scn, NULL);
 	      assert (d != NULL && elf_getdata (scn, d) == NULL);
-	      assert (d->d_buf != NULL);
+	      assert (d->d_size == 0 || d->d_buf != NULL);
 	      assert (d->d_size == dso->shdr[i].sh_size);
 	      free (d->d_buf);
 	      d->d_buf = NULL;

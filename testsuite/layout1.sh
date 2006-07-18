@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 . `dirname $0`/functions.sh
 rm -f prelink.cache
 rm -f layout1 layoutlib*.so layout1.log

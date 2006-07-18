@@ -124,7 +124,7 @@ prelink_exec (struct prelink_info *info)
       assert (data->d_size == dso->shdr[undo].sh_size);
       dso->undo = *data;
       dso->undo.d_buf = malloc (dso->undo.d_size);
-      if (dso->undo.d_buf == 0)
+      if (dso->undo.d_buf == NULL)
 	{
 	  error (0, ENOMEM, "%s: Could not create .gnu.prelink_undo section",
 		 dso->filename);
@@ -153,13 +153,18 @@ prelink_exec (struct prelink_info *info)
   shstrndxnew = move->old_to_new[dso->ehdr.e_shstrndx];
   shnum_after_undo = move->new_shnum;
 
-  liblist = calloc (ndeps - 1, sizeof (Elf32_Lib));
-  if (liblist == NULL)
+  if (ndeps > 1)
     {
-      error (0, ENOMEM, "%s: Cannot build .gnu.liblist section",
-	     dso->filename);
-      goto error_out;
+      liblist = calloc (ndeps - 1, sizeof (Elf32_Lib));
+      if (liblist == NULL)
+	{
+	  error (0, ENOMEM, "%s: Cannot build .gnu.liblist section",
+		 dso->filename);
+	  goto error_out;
+	}
     }
+  else
+    liblist = NULL;
 
   for (i = 0; i < ndeps - 1; ++i)
     {
@@ -453,12 +458,15 @@ prelink_exec (struct prelink_info *info)
 
 	    assert (data->d_buf == NULL);
 	    data->d_size = shdr[i].sh_size;
-	    data->d_buf = calloc (shdr[i].sh_size, 1);
-	    if (data->d_buf == NULL)
+	    if (data->d_size)
 	      {
-		error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
-		       dso->filename);
-		goto error_out;
+		data->d_buf = calloc (shdr[i].sh_size, 1);
+		if (data->d_buf == NULL)
+		  {
+		    error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
+			   dso->filename);
+		    goto error_out;
+		  }
 	      }
 	    data->d_type = ELF_T_BYTE;
 	  }
@@ -507,14 +515,17 @@ prelink_exec (struct prelink_info *info)
 		Elf_Data *data = elf_getdata (dso->scn[j], NULL);
 
 		assert (data->d_size == dso->shdr[j].sh_size);
-		data->d_buf = realloc (data->d_buf, dso->shdr[j].sh_size);
-		if (data->d_buf == NULL)
+		if (data->d_size)
 		  {
-		    error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
-			   dso->filename);
-		    goto error_out;
+		    data->d_buf = realloc (data->d_buf, data->d_size);
+		    if (data->d_buf == NULL)
+		      {
+			error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
+			       dso->filename);
+			goto error_out;
+		      }
 		  }
-		memset (data->d_buf, 0, dso->shdr[j].sh_size);
+		memset (data->d_buf, 0, data->d_size);
 		data->d_type = ELF_T_BYTE;
 		dso->shdr[j].sh_type = SHT_PROGBITS;
 	      }
@@ -951,12 +962,21 @@ prelink_exec (struct prelink_info *info)
 		     * gelf_fsize (dso->elf, ELF_T_RELA, 1, EV_CURRENT);
       data->d_off = 0;
       data->d_align = gelf_fsize (dso->elf, ELF_T_ADDR, 1, EV_CURRENT);
-      data->d_buf = realloc (data->d_buf, data->d_size);
       data->d_version = EV_CURRENT;
-      if (data->d_buf == NULL)
+      if (data->d_size)
 	{
-	  error (0, ENOMEM, "%s: Could not build .gnu.conflict section", dso->filename);
-	  goto error_out;
+	  data->d_buf = realloc (data->d_buf, data->d_size);
+	  if (data->d_buf == NULL)
+	    {
+	      error (0, ENOMEM, "%s: Could not build .gnu.conflict section",
+		     dso->filename);
+	      goto error_out;
+	    }
+	}
+      else
+	{
+	  free (data->d_buf);
+	  data->d_buf = NULL;
 	}
       for (j = 0; j < info->conflict_rela_size; ++j)
 	gelfx_update_rela (dso->elf, data, j, info->conflict_rela + j);
