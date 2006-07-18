@@ -469,12 +469,20 @@ not_found:
 
     for (i = 0; i < l.nbinlibs; ++i)
       {
+	for (j = 0; j < l.binlibs[i]->ndepends; ++j)
+	  if ((l.binlibs[i]->depends[j]->type != ET_DYN
+	       && l.binlibs[i]->depends[j]->type != ET_CACHE_DYN)
+	      || l.binlibs[i]->depends[j]->done == 0)
+	  break;
+	if (j < l.binlibs[i]->ndepends)
+	  continue;
 	memcpy (deps, l.binlibs[i]->depends,
 		l.binlibs[i]->ndepends * sizeof (struct prelink_entry *));
 	qsort (deps, l.binlibs[i]->ndepends, sizeof (struct prelink_entry *),
 	       deps_cmp);
 	for (j = 1; j < l.binlibs[i]->ndepends; ++j)
-	  if (deps[j]->base < deps[j - 1]->end)
+	  if (deps[j]->base < deps[j - 1]->end
+	      && (deps[j]->type == ET_DYN || deps[j - 1]->type == ET_DYN))
 	    abort ();
       }
   }
