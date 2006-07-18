@@ -671,6 +671,7 @@ prelink_undo (DSO *dso)
     }
   for (i = 0; i < ehdr.e_phnum; ++i)
     dso->phdr[i] = phdr[i];
+  dso->undoing = 1;
   assert (dso->ehdr.e_entry == ehdr.e_entry);
   assert (dso->ehdr.e_shnum == ehdr.e_shnum);
   assert (dso->ehdr.e_shstrndx == ehdr.e_shstrndx);

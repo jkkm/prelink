@@ -89,7 +89,7 @@ sbin_PROGRAMS = prelink
 
 prelink_SYSDEPS = arch-i386.c arch-alpha.c arch-ppc.c \
 		  arch-sparc.c arch-sparc64.c arch-x86_64.c \
-		  arch-s390.c arch-s390x.c arch-arm.c arch-ia64.c
+		  arch-s390.c arch-s390x.c arch-arm.c arch-sh.c arch-ia64.c
 
 prelink_SOURCES = cache.c conflict.c cxx.c data.c doit.c dso.c dwarf2.c	     \
 		  dwarf2.h exec.c execle_open.c fptr.c fptr.h get.c gather.c \
@@ -98,6 +98,7 @@ prelink_SOURCES = cache.c conflict.c cxx.c data.c doit.c dso.c dwarf2.c	     \
 		  undo.c undoall.c verify.c crc32.c $(prelink_SYSDEPS)
 
 prelink_LDADD = @LIBGELF@
+prelink_LDFLAGS = -all-static
 
 extra_DIST = makecrc.c
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
@@ -118,9 +119,8 @@ stabs.$(OBJEXT) undo.$(OBJEXT) undoall.$(OBJEXT) verify.$(OBJEXT) \
 crc32.$(OBJEXT) arch-i386.$(OBJEXT) arch-alpha.$(OBJEXT) \
 arch-ppc.$(OBJEXT) arch-sparc.$(OBJEXT) arch-sparc64.$(OBJEXT) \
 arch-x86_64.$(OBJEXT) arch-s390.$(OBJEXT) arch-s390x.$(OBJEXT) \
-arch-arm.$(OBJEXT) arch-ia64.$(OBJEXT)
+arch-arm.$(OBJEXT) arch-sh.$(OBJEXT) arch-ia64.$(OBJEXT)
 prelink_DEPENDENCIES = 
-prelink_LDFLAGS = 
 CFLAGS = @CFLAGS@
 COMPILE = $(CC) $(DEFS) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 LTCOMPILE = $(LIBTOOL) --mode=compile $(CC) $(DEFS) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -135,11 +135,11 @@ TAR = gtar
 GZIP_ENV = --best
 DEP_FILES =  .deps/arch-alpha.P .deps/arch-arm.P .deps/arch-i386.P \
 .deps/arch-ia64.P .deps/arch-ppc.P .deps/arch-s390.P .deps/arch-s390x.P \
-.deps/arch-sparc.P .deps/arch-sparc64.P .deps/arch-x86_64.P \
-.deps/cache.P .deps/conflict.P .deps/crc32.P .deps/cxx.P .deps/data.P \
-.deps/doit.P .deps/dso.P .deps/dwarf2.P .deps/exec.P \
-.deps/execle_open.P .deps/fptr.P .deps/gather.P .deps/get.P \
-.deps/hashtab.P .deps/layout.P .deps/main.P .deps/mdebug.P \
+.deps/arch-sh.P .deps/arch-sparc.P .deps/arch-sparc64.P \
+.deps/arch-x86_64.P .deps/cache.P .deps/conflict.P .deps/crc32.P \
+.deps/cxx.P .deps/data.P .deps/doit.P .deps/dso.P .deps/dwarf2.P \
+.deps/exec.P .deps/execle_open.P .deps/fptr.P .deps/gather.P \
+.deps/get.P .deps/hashtab.P .deps/layout.P .deps/main.P .deps/mdebug.P \
 .deps/prelink.P .deps/reloc.P .deps/space.P .deps/stabs.P .deps/undo.P \
 .deps/undoall.P .deps/verify.P
 SOURCES = $(prelink_SOURCES)

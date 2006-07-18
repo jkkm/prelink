@@ -687,7 +687,7 @@ prelink_build_conflicts (struct prelink_info *info)
 	      error (0, 0, "%s: Conflict partly overlaps with %08llx-%08llx area",
 		     dso->filename,
 		     (long long) cr.rela[i].r_offset,
-		     (long long) cr.rela[i].r_offset + cr.rela[i].r_addend);
+		     (long long) (cr.rela[i].r_offset + cr.rela[i].r_addend));
 	      goto error_out;
 	    }
 	}

@@ -252,8 +252,11 @@ prelink_prepare (DSO *dso)
 	{
 	case ELFCLASS32:
 	  shdr32 = (Elf32_Shdr *) src.d_buf;
+	  /* Note: cannot use dso->scn[i] below, since we want to save the
+	     original section order before non-alloced sections were
+	     sorted by sh_offset.  */
 	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	    shdr32[i - 1] = *elf32_getshdr (dso->scn[i]);
+	    shdr32[i - 1] = *elf32_getshdr (elf_getscn (dso->elf, i));
 	  if (elf32_xlatetof (&dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
 	    {
 	      error (0, 0, "%s: Failed to create .gnu.prelink_undo section",
@@ -263,8 +266,11 @@ prelink_prepare (DSO *dso)
 	  break;
 	case ELFCLASS64:
 	  shdr64 = (Elf64_Shdr *) src.d_buf;
+	  /* Note: cannot use dso->scn[i] below, since we want to save the
+	     original section order before non-alloced sections were
+	     sorted by sh_offset.  */
 	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	    shdr64[i - 1] = *elf64_getshdr (dso->scn[i]);
+	    shdr64[i - 1] = *elf64_getshdr (elf_getscn (dso->elf, i));
 	  if (elf64_xlatetof (&dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
 	    {
 	      error (0, 0, "%s: Failed to create .gnu.prelink_undo section",

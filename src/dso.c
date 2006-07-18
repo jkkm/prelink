@@ -181,6 +181,10 @@ check_dso (DSO *dso)
 	+ (dso->shdr[i - 1].sh_type == SHT_NOBITS
 	   ? 0 : dso->shdr[i - 1].sh_size) > dso->shdr[i].sh_offset)
       {
+	if (dso->undoing
+	    && ! RELOCATE_SCN (dso->shdr[i - 1].sh_flags)
+	    && ! RELOCATE_SCN (dso->shdr[i].sh_flags))
+	  continue;
 	error (0, 0, "%s: section file offsets not monotonically increasing",
 	       dso->filename);
 	return 1;

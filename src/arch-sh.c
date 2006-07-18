@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -27,6 +27,33 @@
 
 #include "prelink.h"
 
+static inline uint32_t
+read_une32 (DSO *dso, GElf_Addr addr)
+{
+  if (dso->ehdr.e_ident[EI_DATA] == ELFDATA2LSB)
+    return read_ule32 (dso, addr);
+  else
+    return read_ube32 (dso, addr);
+}
+
+static inline void
+write_ne32 (DSO *dso, GElf_Addr addr, uint32_t value)
+{
+  if (dso->ehdr.e_ident[EI_DATA] == ELFDATA2LSB)
+    write_le32 (dso, addr, value);
+  else
+    write_be32 (dso, addr, value);
+}
+
+static inline void
+buf_write_ne32 (DSO *dso, unsigned char *buf, uint32_t value)
+{
+  if (dso->ehdr.e_ident[EI_DATA] == ELFDATA2LSB)
+    buf_write_le32 (buf, value);
+  else
+    buf_write_be32 (buf, value);
+}
+
 static int
 sh_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		 GElf_Addr adjust)
@@ -39,12 +66,12 @@ sh_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
       if (sec == -1)
 	return 0;
 
-      data = read_ule32 (dso, dyn->d_un.d_ptr);
+      data = read_une32 (dso, dyn->d_un.d_ptr);
       /* If .got[0] points to _DYNAMIC, it needs to be adjusted.  */
       if (data == dso->shdr[n].sh_addr && data >= start)
-	write_le32 (dso, dyn->d_un.d_ptr, data + adjust);
+	write_ne32 (dso, dyn->d_un.d_ptr, data + adjust);
 
-      data = read_ule32 (dso, dyn->d_un.d_ptr + 4);
+      data = read_une32 (dso, dyn->d_un.d_ptr + 4);
       /* If .got[1] points to .plt + 36, it needs to be adjusted.  */
       if (data && data >= start)
 	{
@@ -56,7 +83,7 @@ sh_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		&& strcmp (strptr (dso, dso->ehdr.e_shstrndx,
 					dso->shdr[i].sh_name), ".plt") == 0)
 	      {
-		write_le32 (dso, dyn->d_un.d_ptr + 4, data + adjust);
+		write_ne32 (dso, dyn->d_un.d_ptr + 4, data + adjust);
 		break;
 	      }
 	}
@@ -88,9 +115,9 @@ sh_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 	}
       /* FALLTHROUGH */
     case R_SH_JMP_SLOT:
-      data = read_ule32 (dso, rela->r_offset);
+      data = read_une32 (dso, rela->r_offset);
       if (data >= start)
-	write_le32 (dso, rela->r_offset, data + adjust);
+	write_ne32 (dso, rela->r_offset, data + adjust);
       break;
       break;
     }
@@ -118,21 +145,21 @@ sh_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   else if (GELF_R_TYPE (rela->r_info) == R_SH_RELATIVE)
     {
       if (rela->r_addend)
-	write_le32 (dso, rela->r_offset, rela->r_addend);
+	write_ne32 (dso, rela->r_offset, rela->r_addend);
       return 0;
     }
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_SH_GLOB_DAT:
     case R_SH_JMP_SLOT:
     case R_SH_DIR32:
-      write_le32 (dso, rela->r_offset, value);
+      write_ne32 (dso, rela->r_offset, value);
       break;
     case R_SH_REL32:
-      write_le32 (dso, rela->r_offset, value - rela->r_addend);
+      write_ne32 (dso, rela->r_offset, value - rela->r_addend);
       break;
     case R_SH_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -152,12 +179,12 @@ static int
 sh_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_SH_GLOB_DAT:
     case R_SH_JMP_SLOT:
     case R_SH_DIR32:
-      buf_write_le32 (buf, rela->r_addend);
+      buf_write_ne32 (info->dso, buf, rela->r_addend);
       break;
     default:
       abort ();
@@ -180,17 +207,17 @@ sh_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_SH_NONE:
       break;
     case R_SH_GLOB_DAT:
     case R_SH_JMP_SLOT:
     case R_SH_DIR32:
-      buf_write_le32 (buf, value);
+      buf_write_ne32 (info->dso, buf, value);
       break;
     case R_SH_REL32:
-      buf_write_le32 (buf, value - rela->r_offset);
+      buf_write_ne32 (info->dso, buf, value - rela->r_offset);
       break;
     case R_SH_COPY:
       abort ();
@@ -234,7 +261,7 @@ sh_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   ret->r_offset = rela->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_SH_REL32:
       value -= rela->r_offset;
@@ -293,11 +320,96 @@ sh_arch_prelink (DSO *dso)
 			 ".plt"))
 	break;
 
-      assert (i < dso->ehdr.e_shnum);
+      if (i == dso->ehdr.e_shnum)
+	return 0;
       data = dso->shdr[i].sh_addr + 36;
-      write_le32 (dso, dso->info[DT_PLTGOT] + 4, data);
+      write_ne32 (dso, dso->info[DT_PLTGOT] + 4, data);
     }
 
+  return 0;
+}
+
+static int
+sh_arch_undo_prelink (DSO *dso)
+{
+  int i;
+
+  if (dso->info[DT_PLTGOT])
+    {
+      /* Clear got[1] if it contains address of .plt + 36.  */
+      int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
+      Elf32_Addr data;
+
+      if (sec == -1)
+	return 1;
+
+      for (i = 1; i < dso->ehdr.e_shnum; i++)
+	if (dso->shdr[i].sh_type == SHT_PROGBITS
+	    && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				 dso->shdr[i].sh_name),
+			 ".plt"))
+	break;
+
+      if (i == dso->ehdr.e_shnum)
+	return 0;
+      data = read_une32 (dso, dso->info[DT_PLTGOT] + 4);
+      if (data == dso->shdr[i].sh_addr + 36)
+	write_le32 (dso, dso->info[DT_PLTGOT] + 4, 0);
+    }
+
+  return 0;
+}
+
+static int
+sh_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
+{
+  int sec;
+
+  switch (GELF_R_TYPE (rela->r_info))
+    {
+    case R_SH_NONE:
+      break;
+    case R_SH_RELATIVE:
+      if (rela->r_addend)
+	write_le32 (dso, rela->r_offset, 0);
+      break;
+    case R_390_JMP_SLOT:
+      sec = addr_to_sec (dso, rela->r_offset);
+      if (sec == -1
+	  || strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			     dso->shdr[sec].sh_name), ".got"))
+	{
+	  error (0, 0, "%s: R_SH_JMP_SLOT not pointing into .got section",
+		 dso->filename);
+	  return 1;
+	}
+      else
+	{
+	  Elf32_Addr data = read_une32 (dso, dso->shdr[sec].sh_addr + 4);
+
+	  assert (rela->r_offset >= dso->shdr[sec].sh_addr + 12);
+	  assert (((rela->r_offset - dso->shdr[sec].sh_addr) & 3) == 0);
+	  write_ne32 (dso, rela->r_offset,
+		      7 * (rela->r_offset - dso->shdr[sec].sh_addr - 12)
+		      + data);
+	}
+      break;
+    case R_SH_GLOB_DAT:
+    case R_SH_DIR32:
+    case R_SH_REL32:
+      write_le32 (dso, rela->r_offset, 0);
+      break;
+    case R_SH_COPY:
+      if (dso->ehdr.e_type == ET_EXEC)
+	/* COPY relocs are handled specially in generic code.  */
+	return 0;
+      error (0, 0, "%s: R_SH_COPY reloc in shared library?", dso->filename);
+      return 1;
+    default:
+      error (0, 0, "%s: Unknown sh relocation type %d", dso->filename,
+	     (int) GELF_R_TYPE (rela->r_info));
+      return 1;
+    }
   return 0;
 }
 
@@ -342,6 +454,8 @@ PL_ARCH = {
   .reloc_class = sh_reloc_class,
   .max_reloc_size = 4,
   .arch_prelink = sh_arch_prelink,
+  .arch_undo_prelink = sh_arch_undo_prelink,
+  .undo_prelink_rela = sh_undo_prelink_rela,
   /* Although TASK_UNMAPPED_BASE is 0x29555000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc
      does not take some library's VA slot.

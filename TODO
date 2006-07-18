@@ -1,8 +1,5 @@
-- undo mode
-- verify mode
 - security audit:
   - should we only limit prelinking in non-world writeable directories
-  - or should it use O_EXCL for creation of *.#prelink# files
 - more ports
 - hack support for multi-ABI arches
 - more testing

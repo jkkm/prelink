@@ -82,6 +82,7 @@ typedef struct
   GElf_Off mdebug_orig_offset;
   Elf_Data undo;
   int nadjust;
+  int undoing;
   GElf_Shdr shdr[0];
 } DSO;
 
