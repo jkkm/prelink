@@ -524,7 +524,7 @@ prelink_entry_dumpfn (FILE *f, const void *ptr)
   fprintf (f, "%s|%s|%s|%x|%x|%llx|%llx|%llx|%llx|%llx|%d|%d|%d|%d|%d|%d|%d|",
 	   e->filename,
 	   strcmp (e->canon_filename, e->filename) ? e->canon_filename : "",
-	   strcmp (e->soname, e->filename) ? e->soname : "",
+	   e->soname && strcmp (e->soname, e->filename) ? e->soname : "",
 	   e->timestamp, e->checksum,
 	   (long long) e->base, (long long) e->end, (long long) e->pltgot,
 	   (long long) e->dev, (long long) e->ino,
@@ -640,6 +640,7 @@ prelink_entry_restorefn (FILE *f)
       p = q + 1;
     }
   *plink = NULL;
+  ++prelink_entry_count;
   return e;
 }
 
@@ -649,6 +650,7 @@ prelink_entry_restore (htab_t htab, const char *filename)
   size_t i, j;
   struct prelink_entry *e;
 
+  prelink_entry_count = 0;
   htab_restore (htab, filename, prelink_entry_restorefn);
   free (restore_line);
   for (i = 0; i < htab->size; ++i)

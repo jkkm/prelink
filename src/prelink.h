@@ -157,7 +157,12 @@ struct PLArch
      It doesn't need to be the absolutely smallest supported one,
      prelink only optimizes for such page_size.  */
   GElf_Addr max_page_size, page_size;
-};
+}
+#ifdef __x86_64__
+/* AMD64 ABI braindamage.  */
+__attribute__((aligned(16)))
+#endif
+;
 
 DSO * open_dso (const char *name);
 DSO * fdopen_dso (int fd, const char *name);
