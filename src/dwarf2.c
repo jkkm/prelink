@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -467,8 +467,6 @@ adjust_dwarf2_loc (DSO *dso, GElf_Addr offset, GElf_Addr base,
   endsec = ptr + debug_sections[DEBUG_LOC].size;
   ptr += offset;
   adjusted_base = (base && base >= start && addr_to_sec (dso, base) != -1);
-  error (0, 0, "%s: .debug_loc adjusting unfinished", dso->filename);
-  return 1;
   while (ptr < endsec)
     {
       low = read_ptr (ptr);
