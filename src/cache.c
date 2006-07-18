@@ -186,7 +186,7 @@ error_out:
   return NULL;
 }
 
-struct prelink_entry *
+static struct prelink_entry *
 prelink_load_entry (const char *filename)
 {
   struct prelink_entry e, *ent = NULL;
@@ -309,6 +309,7 @@ prelink_load_cache (void)
       ents[i]->end = cache->entry[i].end;
       ents[i]->type = (ents[i]->base == 0 && ents[i]->end == 0)
 		      ? ET_CACHE_EXEC : ET_CACHE_DYN;
+      ents[i]->flags = cache->entry[i].flags;
 
       for (j = cache->entry[i].depends; dep[j] != i; ++j)
 	if (dep[j] >= cache->nlibs)
@@ -466,6 +467,7 @@ prelink_save_cache (int do_warn)
       data[i].filename = (strings - (char *) data) + sizeof (cache);
       strings = stpcpy (strings, l.ents[i]->canon_filename) + 1;
       data[i].checksum = l.ents[i]->checksum;
+      data[i].flags = l.ents[i]->flags;
       if (l.ents[i]->type == ET_EXEC || l.ents[i]->type == ET_CACHE_EXEC)
 	{
 	  data[i].base = 0;

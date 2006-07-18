@@ -563,6 +563,7 @@ prelink_exec (struct prelink_info *info)
   int new_conflict = -1, new_liblist = -1;
   int new_reloc = -1, new_plt = -1, new_dynstr = -1;
   int old_dynbss = -1, old_bss = -1, new_dynbss = -1;
+  int old_sdynbss = -1, old_sbss = -1, new_sdynbss = -1;
   int old[5], new[5];
   int addcnt, undo = 0;
   struct reloc_info rinfo;
@@ -630,12 +631,19 @@ prelink_exec (struct prelink_info *info)
       old_bss = addr_to_sec (dso, info->dynbss_base);
       assert (old_bss != -1);
     }
+  if (info->sdynbss)
+    {
+      old_sbss = addr_to_sec (dso, info->sdynbss_base);
+      assert (old_sbss != -1);
+    }
   for (i = 1, j = 1; i < dso->ehdr.e_shnum; ++i)
     {
       const char *name = strptr (dso, dso->ehdr.e_shstrndx,
 				 dso->shdr[i].sh_name);
       if (! strcmp (name, ".dynbss"))
 	old_dynbss = i;
+      else if (! strcmp (name, ".sdynbss"))
+	old_sdynbss = i;
       else if (! strcmp (name, ".gnu.prelink_undo"))
 	undo = -1;
       if (! strcmp (name, ".gnu.conflict"))
@@ -770,6 +778,24 @@ prelink_exec (struct prelink_info *info)
 	}
     }
 
+  if (info->sdynbss)
+    {
+      if (old_sdynbss == -1)
+	{
+	  new_sdynbss = move->old_to_new[old_sbss];
+	  memmove (&shdr[new_sdynbss + 1], &shdr[new_sdynbss],
+		   (ehdr.e_shnum - new_sdynbss) * sizeof (GElf_Shdr));
+	  shdr[new_sdynbss].sh_size = 0;
+	  ++ehdr.e_shnum;
+	  add_section (move, new_sdynbss);
+	  for (i = 0; i < addcnt; ++i)
+	    if (new[i] >= new_sdynbss)
+	      ++new[i];
+	}
+      else
+	new_sdynbss = move->old_to_new[old_sdynbss];
+    }
+
   if (info->dynbss)
     {
       if (old_dynbss == -1)
@@ -826,7 +852,7 @@ prelink_exec (struct prelink_info *info)
 	if (shdr[i].sh_type == SHT_PROGBITS
 	    && dso->shdr[i].sh_type == SHT_NOBITS)
 	  {
-	    Elf_Data *data = elf_getdata (elf_getscn (dso->elf, i), NULL);
+	    Elf_Data *data = elf_getdata (dso->scn[i], NULL);
 
 	    assert (data->d_buf == NULL);
 	    assert (data->d_size == shdr[i].sh_size);
@@ -849,12 +875,81 @@ prelink_exec (struct prelink_info *info)
     if (dso->phdr[i].p_type == PT_LOAD)
       {
 	GElf_Addr last_offset = dso->phdr[i].p_offset;
+	GElf_Addr adj = 0;
+	int sfirst = 0, slast = 0, last = 0;
 
 	for (j = 1; j < dso->ehdr.e_shnum; ++j)
 	  if (dso->shdr[j].sh_addr >= dso->phdr[i].p_vaddr
 	      && dso->shdr[j].sh_addr + dso->shdr[j].sh_size
 		 <= dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz)
 	    {
+	      if (dso->shdr[j].sh_type != SHT_NOBITS)
+		{
+		  if (sfirst)
+		    {
+		      error (0, 0, "%s: NOBITS section followed by non-NOBITS section in the same segment",
+			     dso->filename);
+		      goto error_out;
+		    }
+		  continue;
+		}
+
+	      if (!sfirst)
+		sfirst = j;
+	      if (strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				  dso->shdr[j].sh_name), ".plt") == 0)
+		slast = j + 1;
+	      else if (j == new_dynbss || j == new_sdynbss)
+		slast = j;
+	    }
+
+	if (sfirst && slast)
+	  {
+	    for (j = sfirst; j < slast; ++j)
+	      {
+		Elf_Data *data = elf_getdata (dso->scn[j], NULL);
+
+		assert (data->d_buf == NULL);
+		assert (data->d_size == dso->shdr[j].sh_size);
+		data->d_buf = calloc (dso->shdr[j].sh_size, 1);
+		if (data->d_buf == NULL)
+		  {
+		    error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
+			   dso->filename);
+		    goto error_out;
+		  }
+		data->d_type = ELF_T_BYTE;
+		dso->shdr[j].sh_type = SHT_PROGBITS;
+	      }
+
+	    adj = dso->shdr[slast - 1].sh_addr + dso->shdr[slast - 1].sh_size
+		  - dso->phdr[i].p_vaddr;
+
+	    if (adj > dso->phdr[i].p_filesz)
+	      {
+		adj -= dso->phdr[i].p_filesz;
+		for (j = slast;
+		     j < dso->ehdr.e_shnum
+		     && (dso->shdr[j].sh_flags
+			 & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR));
+		     ++j)
+		  if (dso->shdr[j].sh_addr >= dso->phdr[i].p_vaddr
+					      + dso->phdr[i].p_memsz)
+		    adj = (adj + dso->shdr[j].sh_addralign - 1)
+			  & ~(dso->shdr[j].sh_addralign - 1);
+
+		dso->phdr[i].p_filesz += adj;
+	      }
+	    else
+	      adj = 0;
+	  }
+
+	for (j = 1; j < dso->ehdr.e_shnum; ++j)
+	  if (dso->shdr[j].sh_addr >= dso->phdr[i].p_vaddr
+	      && dso->shdr[j].sh_addr + dso->shdr[j].sh_size
+		 <= dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz)
+	    {
+	      last = j;
 	      if (dso->shdr[j].sh_type == SHT_NOBITS)
 		{
 		  last_offset += dso->shdr[j].sh_addralign - 1;
@@ -880,6 +975,32 @@ prelink_exec (struct prelink_info *info)
 		  last_offset = dso->shdr[j].sh_offset + dso->shdr[j].sh_size;
 		}
 	    }
+
+	if (adj)
+	  {
+	    for (j = i + 1; j < dso->ehdr.e_phnum; ++j)
+	      if (dso->phdr[j].p_type == PT_LOAD
+		  && dso->phdr[j].p_vaddr >= dso->shdr[new_dynbss].sh_addr)
+		{
+		  dso->phdr[j].p_vaddr += adj;
+		  dso->phdr[j].p_paddr += adj;
+		  dso->phdr[j].p_offset += adj;
+		}
+
+	    j = last + 1;
+	    while (j < dso->ehdr.e_shnum
+		   && (dso->shdr[j].sh_flags
+		       & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR)))
+	      {
+		dso->shdr[j].sh_offset += adj;
+		dso->shdr[j++].sh_addr += adj;
+	      }
+
+	    if (adjust_dso_nonalloc (dso, last + 1,
+				     dso->shdr[sfirst].sh_offset,
+				     adj))
+	      goto error_out;
+	  }
       }
 
   /* Create .rel*.dyn if necessary.  */
@@ -891,7 +1012,7 @@ prelink_exec (struct prelink_info *info)
       Elf_Data *data;
 
       i = rinfo.first;
-      data = elf_getdata (elf_getscn (dso->elf, i), NULL);
+      data = elf_getdata (dso->scn[i], NULL);
       free (data->d_buf);
       memcpy (data, &rel_dyn_data, sizeof (rel_dyn_data));
       rel_dyn_data.d_buf = NULL;
@@ -937,7 +1058,7 @@ prelink_exec (struct prelink_info *info)
       char *ptr;
 
       i = new[new_dynstr];
-      data = elf_getdata (elf_getscn (dso->elf, i), NULL);
+      data = elf_getdata (dso->scn[i], NULL);
       assert (data->d_off == 0);
       data->d_buf = realloc (data->d_buf, dso->shdr[i].sh_size);
       if (data->d_buf == NULL)
@@ -955,6 +1076,62 @@ prelink_exec (struct prelink_info *info)
 	    ptr = stpcpy (ptr, info->sonames[j + 1]) + 1;
 	  }
       assert (ptr == (char *) data->d_buf + data->d_size);
+    }
+
+  /* Create or update .sdynbss if necessary.  */
+  if (new_sdynbss != -1)
+    {
+      Elf_Data *data;
+
+      if (old_sdynbss == -1)
+	{
+	  dso->shdr[new_sdynbss] = dso->shdr[new_sdynbss + 1];
+
+	  dso->shdr[new_sdynbss].sh_name = shstrtabadd (dso, ".sdynbss");
+	  if (dso->shdr[new_sdynbss].sh_name == 0)
+	    goto error_out;
+
+	  dso->shdr[new_sdynbss].sh_size =
+	    info->sdynbss_base + info->sdynbss_size
+	    - dso->shdr[new_sdynbss].sh_addr;
+
+	  dso->shdr[new_sdynbss + 1].sh_size
+	    -= dso->shdr[new_sdynbss].sh_size;
+	  dso->shdr[new_sdynbss + 1].sh_addr
+	    += dso->shdr[new_sdynbss].sh_size;
+	  dso->shdr[new_sdynbss + 1].sh_offset
+	    += dso->shdr[new_sdynbss].sh_size;
+	  dso->shdr[new_sdynbss].sh_type = SHT_PROGBITS;
+	}
+      else
+	{
+	  if (dso->shdr[new_sdynbss].sh_type != SHT_PROGBITS
+	      || dso->shdr[new_sdynbss].sh_addr > info->sdynbss_base
+	      || dso->shdr[new_sdynbss].sh_addr
+		 + dso->shdr[new_sdynbss].sh_size
+		 < info->sdynbss_base + info->sdynbss_size)
+	    {
+	      error (0, 0, "%s: Copy relocs don't point into .sdynbss section",
+		     dso->filename);
+	      goto error_out;
+	    }
+	}
+      data = elf_getdata (dso->scn[new_sdynbss], NULL);
+      free (data->d_buf);
+      data->d_buf = info->sdynbss;
+      info->sdynbss = NULL;
+      data->d_off = info->sdynbss_base - dso->shdr[new_sdynbss].sh_addr;
+      data->d_size = info->sdynbss_size;
+      data->d_type = ELF_T_BYTE;
+      if (old_sdynbss == -1)
+	{
+	  data = elf_getdata (dso->scn[new_sdynbss + 1], NULL);
+	  assert (dso->shdr[new_sdynbss + 1].sh_type != SHT_NOBITS
+		  || data->d_buf == NULL);
+	  assert (data->d_size == dso->shdr[new_sdynbss].sh_size
+				  + dso->shdr[new_sdynbss + 1].sh_size);
+	  data->d_size -= dso->shdr[new_sdynbss].sh_size;
+	}
     }
 
   /* Create or update .dynbss if necessary.  */
@@ -1033,8 +1210,8 @@ prelink_exec (struct prelink_info *info)
 		   ++j)
 		if (dso->shdr[j].sh_addr >= dso->phdr[i].p_vaddr
 					    + dso->phdr[i].p_memsz)
-		  adj = (adj + dso->shdr[new_dynbss].sh_addralign - 1)
-			& ~(dso->shdr[new_dynbss].sh_addralign - 1);
+		  adj = (adj + dso->shdr[j].sh_addralign - 1)
+			& ~(dso->shdr[j].sh_addralign - 1);
 
 	      for (j = i + 1; j < dso->ehdr.e_phnum; ++j)
 		if (dso->phdr[j].p_type == PT_LOAD
@@ -1090,7 +1267,7 @@ prelink_exec (struct prelink_info *info)
 	      goto error_out;
 	    }
 	}
-      data = elf_getdata (elf_getscn (dso->elf, new_dynbss), NULL);
+      data = elf_getdata (dso->scn[new_dynbss], NULL);
       free (data->d_buf);
       data->d_buf = info->dynbss;
       info->dynbss = NULL;
@@ -1099,7 +1276,7 @@ prelink_exec (struct prelink_info *info)
       data->d_type = ELF_T_BYTE;
       if (old_dynbss == -1)
 	{
-	  data = elf_getdata (elf_getscn (dso->elf, new_dynbss + 1), NULL);
+	  data = elf_getdata (dso->scn[new_dynbss + 1], NULL);
 	  assert (dso->shdr[new_dynbss + 1].sh_type != SHT_NOBITS
 		  || data->d_buf == NULL);
 	  assert (data->d_size == dso->shdr[new_dynbss].sh_size
@@ -1122,7 +1299,7 @@ prelink_exec (struct prelink_info *info)
 
       dso->shdr[i].sh_link
 	= new_dynstr ? new[new_dynstr] : move->old_to_new[dynstrndx];
-      data = elf_getdata (elf_getscn (dso->elf, i), NULL);
+      data = elf_getdata (dso->scn[i], NULL);
       data->d_type = ELF_T_WORD;
       data->d_size = (ndeps - 1) * sizeof (Elf32_Lib);
       free (data->d_buf);
@@ -1143,7 +1320,7 @@ prelink_exec (struct prelink_info *info)
       Elf_Data *data;
 
       i = new[new_conflict];
-      data = elf_getdata (elf_getscn (dso->elf, i), NULL);
+      data = elf_getdata (dso->scn[i], NULL);
       data->d_type = ELF_T_RELA;
       data->d_size = info->conflict_rela_size
 		     * gelf_fsize (dso->elf, ELF_T_RELA, 1, EV_CURRENT);
@@ -1200,7 +1377,7 @@ prelink_exec (struct prelink_info *info)
 			       - dso->shdr[undo].sh_offset))
 	return 1;
       dso->shdr[undo].sh_offset = newoffset;
-      scn = elf_getscn (dso->elf, undo);
+      scn = dso->scn[undo];
       data = elf_getdata (scn, NULL);
       assert (data != NULL && elf_getdata (scn, data) == NULL);
       free (data->d_buf);

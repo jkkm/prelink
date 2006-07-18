@@ -57,6 +57,7 @@ typedef struct
   Elf *elf, *elfro;
   GElf_Ehdr ehdr;
   GElf_Phdr *phdr;
+  Elf_Scn **scn;
   GElf_Addr base, end, align;
   GElf_Addr info[DT_NUM];
   GElf_Addr info_DT_GNU_PRELINKED;
@@ -93,6 +94,7 @@ struct PLArch
   int machine;
   int alternate_machine[3];
   int max_reloc_size;
+  const char *dynamic_linker;
   int R_COPY;
   int R_JMP_SLOT;
   int R_RELATIVE;
@@ -195,7 +197,8 @@ struct prelink_cache_entry
   uint32_t filename;
   uint32_t depends;
   uint32_t checksum;
-#define PCF_EXEC 1
+#define PCF_ELF64	0x10000
+#define PCF_MACHINE	0x0ffff
   uint32_t flags;
   uint64_t base;
   uint64_t end;
@@ -204,7 +207,7 @@ struct prelink_cache_entry
 struct prelink_cache
 {
 #define PRELINK_CACHE_NAME "prelink-ELF"
-#define PRELINK_CACHE_VER "0.1.0"
+#define PRELINK_CACHE_VER "0.1.1"
 #define PRELINK_CACHE_MAGIC PRELINK_CACHE_NAME PRELINK_CACHE_VER
   const char magic [sizeof (PRELINK_CACHE_MAGIC) - 1];
   uint32_t nlibs;
@@ -236,7 +239,7 @@ struct prelink_entry
 #define ET_BAD		(ET_NUM)
 #define ET_CACHE_EXEC	(ET_NUM + 1)
 #define ET_CACHE_DYN	(ET_NUM + 2)
-  int type, done, ndepends, refs;
+  int type, done, ndepends, refs, flags;
   union
     {
       int explicit;

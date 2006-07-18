@@ -466,7 +466,7 @@ static int
 start_mdebug (DSO *dso, int n, struct mdebug *mdebug)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
 
   data = elf_getdata (scn, NULL);
   mdebug->buf = data->d_buf;

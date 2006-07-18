@@ -418,6 +418,7 @@ PL_ARCH = {
   .R_JMP_SLOT = R_390_JMP_SLOT,
   .R_COPY = R_390_COPY,
   .R_RELATIVE = R_390_RELATIVE,
+  .dynamic_linker = "/lib/ld64.so.1",
   .adjust_dyn = s390x_adjust_dyn,
   .adjust_rel = s390x_adjust_rel,
   .adjust_rela = s390x_adjust_rela,

@@ -322,6 +322,7 @@ PL_ARCH = {
   .R_JMP_SLOT = R_ALPHA_JMP_SLOT,
   .R_COPY = -1,
   .R_RELATIVE = R_ALPHA_RELATIVE,
+  .dynamic_linker = "/lib/ld-linux.so.2",
   .adjust_dyn = alpha_adjust_dyn,
   .adjust_rel = alpha_adjust_rel,
   .adjust_rela = alpha_adjust_rela,

@@ -41,7 +41,7 @@ read_dynamic (DSO *dso)
     if (dso->shdr[i].sh_type == SHT_DYNAMIC)
       {
 	Elf_Data *data = NULL;
-	Elf_Scn *scn = elf_getscn (dso->elf, i);
+	Elf_Scn *scn = dso->scn[i];
 	GElf_Dyn dyn;
 
 	dso->dynamic = i;
@@ -109,7 +109,7 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
 
   assert (dso->shdr[dso->dynamic].sh_type == SHT_DYNAMIC);
 
-  scn = elf_getscn (dso->elf, dso->dynamic);
+  scn = dso->scn[dso->dynamic];
 
   data = elf_getdata (scn, NULL);
   assert (elf_getdata (scn, data) == NULL);
@@ -282,10 +282,24 @@ fdopen_dso (int fd, const char *name)
 {
   Elf *elf = NULL;
   GElf_Ehdr ehdr;
-  int i;
+  int i, j, k, last, *sections;
   DSO *dso = NULL;
   struct PLArch *plarch;
   extern struct PLArch __start_pl_arch[], __stop_pl_arch[];
+
+  int section_cmp (const void *A, const void *B)
+    {
+      int *a = (int *) A;
+      int *b = (int *) B;
+
+      if (dso->shdr[*a].sh_offset < dso->shdr[*b].sh_offset)
+	return -1;
+      if (dso->shdr[*a].sh_offset > dso->shdr[*b].sh_offset)
+	return 1;
+      if (*a < *b)
+	return -1;
+      return *a > *b;
+    }
 
   elf = elf_begin (fd, ELF_C_READ, NULL);
   if (elf == NULL)
@@ -317,7 +331,8 @@ fdopen_dso (int fd, const char *name)
      headers.  */
   dso = (DSO *)
 	malloc (sizeof(DSO) + (ehdr.e_shnum + 20) * sizeof(GElf_Shdr)
-		+ (ehdr.e_phnum + 1) * sizeof(GElf_Phdr));
+		+ (ehdr.e_phnum + 1) * sizeof(GElf_Phdr)
+	        + (ehdr.e_shnum + 20) * sizeof(Elf_Scn *));
   if (!dso)
     {
       error (0, ENOMEM, "Could not open DSO");
@@ -330,11 +345,42 @@ fdopen_dso (int fd, const char *name)
   dso->elf = elf;
   dso->ehdr = ehdr;
   dso->phdr = (GElf_Phdr *) &dso->shdr[ehdr.e_shnum + 20];
-  for (i = 0; i < ehdr.e_phnum; i++)
+  dso->scn = (Elf_Scn **) &dso->phdr[ehdr.e_phnum + 1];
+  for (i = 0; i < ehdr.e_phnum; ++i)
     gelf_getphdr (elf, i, dso->phdr + i);
   dso->fd = fd;
-  for (i = 0; i < ehdr.e_shnum; i++)
-    gelfx_getshdr (elf, elf_getscn (elf, i), dso->shdr + i);
+
+  for (i = 0; i < ehdr.e_shnum; ++i)
+    {
+      dso->scn[i] = elf_getscn (elf, i);
+      gelfx_getshdr (elf, dso->scn[i], dso->shdr + i);
+    }
+
+  sections = (int *) alloca (dso->ehdr.e_shnum * sizeof (int));
+  sections[0] = 0;
+  for (i = 1, j = 1, k = dso->ehdr.e_shnum, last = -1;
+       i < dso->ehdr.e_shnum; ++i)
+    if (RELOCATE_SCN (dso->shdr[i].sh_flags))
+      {
+	last = i;
+	sections[j++] = i;
+      }
+    else
+      sections[--k] = i;
+  assert (j == k);
+
+  qsort (sections + k, dso->ehdr.e_shnum - k, sizeof (*sections), section_cmp);
+  for (i = 1; i < ehdr.e_shnum; ++i)
+    {
+      dso->scn[i] = elf_getscn (elf, sections[i]);
+      gelfx_getshdr (elf, dso->scn[i], dso->shdr + i);
+      dso->shdr[i].sh_link = sections[dso->shdr[i].sh_link];
+      if (dso->shdr[i].sh_type == SHT_REL
+	  || dso->shdr[i].sh_type == SHT_RELA
+	  || (dso->shdr[i].sh_flags & SHF_INFO_LINK))
+	dso->shdr[i].sh_info = sections[dso->shdr[i].sh_info];
+    }
+  dso->ehdr.e_shstrndx = sections[dso->ehdr.e_shstrndx];
 
   for (plarch = __start_pl_arch; plarch < __stop_pl_arch; plarch++)
     if (plarch->class == ehdr.e_ident[EI_CLASS]
@@ -410,7 +456,7 @@ static int
 adjust_symtab_section_indices (DSO *dso, int n, int old_shnum, int *old_to_new)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Sym sym;
   int changed = 0, ndx, maxndx;
 
@@ -603,7 +649,7 @@ reopen_dso (DSO *dso, struct section_move *move)
 	  gelfx_update_shdr (elf, scn, &dso->shdr[j]);
 	  if (dso->shdr[j].sh_type == SHT_NOBITS)
 	    {
-	       data1 = elf_getdata (elf_getscn (dso->elf, j), NULL);
+	       data1 = elf_getdata (dso->scn[j], NULL);
 	       data2 = elf_newdata (scn);
 	       memcpy (data2, data1, sizeof (*data1));
 	    }
@@ -611,7 +657,7 @@ reopen_dso (DSO *dso, struct section_move *move)
 	    {
 	      data.d_type = ELF_T_NUM;
 	      data1 = NULL;
-	      while ((data1 = elf_getdata (elf_getscn (dso->elf, j), data1))
+	      while ((data1 = elf_getdata (dso->scn[j], data1))
 		     != NULL)
 		{
 		  if (data.d_type == ELF_T_NUM)
@@ -646,7 +692,7 @@ reopen_dso (DSO *dso, struct section_move *move)
 		  goto error_out;
 		}
 	      data1 = NULL;
-	      while ((data1 = elf_getdata (elf_getscn (dso->elf, j), data1))
+	      while ((data1 = elf_getdata (dso->scn[j], data1))
 		     != NULL)
 		memcpy (data.d_buf + data1->d_off - data.d_off, data1->d_buf,
 			data1->d_size);
@@ -681,7 +727,8 @@ reopen_dso (DSO *dso, struct section_move *move)
 
   for (i = 1; i < move->new_shnum; i++)
     {
-      gelfx_getshdr (dso->elf, elf_getscn (dso->elf, i), dso->shdr + i);
+      dso->scn[i] = elf_getscn (dso->elf, i);
+      gelfx_getshdr (dso->elf, dso->scn[i], dso->shdr + i);
       if (adddel && move->new_to_old[i] != -1)
 	{
 	  if (dso->shdr[i].sh_link)
@@ -748,7 +795,7 @@ static int
 adjust_symtab (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Sym sym;
   int ndx, maxndx;
 
@@ -830,7 +877,7 @@ static int
 adjust_dynamic (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Dyn dyn;
   int ndx, maxndx;
 
@@ -904,7 +951,7 @@ static int
 adjust_rel (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Rel rel;
   int sec, ndx, maxndx;
 
@@ -932,7 +979,7 @@ static int
 adjust_rela (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Rela rela;
   int sec, ndx, maxndx;
 
@@ -1100,7 +1147,7 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 	{
 	  if (dso->shdr[i].sh_addr >= start)
 	    {
-	      Elf_Scn *scn = elf_getscn (dso->elf, i);
+	      Elf_Scn *scn = dso->scn[i];
 
 	      dso->shdr[i].sh_addr += adjust;
 	      if (start)
@@ -1154,7 +1201,7 @@ strtabfind (DSO *dso, int strndx, const char *name)
   if (dso->shdr[strndx].sh_type != SHT_STRTAB)
     return 0;
 
-  scn = elf_getscn (dso->elf, strndx);
+  scn = dso->scn[strndx];
   data = elf_getdata (scn, NULL);
   assert (elf_getdata (scn, data) == NULL);
   assert (data->d_off == 0);
@@ -1180,7 +1227,7 @@ shstrtabadd (DSO *dso, const char *name)
   size_t len = strlen (name), align;
   int ret;
 
-  scn = elf_getscn (dso->elf, dso->ehdr.e_shstrndx);
+  scn = dso->scn[dso->ehdr.e_shstrndx];
   data = elf_getdata (scn, NULL);
   assert (elf_getdata (scn, data) == NULL);
   assert (data->d_off == 0);
@@ -1239,7 +1286,7 @@ close_dso_1 (DSO *dso)
 
       for (i = 1; i < dso->ehdr.e_shnum; ++i)
 	{
-	  Elf_Scn *scn = elf_getscn (dso->elf, i);
+	  Elf_Scn *scn = dso->scn[i];
 	  Elf_Data *data = NULL;
 
 	  while ((data = elf_getdata (scn, data)) != NULL)
@@ -1313,7 +1360,7 @@ update_dso (DSO *dso)
       for (i = 0; i < dso->ehdr.e_phnum; ++i)
 	gelf_update_phdr (dso->elf, i, dso->phdr + i);
       for (i = 0; i < dso->ehdr.e_shnum; ++i)
-	gelfx_update_shdr (dso->elf, elf_getscn (dso->elf, i), dso->shdr + i);
+	gelfx_update_shdr (dso->elf, dso->scn[i], dso->shdr + i);
       if (elf_update (dso->elf, ELF_C_WRITE) == -1)
 	{
 	  error (0, 0, "Could not write %s: %s", dso->filename,

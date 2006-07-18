@@ -416,6 +416,7 @@ PL_ARCH = {
   .R_JMP_SLOT = R_SPARC_JMP_SLOT,
   .R_COPY = R_SPARC_COPY,
   .R_RELATIVE = R_SPARC_RELATIVE,
+  .dynamic_linker = "/lib/ld-linux.so.2",
   .adjust_dyn = sparc_adjust_dyn,
   .adjust_rel = sparc_adjust_rel,
   .adjust_rela = sparc_adjust_rela,

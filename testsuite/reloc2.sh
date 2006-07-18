@@ -1,7 +1,7 @@
 #!/bin/sh
 SHFLAGS=
 case "`uname -m`" in
-  ia64) SHFLAGS=-fpic;; # Does not support non-pic shared libs
+  ia64|ppc) SHFLAGS=-fpic;; # Does not support non-pic shared libs
 esac
 rm -f reloc2 reloc2lib*.so reloc2.log
 $CC -shared $SHFLAGS -O2 -o reloc2lib1.so $srcdir/reloc2lib1.c

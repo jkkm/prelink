@@ -50,19 +50,23 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   Elf_Data *data;
   Elf32_Lib *liblist = NULL;
   int nliblist = 0;
+  const char *dl;
 
   if (check_dso (dso))
-    goto error_out;
+      goto error_out;
 
   ent->pltgot = dso->info[DT_PLTGOT];
   ent->soname = strdup (dso->soname);
+  ent->flags = (dso->arch->class == ELFCLASS64 ? PCF_ELF64 : 0)
+	       | (dso->arch->machine & PCF_MACHINE);
   if (ent->soname == NULL)
     {
       error (0, ENOMEM, "%s: Could not record SONAME", ent->filename);
       goto error_out;
     }
 
-  if (strcmp (dso->filename, dynamic_linker) == 0
+  dl = dynamic_linker ?: dso->arch->dynamic_linker;
+  if (strcmp (dso->filename, dl) == 0
       || is_ldso_soname (dso->soname))
     {
       if (dynamic_info_is_set (dso, DT_GNU_PRELINKED_BIT)
@@ -81,7 +85,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	{
 	  nliblist = dso->shdr[i].sh_size / sizeof (Elf32_Lib);
 	  liblist = (Elf32_Lib *) alloca (dso->shdr[i].sh_size);
-	  scn = elf_getscn (dso->elf, i);
+	  scn = dso->scn[i];
 	  data = elf_getdata (scn, NULL);
 	  if (data == NULL || elf_getdata (scn, data)
 	      || data->d_buf == NULL || data->d_off
@@ -97,7 +101,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   dso = NULL;
 
   i = 0;
-  argv[i++] = dynamic_linker;
+  argv[i++] = dl;
   if (ld_library_path)
     {
       argv[i++] = "--library-path";
@@ -109,7 +113,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   envp[1] = "LD_TRACE_PRELINKING=1";
   envp[2] = "LD_WARN=";
   envp[3] = NULL;
-  f = execve_open (dynamic_linker, (char * const *)argv, (char * const *)envp);
+  f = execve_open (dl, (char * const *)argv, (char * const *)envp);
   if (f == NULL)
     return 1;
 
@@ -330,6 +334,7 @@ gather_exec (DSO *dso, const struct stat64 *st)
 {
   int i, j;
   Elf_Data *data;
+  const char *dl;
   struct prelink_entry *ent;
 
   for (i = 0; i < dso->ehdr.e_phnum; ++i)
@@ -349,7 +354,7 @@ gather_exec (DSO *dso, const struct stat64 *st)
       goto error_out;
     }
 
-  data = elf_getdata (elf_getscn (dso->elf, j), NULL);
+  data = elf_getdata (dso->scn[j], NULL);
   if (data == NULL)
     {
       error (0, 0, "%s: Could not read .interp section", dso->filename);
@@ -363,10 +368,11 @@ gather_exec (DSO *dso, const struct stat64 *st)
       goto error_out;
     }
 
-  if (strcmp (dynamic_linker, data->d_buf) != 0)
+  dl = dynamic_linker ?: dso->arch->dynamic_linker;
+  if (strcmp (dl, data->d_buf) != 0)
     {
       error (0, 0, "%s: Using %s, not %s as dynamic linker", dso->filename,
-	     (char *) data->d_buf, dynamic_linker);
+	     (char *) data->d_buf, dl);
       goto error_out;
     }
 

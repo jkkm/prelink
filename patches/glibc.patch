@@ -1411,6 +1411,28 @@
 +#endif
 +
  #endif /* RESOLVE */
+--- libc/sysdeps/powerpc/dl-machine.h.jj	Mon Aug 27 12:04:30 2001
++++ libc/sysdeps/powerpc/dl-machine.h	Fri Oct  5 22:21:50 2001
+@@ -347,6 +347,7 @@ elf_machine_rela (struct link_map *map, 
+   Elf32_Word loadbase, finaladdr;
+   const int rinfo = ELF32_R_TYPE (reloc->r_info);
+ 
++#ifndef RESOLVE_CONFLICT_FIND_MAP
+   if (__builtin_expect (rinfo == R_PPC_NONE, 0))
+     return;
+ 
+@@ -375,6 +376,11 @@ elf_machine_rela (struct link_map *map, 
+ 	finaladdr = (loadbase + (Elf32_Word) (char *) sym->st_value
+ 		     + reloc->r_addend);
+     }
++#else
++  finaladdr = reloc->r_addend;
++  if (rinfo == R_PPC_JMP_SLOT)
++    RESOLVE_CONFLICT_FIND_MAP (map, reloc_addr);
++#endif
+ 
+   /* A small amount of code is duplicated here for speed.  In libc,
+      more than 90% of the relocs are R_PPC_RELATIVE; in the X11 shared
 --- libc/sysdeps/sparc/sparc32/dl-machine.h.jj	Thu Sep 27 23:26:38 2001
 +++ libc/sysdeps/sparc/sparc32/dl-machine.h	Mon Oct  1 13:19:40 2001
 @@ -23,6 +23,10 @@

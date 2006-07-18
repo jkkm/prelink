@@ -40,8 +40,7 @@ write_##le##nn (DSO *dso, GElf_Addr addr, uint##nn##_t val)	\
     return -1;							\
 								\
   buf_write_##le##nn (data, val);				\
-  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET,		\
-	       ELF_F_DIRTY);					\
+  elf_flagscn (dso->scn[sec], ELF_C_SET, ELF_F_DIRTY);		\
   return 0;							\
 }
 
@@ -60,7 +59,7 @@ get_data (DSO *dso, GElf_Addr addr, int *secp)
     *secp = sec;
 
   addr -= dso->shdr[sec].sh_addr;
-  while ((data = elf_getdata (elf_getscn (dso->elf, sec), data)) != NULL)
+  while ((data = elf_getdata (dso->scn[sec], data)) != NULL)
     if (data->d_off <= addr && data->d_off + data->d_size > addr)
       return (unsigned char *) data->d_buf + (addr - data->d_off);
 
@@ -191,7 +190,7 @@ strptr (DSO *dso, int sec, off_t offset)
   Elf_Scn *scn;
   Elf_Data *data;
 
-  scn = elf_getscn (dso->elf, sec);
+  scn = dso->scn[sec];
   if (offset >= 0 && offset < dso->shdr[sec].sh_size)
     {
       data = NULL;

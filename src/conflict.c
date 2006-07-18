@@ -71,7 +71,7 @@ static int
 prelink_conflict_rel (DSO *dso, int n, struct prelink_info *info)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Rel rel;
   int sec, ndx, maxndx;
 
@@ -99,7 +99,7 @@ static int
 prelink_conflict_rela (DSO *dso, int n, struct prelink_info *info)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Rela rela;
   int sec, ndx, maxndx;
 
@@ -135,7 +135,7 @@ prelink_add_copy_rel (DSO *dso, int n, GElf_Rel *rel, struct copy_relocs *cr)
 {
   Elf_Data *data = NULL;
   int symsec = dso->shdr[n].sh_link;
-  Elf_Scn *scn = elf_getscn (dso->elf, symsec);
+  Elf_Scn *scn = dso->scn[symsec];
   GElf_Sym sym;
   size_t entsize = dso->shdr[symsec].sh_entsize;
   off_t off = GELF_R_SYM (rel->r_info) * entsize;
@@ -180,7 +180,7 @@ static int
 prelink_find_copy_rel (DSO *dso, int n, struct copy_relocs *cr)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Rel rel;
   int sec, ndx, maxndx;
 
@@ -206,7 +206,7 @@ static int
 prelink_find_copy_rela (DSO *dso, int n, struct copy_relocs *cr)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   union {
     GElf_Rel rel;
     GElf_Rela rela;
@@ -284,7 +284,7 @@ get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
   memset (buf, 0, size);
   if (dso->shdr[sec].sh_type != SHT_NOBITS)
     {
-      scn = elf_getscn (dso->elf, sec);
+      scn = dso->scn[sec];
       data = NULL;
       off = addr - dso->shdr[sec].sh_addr;
       while ((data = elf_rawdata (scn, data)) != NULL)
@@ -388,7 +388,7 @@ get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
 	    default:
 	      continue;
 	    }
-	  scn = elf_getscn (dso->elf, i);
+	  scn = dso->scn[i];
 	  data = NULL;
 	  while ((data = elf_getdata (scn, data)) != NULL)
 	    {
@@ -585,6 +585,21 @@ prelink_build_conflicts (struct prelink_info *info)
 	  if (info->sdynbss == NULL)
 	    {
 	      error (0, ENOMEM, "%s: Cannot build .sdynbss", dso->filename);
+	      goto error_out;
+	    }
+
+	  for (i = 0; i < dso->ehdr.e_phnum; ++i)
+	    if (dso->phdr[i].p_type == PT_LOAD
+		&& dso->shdr[bss1].sh_addr >= dso->phdr[i].p_vaddr
+		&& dso->shdr[bss1].sh_addr
+		   < dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz)
+	      break;
+	  if (i == dso->ehdr.e_phnum
+	      || dso->shdr[bss2].sh_addr + dso->shdr[bss2].sh_size
+		 > dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz)
+	    {
+	      error (0, 0, "%s: Copy relocs against more than one segment",
+		     dso->filename);
 	      goto error_out;
 	    }
 	}

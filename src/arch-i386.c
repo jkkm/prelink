@@ -402,7 +402,7 @@ i386_need_rel_to_rela (DSO *dso, int first, int last)
   while (first <= last)
     {
       data = NULL;
-      scn = elf_getscn (dso->elf, first++);
+      scn = dso->scn[first++];
       while ((data = elf_getdata (scn, data)) != NULL)
 	{
 	  rel = (Elf32_Rel *) data->d_buf;
@@ -481,6 +481,7 @@ PL_ARCH = {
   .R_JMP_SLOT = R_386_JMP_SLOT,
   .R_COPY = R_386_COPY,
   .R_RELATIVE = R_386_RELATIVE,
+  .dynamic_linker = "/lib/ld-linux.so.2",
   .adjust_dyn = i386_adjust_dyn,
   .adjust_rel = i386_adjust_rel,
   .adjust_rela = i386_adjust_rela,

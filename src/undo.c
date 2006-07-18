@@ -53,7 +53,7 @@ prelink_undo (DSO *dso)
   shnum = dso->shdr[undo].sh_size / dso->shdr[undo].sh_entsize + 1;
   shdr = alloca (sizeof (GElf_Shdr) * shnum);
   memset (shdr, 0, sizeof (GElf_Shdr));
-  scn = elf_getscn (dso->elf, undo);
+  scn = dso->scn[undo];
   d = elf_getdata (scn, NULL);
   assert (d != NULL && elf_getdata (scn, d) == NULL);
   src = *d;

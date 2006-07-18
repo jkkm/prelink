@@ -239,7 +239,7 @@ build_rel_dyn (DSO *dso, Elf_Data *data, struct reloc_info *rinfo)
   for (i = first, a = array; i <= last; i++)
     {
       d = NULL;
-      scn = elf_getscn (dso->elf, i);
+      scn = dso->scn[i];
       offset = dso->shdr[i].sh_addr - dso->shdr[first].sh_addr;
       while ((d = elf_getdata (scn, d)) != NULL)
 	{
@@ -309,7 +309,7 @@ convert_rel_to_rela (DSO *dso, int i)
   GElf_Rela rela;
   int ndx, maxndx;
 
-  scn = elf_getscn (dso->elf, i);
+  scn = dso->scn[i];
   d = elf_getdata (scn, NULL);
   assert (elf_getdata (scn, d) == NULL);
   assert (d->d_off == 0);
@@ -370,7 +370,7 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
   for (dynsec = 0; dynsec < dso->ehdr.e_shnum; dynsec++)
     if (dso->shdr[dynsec].sh_type == SHT_DYNAMIC)
       {
-	scn = elf_getscn (dso->elf, dynsec);
+	scn = dso->scn[dynsec];
 	dynamic = alloca (dso->shdr[dynsec].sh_size
 			  / dso->shdr[dynsec].sh_entsize * sizeof (GElf_Dyn));
 	loc = 0;

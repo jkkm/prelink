@@ -73,7 +73,7 @@ static int
 prelink_rel (DSO *dso, int n, struct prelink_info *info)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Rel rel;
   int sec;
 
@@ -110,7 +110,7 @@ static int
 prelink_rela (DSO *dso, int n, struct prelink_info *info)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   GElf_Rela rela;
   int sec;
 
@@ -191,12 +191,12 @@ prelink_prepare (DSO *dso)
 	case ELFCLASS32:
 	  shdr32 = (Elf32_Shdr *) dso->undo.d_buf;
 	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	    shdr32[i - 1] = *elf32_getshdr (elf_getscn (dso->elf, i));
+	    shdr32[i - 1] = *elf32_getshdr (dso->scn[i]);
 	  break;
 	case ELFCLASS64:
 	  shdr64 = (Elf64_Shdr *) dso->undo.d_buf;
 	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	    shdr64[i - 1] = *elf64_getshdr (elf_getscn (dso->elf, i));
+	    shdr64[i - 1] = *elf64_getshdr (dso->scn[i]);
 	  break;
 	default:
 	  return 1;
@@ -206,11 +206,14 @@ prelink_prepare (DSO *dso)
   if (dso->ehdr.e_type != ET_DYN)
     return 0;
 
-  if (is_ldso_soname (dso->soname))
-    return 0;
-
   if (find_reloc_sections (dso, &rinfo))
     return 1;
+
+  if (is_ldso_soname (dso->soname))
+    {
+      liblist = -1;
+      libstr = -1;
+    }
 
   if (rinfo.reldyn && liblist && libstr && undo
       && ! rinfo.rel_to_rela && ! rinfo.rel_to_rela_plt)
@@ -255,13 +258,21 @@ prelink_prepare (DSO *dso)
 	  libstr = liblist + 1;
 	  newlibstr = 1;
 	}
-      else
+      else if (libstr != -1)
 	libstr = move->old_to_new[libstr];
 
       if (! undo)
 	{
-	  add_section (move, libstr + 1);
-	  undo = libstr + 1;
+	  if (libstr == -1)
+	    {
+	      undo = move->old_to_new [dso->ehdr.e_shstrndx];
+	      add_section (move, undo);
+	    }
+	  else
+	    {
+	      add_section (move, libstr + 1);
+	      undo = libstr + 1;
+	    }
 	  newundo = 1;
 	}
       else
@@ -278,7 +289,7 @@ prelink_prepare (DSO *dso)
       if (rinfo.first && ! rinfo.reldyn)
 	{
 	  dso->shdr[rinfo.first] = shdr;
-	  d = elf_getdata (elf_getscn (dso->elf, rinfo.first), NULL);
+	  d = elf_getdata (dso->scn[rinfo.first], NULL);
 	  free (d->d_buf);
 	  memcpy (d, &data, sizeof (data));
 	  if (rinfo.plt)
@@ -305,6 +316,7 @@ prelink_prepare (DSO *dso)
 	  dso->shdr[liblist].sh_addralign = sizeof (GElf_Word);
 	  dso->shdr[liblist].sh_entsize = sizeof (Elf32_Lib);
 	}
+
       if (newlibstr)
         {
 	  memset (&dso->shdr[libstr], 0, sizeof (GElf_Shdr));
@@ -317,6 +329,7 @@ prelink_prepare (DSO *dso)
 	    dso->shdr[libstr].sh_offset += dso->shdr[libstr - 1].sh_size;
 	  dso->shdr[libstr].sh_addralign = 1;
         }
+
       if (newundo)
 	{
 	  Elf_Scn *scn;
@@ -342,7 +355,7 @@ prelink_prepare (DSO *dso)
 				   - dso->shdr[undo].sh_offset))
 	    return 1;
 	  dso->shdr[undo].sh_offset = newoffset;
-	  scn = elf_getscn (dso->elf, undo);
+	  scn = dso->scn[undo];
 	  data = elf_getdata (scn, NULL);
 	  assert (data != NULL && elf_getdata (scn, data) == NULL);
 	  free (data->d_buf);
@@ -460,7 +473,7 @@ prelink_prepare (DSO *dso)
 static int
 prelink_dso (struct prelink_info *info)
 {
-  int liblist = 0, libstr = 0;
+  int liblist = 0, libstr = 0, nobits_plt = 0;
   int i, ndeps = info->ent->ndepends + 1;
   DSO *dso = info->dso;
   Elf32_Lib *list = NULL;
@@ -469,7 +482,7 @@ prelink_dso (struct prelink_info *info)
   GElf_Addr oldsize, oldoffset;
   size_t strsize;
 
-  if (ndeps <= 1 || dso->ehdr.e_type != ET_DYN)
+  if (dso->ehdr.e_type != ET_DYN)
     return 0;
 
   for (i = 1; i < dso->ehdr.e_shnum; ++i)
@@ -480,7 +493,92 @@ prelink_dso (struct prelink_info *info)
 	liblist = i;
       else if (! strcmp (name, ".gnu.libstr"))
 	libstr = i;
+      else if (! strcmp (name, ".plt") && dso->shdr[i].sh_type == SHT_NOBITS)
+	nobits_plt = i;
     }
+
+  if (nobits_plt)
+    {
+      int j, first;
+      GElf_Addr adj, last_offset;
+
+      for (i = 0; i < dso->ehdr.e_phnum; ++i)
+	if (dso->phdr[i].p_type == PT_LOAD
+	    && dso->phdr[i].p_vaddr <= dso->shdr[nobits_plt].sh_addr
+	    && dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz
+	       >= dso->shdr[nobits_plt].sh_addr
+		  + dso->shdr[nobits_plt].sh_size)
+	  break;
+
+      if (i == dso->ehdr.e_phnum)
+	{
+	  error (0, 0, "%s: .plt section not contained within a segment",
+		 dso->filename);
+	  return 1;
+	}
+
+      for (j = i + 1; j < dso->ehdr.e_phnum; ++j)
+	if (dso->phdr[j].p_type == PT_LOAD)
+	  {
+	    error (0, 0, "%s: library's NOBITS .plt section not in loadable last segment",
+		   dso->filename);
+	    return 1;
+	  }
+
+      for (j = nobits_plt - 1; j > 0; --j)
+	if (dso->shdr[j].sh_addr < dso->phdr[i].p_vaddr
+	    || dso->shdr[j].sh_type != SHT_NOBITS)
+	  break;
+      first = j + 1;
+
+      for (j = first; j <= nobits_plt; ++j)
+	{
+	  Elf_Data *data = elf_getdata (dso->scn[j], NULL);
+
+	  assert (data->d_buf == NULL);
+	  assert (data->d_size == dso->shdr[j].sh_size);
+	  data->d_buf = calloc (dso->shdr[j].sh_size, 1);
+	  if (data->d_buf == NULL)
+	    {
+	      error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
+		     dso->filename);
+	      return 1;
+	    }
+	  data->d_type = ELF_T_BYTE;
+	  dso->shdr[j].sh_type = SHT_PROGBITS;
+	  dso->shdr[j].sh_offset = dso->phdr[i].p_offset + dso->shdr[j].sh_addr
+				   - dso->phdr[i].p_vaddr;
+	}
+
+      adj = dso->shdr[nobits_plt].sh_offset + dso->shdr[nobits_plt].sh_size
+	    - dso->phdr[i].p_offset;
+      assert (adj <= dso->phdr[i].p_memsz);
+      if (adj > dso->phdr[i].p_filesz)
+	{
+	  adj -= dso->phdr[i].p_filesz;
+	  dso->phdr[i].p_filesz += adj;
+	  if (adjust_dso_nonalloc (dso, nobits_plt + 1,
+				   dso->shdr[first].sh_offset, adj))
+	    return 1;
+	}
+
+      last_offset = dso->shdr[nobits_plt].sh_offset
+		    + dso->shdr[nobits_plt].sh_size;
+      for (j = nobits_plt + 1; j < dso->ehdr.e_shnum; ++j)
+	if (!(dso->shdr[j].sh_flags & (SHF_ALLOC | SHF_WRITE | SHF_EXECINSTR)))
+	  break;
+	else
+	  {
+	    last_offset += dso->shdr[j].sh_addralign - 1;
+	    last_offset &= ~(dso->shdr[j].sh_addralign - 1);
+	    if (last_offset > dso->phdr[i].p_offset + dso->phdr[i].p_filesz)
+	      last_offset = dso->phdr[i].p_offset + dso->phdr[i].p_filesz;
+	    dso->shdr[j].sh_offset = last_offset;
+	  }
+    }
+
+  if (ndeps <= 1)
+    return 0;
 
   assert (liblist != 0);
   assert (libstr != 0);
@@ -503,7 +601,7 @@ prelink_dso (struct prelink_info *info)
       list[i].l_checksum = ent->checksum;
     }
 
-  scn = elf_getscn (dso->elf, libstr);
+  scn = dso->scn[libstr];
   data = elf_getdata (scn, NULL);
   if (data == NULL)
     data = elf_newdata (scn);
@@ -549,7 +647,7 @@ prelink_dso (struct prelink_info *info)
 	goto error_out;
     }
 
-  scn = elf_getscn (dso->elf, liblist);
+  scn = dso->scn[liblist];
   data = elf_getdata (scn, NULL);
   if (data == NULL)
     data = elf_newdata (scn);
@@ -614,7 +712,7 @@ prelink_set_checksum (DSO *dso)
 	continue;
       if (dso->shdr[i].sh_type != SHT_NOBITS && dso->shdr[i].sh_size)
 	{
-	  Elf_Scn *scn = elf_getscn (dso->elf, i);
+	  Elf_Scn *scn = dso->scn[i];
 	  Elf_Data *d = NULL;
 
 	  /* Cannot use elf_rawdata here, since the image is not written
@@ -747,7 +845,7 @@ prelink (DSO *dso, struct prelink_entry *ent)
       return 1;
     }
 
-  scn = elf_getscn (dso->elf, i);
+  scn = dso->scn[i];
   data = NULL;
   while ((data = elf_getdata (scn, data)) != NULL)
     {

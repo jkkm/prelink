@@ -335,6 +335,7 @@ PL_ARCH = {
   .R_JMP_SLOT = R_X86_64_JUMP_SLOT,
   .R_COPY = R_X86_64_COPY,
   .R_RELATIVE = R_X86_64_RELATIVE,
+  .dynamic_linker = "/lib64/ld-linux-x86-64.so.2",
   .adjust_dyn = x86_64_adjust_dyn,
   .adjust_rel = x86_64_adjust_rel,
   .adjust_rela = x86_64_adjust_rela,

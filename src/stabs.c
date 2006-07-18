@@ -89,7 +89,7 @@ int
 adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 {
   Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
+  Elf_Scn *scn = dso->scn[n];
   off_t off;
   uint32_t (*read_32) (char *p);
   void (*write_32) (char *p, uint32_t v);

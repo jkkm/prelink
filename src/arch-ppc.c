@@ -32,6 +32,24 @@ static int
 ppc_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		 GElf_Addr adjust)
 {
+  if (dyn->d_tag == DT_PLTGOT)
+    {
+      int i;
+
+      for (i = 1; i < dso->ehdr.e_shnum; ++i)
+	if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			      dso->shdr[i].sh_name), ".got"))
+	  {
+	    Elf32_Addr data;
+
+	    data = read_ube32 (dso, dso->shdr[i].sh_addr + 4);
+	    /* .got[1] points to _DYNAMIC, it needs to be adjusted.  */
+	    if (data == dso->shdr[n].sh_addr && data >= start)
+	      write_be32 (dso, dso->shdr[i].sh_addr + 4, data + adjust);
+	    break;
+	  }
+    }
+
   return 0;
 }
 
@@ -483,7 +501,7 @@ list_sort (struct prelink_entry *x)
   struct prelink_entry *e;
   struct prelink_entry **a;
 
-  if (x->next)
+  if (x->next == NULL)
     return;
   for (cnt = 0, e = x->next; e != NULL; e = e->next)
     ++cnt;
@@ -502,7 +520,7 @@ ppc_layout_libs_pre (struct layout_libs *l)
 {
   Elf32_Addr mmap_start = l->mmap_start - 0x40000;
   Elf32_Addr first_start = 0xe800000, last_start = 0x18000000;
-  struct prelink_entry *e, e0;
+  struct prelink_entry *e, e0, *next = NULL;
   struct ppc_layout_data *pld;
   int cnt;
 
@@ -529,18 +547,19 @@ ppc_layout_libs_pre (struct layout_libs *l)
   pld->cnt = cnt;
   pld->e[0].u.tmp = -1;
   pld->e[0].base = 0x40000 + 0x10000000 - mmap_start;
-  pld->e[0].end = pld->e[0].base + 0x10000;
+  pld->e[0].end = pld->e[0].base;
   pld->e[0].prev = &pld->e[0];
   pld->e[1].u.tmp = -1;
   pld->e[1].base = pld->e[0].end + mmap_start - 0xe800000;
-  pld->e[1].end = pld->e[1].base + 0x10000;
+  pld->e[1].end = pld->e[1].base;
   pld->e[1].prev = &pld->e[1];
   pld->e[2].u.tmp = -1;
   pld->e[2].base = pld->e[1].end + first_start - 0x40000;
-  pld->e[2].end = pld->e[1].base + 0x10000;
+  pld->e[2].end = pld->e[1].base;
   pld->e[2].prev = &pld->e[2];
-  for (cnt = 0, e = l->list; e != NULL; e = e->next, ++cnt)
+  for (cnt = 0, e = l->list; e != NULL; e = next, ++cnt)
     {
+      next = e->next;
       pld->ents[cnt].e = e;
       pld->ents[cnt].base = e->base;
       pld->ents[cnt].end = e->end;
@@ -564,16 +583,16 @@ ppc_layout_libs_pre (struct layout_libs *l)
 	    e->base = 0xe800000;
 	  if (e->end > mmap_start)
 	    e->end = mmap_start;
-	  e->base = pld->e[1].base + mmap_start - e->end;
-	  e->end = pld->e[1].base + mmap_start - pld->ents[cnt].base;
+	  e->base = pld->e[0].end + mmap_start - e->end;
+	  e->end = pld->e[0].end + mmap_start - pld->ents[cnt].base;
 	  list_append (&pld->e[0], e);
 	}
       else if (e->base < 0x1000000)
 	{
 	  if (e->end > 0x1000000)
 	    e->end = 0x1000000;
-	  e->base = pld->e[0].base + 0x1000000 - e->end;
-	  e->end = pld->e[0].base + 0x1000000 - pld->ents[cnt].base;
+	  e->base = 0x40000 + 0x1000000 - e->end;
+	  e->end = 0x40000 + 0x1000000 - pld->ents[cnt].base;
 	  list_append (&e0, e);
 	}
       else if (e->end >= last_start)
@@ -612,9 +631,9 @@ ppc_layout_libs_pre (struct layout_libs *l)
   pld->first_start = first_start;
   pld->last_start = last_start;
 
-  l->done = 0x41;
   l->mmap_start = 0x40000;
   l->mmap_fin = pld->e[2].end + 0x30000000 - last_start;
+  l->mmap_end = l->mmap_fin;
   l->fakecnt = 3;
   l->fake = pld->e;
 
@@ -634,24 +653,29 @@ ppc_layout_libs_post (struct layout_libs *l)
     {
       pld->ents[i].e->base = pld->ents[i].base;
       pld->ents[i].e->end = pld->ents[i].end;
+      pld->ents[i].e->done |= 0x40;
     }
+  pld->e[0].done |= 0x40;
+  pld->e[1].done |= 0x40;
+  pld->e[2].done |= 0x40;
 
   /* Now fix up the newly created items.  */
   for (e = l->list; e != NULL; e = e->next)
     if (e->done & 0x40)
+      e->done &= ~0x40;
+    else
       {
-	e->done &= ~0x40;
 	base = e->base;
 	end = e->end;
 	if (e->base < pld->e[0].base)
 	  {
-	    e->base = pld->e[0].base + 0x1000000 - end;
-	    e->end = pld->e[0].base + 0x1000000 - base;
+	    e->base = 0x40000 + 0x1000000 - end;
+	    e->end = 0x40000 + 0x1000000 - base;
 	  }
 	else if (e->base < pld->e[1].base)
 	  {
-	    e->base = pld->e[1].base + pld->mmap_start - end;
-	    e->end = pld->e[1].base + pld->mmap_start - base;
+	    e->base = pld->e[0].end + pld->mmap_start - end;
+	    e->end = pld->e[0].end + pld->mmap_start - base;
 	  }
 	else if (e->base < pld->e[2].base)
 	  {
@@ -666,6 +690,7 @@ ppc_layout_libs_post (struct layout_libs *l)
       }
 
   free (l->arch_data);
+  return 0;
 }
 
 PL_ARCH = {
@@ -675,6 +700,7 @@ PL_ARCH = {
   .R_JMP_SLOT = R_PPC_JMP_SLOT,
   .R_COPY = R_PPC_COPY,
   .R_RELATIVE = R_PPC_RELATIVE,
+  .dynamic_linker = "/lib/ld.so.1",
   .adjust_dyn = ppc_adjust_dyn,
   .adjust_rel = ppc_adjust_rel,
   .adjust_rela = ppc_adjust_rela,

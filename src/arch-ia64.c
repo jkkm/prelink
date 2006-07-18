@@ -348,6 +348,7 @@ PL_ARCH = {
   .R_JMP_SLOT = R_IA64_IPLTLSB,
   .R_COPY = -1,
   .R_RELATIVE = R_IA64_REL64LSB,
+  .dynamic_linker = "/lib/ld-linux-ia64.so.2",
   .adjust_dyn = ia64_adjust_dyn,
   .adjust_rel = ia64_adjust_rel,
   .adjust_rela = ia64_adjust_rela,

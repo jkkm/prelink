@@ -558,8 +558,8 @@ adjust_dwarf2_line (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 	}
     }
 
-  elf_flagscn (elf_getscn (dso->elf, debug_sections[DEBUG_LINE].sec),
-	       ELF_C_SET, ELF_F_DIRTY);
+  elf_flagscn (dso->scn[debug_sections[DEBUG_LINE].sec], ELF_C_SET,
+	       ELF_F_DIRTY);
   return 0;
 }
 
@@ -612,8 +612,8 @@ adjust_dwarf2_aranges (DSO *dso, GElf_Addr start, GElf_Addr adjust)
       assert (ptr == endcu);
     }
 
-  elf_flagscn (elf_getscn (dso->elf, debug_sections[DEBUG_LINE].sec),
-	       ELF_C_SET, ELF_F_DIRTY);
+  elf_flagscn (dso->scn[debug_sections[DEBUG_LINE].sec], ELF_C_SET,
+	       ELF_F_DIRTY);
   return 0;
 }
 
@@ -641,8 +641,8 @@ adjust_dwarf2_loc (DSO *dso, GElf_Addr start, GElf_Addr adjust)
       ptr += len;
     }
 
-  elf_flagscn (elf_getscn (dso->elf, debug_sections[DEBUG_LOC].sec),
-	       ELF_C_SET, ELF_F_DIRTY);
+  elf_flagscn (dso->scn[debug_sections[DEBUG_LOC].sec], ELF_C_SET,
+	       ELF_F_DIRTY);
   return 0;
 }
 
@@ -680,7 +680,7 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 		      return 1;
 		    }
 
-		  scn = elf_getscn (dso->elf, i); 
+		  scn = dso->scn[i]; 
 		  data = elf_getdata (scn, NULL);
 		  assert (data != NULL && data->d_buf != NULL);
 		  assert (elf_getdata (scn, data) == NULL);
@@ -847,6 +847,6 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
   /* .debug_pubnames requires no adjustement.  */
   /* .debug_macinfo requires no adjustement.  */
 
-  elf_flagscn (elf_getscn (dso->elf, n), ELF_C_SET, ELF_F_DIRTY);
+  elf_flagscn (dso->scn[n], ELF_C_SET, ELF_F_DIRTY);
   return 0;
 }

@@ -31,6 +31,7 @@ is_ldso_soname (const char *soname)
   if (! strcmp (soname, "ld-linux.so.2")
       || ! strcmp (soname, "ld.so.1")    
       || ! strcmp (soname, "ld-linux-ia64.so.2")
+      || ! strcmp (soname, "ld-linux-x86-64.so.2")
       || ! strcmp (soname, "ld64.so.1"))
     return 1;
   return 0;
@@ -159,7 +160,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
   if (r == NULL)
     {
       error (0, 0, "%s: %s did not print any lookup lines", info->ent->filename,
-	     dynamic_linker);
+	     dynamic_linker ?: dso->arch->dynamic_linker);
       goto error_out;
     }
 
@@ -429,6 +430,7 @@ prelink_get_relocations (struct prelink_info *info)
   const char *envp[4];
   int i, ret, status;
   char *p;
+  const char *dl = dynamic_linker ?: dso->arch->dynamic_linker;
 
   if (info->ent->type == ET_DYN)
     {
@@ -453,7 +455,7 @@ prelink_get_relocations (struct prelink_info *info)
   info->symbols = calloc (sizeof (struct prelink_symbol), info->symbol_count);
 
   i = 0;
-  argv[i++] = dynamic_linker;
+  argv[i++] = dl;
   if (ld_library_path)
     {
       argv[i++] = "--library-path";
@@ -469,7 +471,7 @@ prelink_get_relocations (struct prelink_info *info)
   envp[3] = NULL;
 
   ret = 2;
-  f = execve_open (dynamic_linker, (char * const *)argv, (char * const *)envp);
+  f = execve_open (dl, (char * const *)argv, (char * const *)envp);
   if (f == NULL)
     {
       error (0, errno, "%s: Could not trace symbol resolving",

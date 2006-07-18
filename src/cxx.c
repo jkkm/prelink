@@ -74,7 +74,7 @@ find_cxx_sym (struct prelink_info *info, GElf_Addr addr,
 	  fcs->ent = NULL;
 	  return -1;
 	}
-      scn = elf_getscn (dso->elf, fcs->symsec);
+      scn = dso->scn[fcs->symsec];
       fcs->symtab = elf_getdata (scn, NULL);
       assert (elf_getdata (scn, fcs->symtab) == NULL);
       fcs->strsec = addr_to_sec (dso, dso->info[DT_STRTAB]);
@@ -83,7 +83,7 @@ find_cxx_sym (struct prelink_info *info, GElf_Addr addr,
 	  fcs->ent = NULL;
 	  return -1;
 	}
-      scn = elf_getscn (dso->elf, fcs->strsec);
+      scn = dso->scn[fcs->strsec];
       fcs->strtab = elf_getdata (scn, NULL);
       assert (elf_getdata (scn, fcs->strtab) == NULL);
     }
