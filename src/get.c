@@ -327,6 +327,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		
 	      for (j = 0; j < 2; j++)
 		{
+		  ents[j] = NULL;
 		  for (i = 0, ent = NULL; i < ndeps; i++)
 		    if (deps[i].start == valstart[j])
 		      {

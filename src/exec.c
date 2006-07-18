@@ -1479,10 +1479,6 @@ prelink_exec (struct prelink_info *info)
 	goto error_out;
     }
 
-  if (rinfo.first && ! rinfo.reldyn && rinfo.relcount)
-    set_dynamic (dso, dso->shdr[rinfo.first].sh_type == SHT_RELA
-		      ? DT_RELACOUNT : DT_RELCOUNT, rinfo.relcount, 0);
-
   if (undo != -1)
     {
       Elf_Scn *scn;

@@ -264,9 +264,9 @@ build_rel_dyn (DSO *dso, Elf_Data *data, struct reloc_info *rinfo)
      according to r_offset.  */
   qsort (array, count, sizeof (struct sort_rel_dyn), rel_dyn_cmp1);
   for (i = 0;
-       i < count && GELF_R_TYPE (array[i].rela.r_info) != arch->R_RELATIVE;
+       i < count && GELF_R_TYPE (array[i].rela.r_info) == arch->R_RELATIVE;
        ++i);
-  
+
   /* Number of R_*_RELATIVE relocs.  */
   rinfo->relcount = i;
 
@@ -357,13 +357,14 @@ convert_rel_to_rela (DSO *dso, int i)
 int
 update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 {
-  GElf_Dyn *info[DT_NUM], *dynamic = NULL;
+  GElf_Dyn *info[DT_NUM], *info_DT_RELCOUNT, *dynamic = NULL;
   int rel = rinfo->first, plt = rinfo->plt, overlap = rinfo->overlap;
   int dynsec, count = 0, loc;
   Elf_Data *data;
   Elf_Scn *scn = NULL;
 
   memset (&info, 0, sizeof (info));
+  info_DT_RELCOUNT = NULL;
   for (dynsec = 0; dynsec < dso->ehdr.e_shnum; dynsec++)
     if (dso->shdr[dynsec].sh_type == SHT_DYNAMIC)
       {
@@ -384,6 +385,8 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 		  break;
 		else if (dynamic[loc].d_tag < DT_NUM)
 		  info[dynamic[loc].d_tag] = dynamic + loc;
+		else if (dynamic[loc].d_tag == DT_RELCOUNT)
+		  info_DT_RELCOUNT = dynamic + loc;
 	      }
 	    if (ndx < maxndx)
 	      break;
@@ -421,6 +424,8 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 	  info[DT_REL]->d_tag = DT_RELA;
 	  info[DT_RELSZ]->d_tag = DT_RELASZ;
 	  info[DT_RELENT]->d_tag = DT_RELAENT;
+	  if (info_DT_RELCOUNT)
+	    info_DT_RELCOUNT->d_tag = DT_RELACOUNT;
 	}
     }
 
@@ -445,7 +450,7 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 
       maxndx = data->d_size / dso->shdr[dynsec].sh_entsize;
       for (ndx = 0; ndx < maxndx && loc < count; ++ndx, ++loc)
-	if (dynamic[loc].d_tag < DT_NUM)
+	if (dynamic[loc].d_tag < DT_NUM || dynamic[loc].d_tag == DT_RELACOUNT)
 	  gelfx_update_dyn (dso->elf, data, ndx, dynamic + loc);
       if (ndx < maxndx)
 	break;

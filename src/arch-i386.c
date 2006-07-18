@@ -372,7 +372,7 @@ i386_need_rel_to_rela (DSO *dso, int first, int last)
   Elf_Scn *scn;
   Elf32_Rel *rel, *relend;
 
-  while (first < last)
+  while (first <= last)
     {
       data = NULL;
       scn = elf_getscn (dso->elf, first++);
