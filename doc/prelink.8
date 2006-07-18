@@ -1,4 +1,4 @@
-.TH prelink 8 "14 July 2002"
+.TH prelink 8 "5 August 2003"
 .SH NAME
 prelink \- prelink ELF shared libraries and binaries to speed up startup time
 .SH SYNOPSIS
@@ -109,6 +109,12 @@ be assigned to all libraries.
 Normally, only binaries or libraries which are either not prelinked yet, or
 some of their dependencies changed, are prelinked.
 .TP
+.B \-q \-\-quick
+Run prelink in quick mode.  This mode checks just mtime and ctime timestamps
+of libraries and binaries stored in the cache file.  If they are unchanged
+from the last prelink run, it is assumed that the library in question did
+not change and no parsing of its ELF headers and verifying it is done.
+.TP
 .B \-p \-\-print\-cache
 Print the content of the cache file (normally
 .IR /etc/prelink.cache )
@@ -166,6 +172,22 @@ sure that nobody modified the binaries or libraries after prelinking.
 Similarly with message digests and checksums (unless you trigger the
 unprobable case of modified file and original file having the same digest
 or checksum).
+.TP
+.B \-\-md5
+This is similar to
+.I \-\-verify
+option, except instead of outputing the content of the binary or library
+before prelinking to standard output MD5 digest is printed.
+See
+.BR md5sum (1).
+.TP
+.B \-\-sha
+This is similar to
+.I \-\-verify
+option, except instead of outputing the content of the binary or library
+before prelinking to standard output SHA1 digest is printed.
+See
+.BR sha1sum (1).
 .TP
 .B \-V \-\-version
 Print version and exit.

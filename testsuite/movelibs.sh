@@ -6,9 +6,9 @@ $CXX -o movelibs movelibs.C
 > syslib.list
 > syslnk.list
 for i in `ldd ./movelibs | awk ' { print $3 } '`; do
+  k=`basename $i`
   if [ -L $i ]; then
     j=`ls -l $i | sed 's/^.* -> //'`
-    k=`basename $i`
     if echo $j | grep / >/dev/null 2>&1; then
       cp -p $i .
       cp -p $k $k.orig

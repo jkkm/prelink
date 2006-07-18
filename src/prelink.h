@@ -209,7 +209,7 @@ READWRITEPROTO(be,64)
 const char * strptr (DSO *dso, int sec, off_t offset);
 
 #define PL_ARCH \
-static struct PLArch plarch __attribute__((section("pl_arch"),unused))
+static struct PLArch plarch __attribute__((section("pl_arch"),used))
 
 #define addr_adjust(addr, start, adjust)	\
   do {						\
