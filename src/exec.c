@@ -506,15 +506,15 @@ prelink_exec (struct prelink_info *info)
 	      {
 		Elf_Data *data = elf_getdata (dso->scn[j], NULL);
 
-		assert (data->d_buf == NULL);
 		assert (data->d_size == dso->shdr[j].sh_size);
-		data->d_buf = calloc (dso->shdr[j].sh_size, 1);
+		data->d_buf = realloc (data->d_buf, dso->shdr[j].sh_size);
 		if (data->d_buf == NULL)
 		  {
 		    error (0, ENOMEM, "%s: Could not convert NOBITS section into PROGBITS",
 			   dso->filename);
 		    goto error_out;
 		  }
+		memset (data->d_buf, 0, dso->shdr[j].sh_size);
 		data->d_type = ELF_T_BYTE;
 		dso->shdr[j].sh_type = SHT_PROGBITS;
 	      }
