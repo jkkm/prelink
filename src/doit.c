@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -147,7 +147,7 @@ prelink_ent (struct prelink_entry *ent)
 	goto make_unprelinkable;
       if (prelink (dso, ent))
 	goto make_unprelinkable;
-      if (update_dso (dso))
+      if (update_dso (dso, NULL))
 	{
 	  dso = NULL;
 	  goto error_out;

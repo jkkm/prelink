@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -283,7 +283,8 @@ main (int argc, char *argv[])
 	{
 	  DSO *dso = open_dso (argv[remaining++]);
 
-	  if (dso == NULL || reopen_dso (dso, NULL) || prelink_set_checksum (dso))
+	  if (dso == NULL || reopen_dso (dso, NULL, NULL)
+	      || prelink_set_checksum (dso))
 	    error (0, 0, "could not recompute checksum of %s", dso->filename);
 	  close_dso (dso);
 	  error (0, 0, "%08x %s\n", (unsigned int) dso->info_DT_CHECKSUM, dso->filename);
@@ -351,6 +352,7 @@ main (int argc, char *argv[])
 	  else if (undo_output)
 	    {
 	      const char *output = strdup (undo_output);
+	      const char *orig_filename;
 	      if (!output)
 		{
 		  ++failures;
@@ -358,11 +360,23 @@ main (int argc, char *argv[])
 		  continue;
 		}
 	      if (dso->filename != dso->soname)
-		free ((char *) dso->filename);
+	        orig_filename = dso->filename;
+              else
+                orig_filename = strdup (dso->filename);
+              if (!orig_filename)
+                {
+                  ++failures;
+                  close_dso (dso);
+                  continue;
+                }
 	      dso->filename = output;
+	      if (update_dso (dso, orig_filename))
+	        ++failures;
+	      free ((char *) orig_filename);
+	      continue;
 	    }
 
-	  if (update_dso (dso))
+	  if (update_dso (dso, NULL))
 	    ++failures;
 	}
 

@@ -1,4 +1,4 @@
-/* Copyright (C) 2003 Red Hat, Inc.
+/* Copyright (C) 2003, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2003.
 
    This program is free software; you can redistribute it and/or modify
@@ -100,7 +100,7 @@ execstack_make_rdwr (DSO *dso, int flag)
     }
 
   if (i == dso->ehdr.e_shnum)
-    return reopen_dso (dso, NULL) ? 1 : -1;
+    return reopen_dso (dso, NULL, NULL) ? 1 : -1;
 
   /* We need to unprelink the file first, so that prelink --undo
      or reprelinking it doesn't destroy the PT_GNU_STACK segment
@@ -368,7 +368,7 @@ out_write:
 
   dso->permissive = 1;
 
-  return update_dso (dso);
+  return update_dso (dso, NULL);
 
 out_close:
   close_dso (dso);

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -342,7 +342,7 @@ prelink_prepare (DSO *dso)
       else
 	undo = move->old_to_new[undo];
 
-      if (reopen_dso (dso, move))
+      if (reopen_dso (dso, move, NULL))
 	{
 	  free (move);
 	  return 1;
@@ -409,7 +409,7 @@ prelink_prepare (DSO *dso)
 	  dso->undo.d_buf = NULL;
 	}
     }
-  else if (reopen_dso (dso, NULL))
+  else if (reopen_dso (dso, NULL, NULL))
     return 1;
 
   if (rinfo.rel_to_rela || rinfo.rel_to_rela_plt)
@@ -856,7 +856,7 @@ prelink (DSO *dso, struct prelink_entry *ent)
 
   if (! dso_is_rdwr (dso) && dso->ehdr.e_type == ET_DYN)
     {
-      if (reopen_dso (dso, NULL))
+      if (reopen_dso (dso, NULL, NULL))
 	return 1;
     }
 

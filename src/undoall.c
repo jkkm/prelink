@@ -1,4 +1,4 @@
-/* Copyright (C) 2002 Red Hat, Inc.
+/* Copyright (C) 2002, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2002.
 
    This program is free software; you can redistribute it and/or modify
@@ -74,7 +74,7 @@ undo_one (void **p, void *info)
     close_dso (dso);
   else
     {
-      if (update_dso (dso))
+      if (update_dso (dso, NULL))
 	{
 	  dso = NULL;
 	  goto error_out;

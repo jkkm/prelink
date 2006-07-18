@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -167,7 +167,7 @@ DSO * fdopen_dso (int fd, const char *name);
 struct section_move *init_section_move (DSO *dso);
 void add_section (struct section_move *move, int sec);
 void remove_section (struct section_move *move, int sec);
-int reopen_dso (DSO *dso, struct section_move *move);
+int reopen_dso (DSO *dso, struct section_move *move, const char *);
 int check_dso (DSO *dso);
 int dso_is_rdwr (DSO *dso);
 void read_dynamic (DSO *dso);
@@ -184,7 +184,7 @@ int adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
 int adjust_mdebug (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
 int finalize_mdebug (DSO *dso);
 int relocate_dso (DSO *dso, GElf_Addr base);
-int update_dso (DSO *dso);
+int update_dso (DSO *dso, const char *);
 int prepare_write_dso (DSO *dso);
 int write_dso (DSO *dso);
 int close_dso (DSO *dso);

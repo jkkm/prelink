@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -428,7 +428,7 @@ prelink_exec (struct prelink_info *info)
   ehdr.e_shnum = dso->ehdr.e_shnum;
   dso->ehdr = ehdr;
   memcpy (dso->phdr, phdr, ehdr.e_phnum * sizeof (GElf_Phdr));
-  if (reopen_dso (dso, move))
+  if (reopen_dso (dso, move, NULL))
     goto error_out;
 
   assert (i == dso->ehdr.e_shnum);

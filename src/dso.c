@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -724,9 +724,10 @@ remove_section (struct section_move *move, int sec)
 }
 
 int
-reopen_dso (DSO *dso, struct section_move *move)
+reopen_dso (DSO *dso, struct section_move *move, const char *temp_base)
 {
-  char filename[strlen (dso->filename) + sizeof ("/dev/shm/.#prelink#.XXXXXX")];
+  char filename[strlen (temp_base ? temp_base : dso->filename)
+                + sizeof ("/dev/shm/.#prelink#.XXXXXX")];
   int adddel = 0;
   int free_move = 0;
   Elf *elf = NULL;
@@ -742,11 +743,11 @@ reopen_dso (DSO *dso, struct section_move *move)
       free_move = 1;
     }
   else
-    {
-      assert (dso->ehdr.e_shnum == move->old_shnum);
-    }
+    assert (dso->ehdr.e_shnum == move->old_shnum);
 
-  sprintf (filename, "%s.#prelink#.XXXXXX", dso->filename);
+  if (temp_base == NULL)
+    temp_base = dso->filename;
+  sprintf (filename, "%s.#prelink#.XXXXXX", temp_base);
 
   fd = mkstemp (filename);
   if (fd == -1)
@@ -1570,7 +1571,7 @@ relocate_dso (DSO *dso, GElf_Addr base)
 
   if (! dso_is_rdwr (dso))
     {
-      if (reopen_dso (dso, NULL))
+      if (reopen_dso (dso, NULL, NULL))
 	return 1;
     }
 
@@ -1698,7 +1699,7 @@ set_security_context (DSO *dso, const char *temp_name, const char *name)
 }
 
 int
-update_dso (DSO *dso)
+update_dso (DSO *dso, const char *orig_name)
 {
   int rdwr = dso_is_rdwr (dso);
 
@@ -1741,7 +1742,7 @@ update_dso (DSO *dso)
       u.modtime = st.st_mtime;
       utime (name2, &u);
 
-      if (set_security_context (dso, name2, name1))
+      if (set_security_context (dso, name2, orig_name ? orig_name : name1))
 	{
 	  unlink (name2);
 	  return 1;
