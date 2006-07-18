@@ -136,6 +136,18 @@ extern htab_hash htab_hash_pointer;
 /* An equality function for pointers.  */
 extern htab_eq htab_eq_pointer;
 
+#ifndef NDEBUG
+
+#include <stdio.h>
+
+typedef void (*htab_dumpfn) (FILE *, const void *);
+typedef void *(*htab_restorefn) (FILE *);
+
+extern void	htab_dump (htab_t, const char *, htab_dumpfn);
+extern void	htab_restore (htab_t, const char *, htab_restorefn);
+
+#endif
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

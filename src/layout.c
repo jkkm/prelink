@@ -25,13 +25,16 @@
 #include "prelinktab.h"
 #include "layout.h"
 
-#define DEBUG_LAYOUT
+#ifndef NDEBUG
+# define DEBUG_LAYOUT
+#endif
 
 #ifdef DEBUG_LAYOUT
 void
 print_ent (struct prelink_entry *e)
 {
-  printf ("%s: %08x %08x\n", e->filename, (int)e->base, (int)e->end);
+  printf ("%s: %08x %08x/%08x\n",
+	  e->filename, (int)e->base, (int)e->end, (int)e->layend);
 }
 
 void
@@ -100,9 +103,9 @@ refs_cmp (const void *A, const void *B)
   if (a->refs < b->refs)
     return 1;
   /* Largest libraries first.  */
-  if (a->end - a->base > b->end - b->base)
+  if (a->layend - a->base > b->layend - b->base)
     return -1;
-  if (a->end - a->base < b->end - b->base)
+  if (a->layend - a->base < b->layend - b->base)
     return 1;
   if (a->refs)
     {
@@ -127,9 +130,21 @@ addr_cmp (const void *A, const void *B)
     return -1;
   else if (a->base > b->base)
     return 1;
-  if (a->end < b->end)
+  if (a->layend < b->layend)
     return -1;
-  else if (a->end > b->end)
+  else if (a->layend > b->layend)
+    return 1;
+  return 0;
+}
+
+int deps_cmp (const void *A, const void *B)
+{
+  struct prelink_entry *a = * (struct prelink_entry **) A;
+  struct prelink_entry *b = * (struct prelink_entry **) B;
+
+  if (a->base < b->base)
+    return -1;
+  if (a->base > b->base)
     return 1;
   return 0;
 }
@@ -161,7 +176,7 @@ layout_libs (void)
       int i, j, k, m, done, class;
       GElf_Addr mmap_start, mmap_base, mmap_end, mmap_fin, max_page_size;
       GElf_Addr base, size;
-      struct prelink_entry *list, *e, *fake;
+      struct prelink_entry *list, *e, *fake, **deps;
       struct prelink_entry fakeent;
       int fakecnt;
       int (*layout_libs_pre) (struct layout_libs *l);
@@ -202,16 +217,43 @@ layout_libs (void)
       layout_libs_pre = plarch->layout_libs_pre;
       layout_libs_post = plarch->layout_libs_post;
 
+      deps = (struct prelink_entry **)
+	     alloca (l.nlibs * sizeof (struct prelink_entry *));
+
       /* Make sure there is some room between libraries.  */
       for (i = 0; i < l.nlibs; ++i)
-	if (l.libs[i]->type == ET_DYN)
-	  l.libs[i]->end = (l.libs[i]->end + 8192 + max_page_size - 1)
-			   & ~(max_page_size - 1);
+	l.libs[i]->layend = (l.libs[i]->end + 8192 + max_page_size - 1)
+			    & ~(max_page_size - 1);
+
+      /* Now see which already prelinked libraries have to be
+	 re-prelinked to avoid overlaps.  */
+      for (i = 0; i < l.nbinlibs; ++i)
+	{
+	  for (j = 0, k = 0; j < l.binlibs[i]->ndepends; ++j)
+	    if (l.binlibs[i]->depends[j]->type == ET_DYN
+		&& l.binlibs[i]->depends[j]->done)
+	      deps[k++] = l.binlibs[i]->depends[j];
+	  if (k)
+	    {
+	      qsort (deps, k, sizeof (struct prelink_entry *), deps_cmp);
+	      for (j = 1; j < k; ++j)
+		if (deps[j]->base < deps[j - 1]->end
+		    && (deps[j]->type == ET_DYN
+			|| deps[j - 1]->type == ET_DYN))
+		  {
+		    if (deps[j - 1]->refs < deps[j]->refs)
+		      --j;
+		    deps[j]->done = 0;
+		    --k;
+		    memmove (deps + j, deps + j + 1, (k - j) * sizeof (*deps));
+		  }
+	    }
+	}
 
       /* Put the already prelinked libs into double linked list.  */
       qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), addr_cmp);
       for (i = 0; i < l.nlibs; ++i)
-	if (! l.libs[i]->done || l.libs[i]->end >= mmap_base)
+	if (! l.libs[i]->done || l.libs[i]->layend >= mmap_base)
 	  break;
       j = 0;
       if (i < l.nlibs && l.libs[i]->done)
@@ -223,7 +265,7 @@ layout_libs (void)
 	      if (! l.libs[j]->done || l.libs[j]->base >= mmap_end)
 	        break;
 
-	      if (l.libs[j]->base < mmap_base || l.libs[j]->end > mmap_end)
+	      if (l.libs[j]->base < mmap_base || l.libs[j]->layend > mmap_end)
 	        random_base = 0;
 	      l.libs[j]->prev = l.libs[j - 1];
 	      l.libs[j - 1]->next = l.libs[j];
@@ -290,11 +332,12 @@ layout_libs (void)
 	    {
 	      if (e->base >= mmap_start)
 	        break;
-	      if (e->end > mmap_start)
-	        mmap_start = (e->end + max_page_size - 1)
+	      if (e->layend > mmap_start)
+	        mmap_start = (e->layend + max_page_size - 1)
 			     & ~(max_page_size - 1);
 	      e->base += mmap_end - mmap_base;
 	      e->end += mmap_end - mmap_base;
+	      e->layend += mmap_end - mmap_base;
 	      e->done |= 0x80;
 	    }
 
@@ -306,6 +349,7 @@ layout_libs (void)
 	          fakeent.u.tmp = -1;
 	          fakeent.base = mmap_end;
 	          fakeent.end = mmap_end;
+	          fakeent.layend = mmap_end;
 	          fake = &fakeent;
 	          fakecnt = 1;
 	          fakeent.prev = list->prev;
@@ -325,6 +369,7 @@ layout_libs (void)
 	          e->done &= ~0x80;
 	          e->base -= mmap_end - mmap_base;
 	          e->end -= mmap_end - mmap_base;
+	          e->layend -= mmap_end - mmap_base;
 	        }
 	    }
 	}
@@ -362,7 +407,7 @@ layout_libs (void)
 	          fake[j].u.tmp = m;
 	      }
 
-	    size = l.libs[i]->end - l.libs[i]->base;
+	    size = l.libs[i]->layend - l.libs[i]->base;
 	    base = mmap_start;
 	    for (e = list; e; e = e->next)
 	      if (e->u.tmp == m)
@@ -370,15 +415,16 @@ layout_libs (void)
 	          if (base + size <= e->base)
 	            goto found;
 
-	          if (base < e->end)
-	            base = e->end;
+	          if (base < e->layend)
+	            base = e->layend;
 	        }
 
 	    if (base + size > mmap_fin)
 	      goto not_found;
 found:
+	    l.libs[i]->end += base - l.libs[i]->base;
 	    l.libs[i]->base = base;
-	    l.libs[i]->end = base + size;
+	    l.libs[i]->layend = base + size;
 	    if (base >= mmap_end)
 	      l.libs[i]->done = done;
 	    else
@@ -451,6 +497,7 @@ not_found:
 	      e->done &= ~0x80;
 	      e->base -= mmap_end - mmap_base;
 	      e->end -= mmap_end - mmap_base;
+	      e->layend -= mmap_base - mmap_base;
 	    }
 
       if (verbose)
@@ -469,41 +516,26 @@ not_found:
 	}
 
 #ifdef DEBUG_LAYOUT
-      {
-	struct prelink_entry **deps =
-	  (struct prelink_entry **) alloca (l.nlibs
-	                                    * sizeof (struct prelink_entry *));
-	int deps_cmp (const void *A, const void *B)
-	  {
-	    struct prelink_entry *a = * (struct prelink_entry **) A;
-	    struct prelink_entry *b = * (struct prelink_entry **) B;
-
-	    if (a->base < b->base)
-	      return -1;
-	    if (a->base > b->base)
-	      return 1;
-	    return 0;
-	  }
-
-	for (i = 0; i < l.nbinlibs; ++i)
-	  {
-	    for (j = 0; j < l.binlibs[i]->ndepends; ++j)
-	      if ((l.binlibs[i]->depends[j]->type != ET_DYN
-	           && l.binlibs[i]->depends[j]->type != ET_CACHE_DYN)
-	          || l.binlibs[i]->depends[j]->done == 0)
+      for (i = 0; i < l.nbinlibs; ++i)
+	{
+	  for (j = 0; j < l.binlibs[i]->ndepends; ++j)
+	    if ((l.binlibs[i]->depends[j]->type != ET_DYN
+		 && l.binlibs[i]->depends[j]->type != ET_CACHE_DYN)
+		|| l.binlibs[i]->depends[j]->done == 0)
 	      break;
-	    if (j < l.binlibs[i]->ndepends)
-	      continue;
-	    memcpy (deps, l.binlibs[i]->depends,
-	            l.binlibs[i]->ndepends * sizeof (struct prelink_entry *));
-	    qsort (deps, l.binlibs[i]->ndepends, sizeof (struct prelink_entry *),
-	           deps_cmp);
-	    for (j = 1; j < l.binlibs[i]->ndepends; ++j)
-	      if (deps[j]->base < deps[j - 1]->end
-	          && (deps[j]->type == ET_DYN || deps[j - 1]->type == ET_DYN))
-	        abort ();
-	  }
-      }
+	  if (j < l.binlibs[i]->ndepends)
+	    continue;
+	  memcpy (deps, l.binlibs[i]->depends,
+		  l.binlibs[i]->ndepends * sizeof (struct prelink_entry *));
+	  qsort (deps, l.binlibs[i]->ndepends, sizeof (struct prelink_entry *),
+		 deps_cmp);
+	  for (j = 1; j < l.binlibs[i]->ndepends; ++j)
+	    if (deps[j]->base
+		< ((deps[j - 1]->end + max_page_size - 1)
+		   & ~(max_page_size - 1))
+		&& (deps[j]->type == ET_DYN || deps[j - 1]->type == ET_DYN))
+	      abort ();
+	}
 #endif
     }
 

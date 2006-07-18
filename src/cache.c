@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -511,3 +511,164 @@ prelink_save_cache (int do_warn)
     }
   return 0;
 }
+
+#ifndef NDEBUG
+static void
+prelink_entry_dumpfn (FILE *f, const void *ptr)
+{
+  struct prelink_entry *e = (struct prelink_entry *) ptr;
+  struct prelink_link *l;
+  int i;
+
+  fprintf (f, "%s|%s|%s|%x|%x|%llx|%llx|%llx|%llx|%llx|%d|%d|%d|%d|%d|%d|%d|",
+	   e->filename,
+	   strcmp (e->canon_filename, e->filename) ? e->canon_filename : "",
+	   strcmp (e->soname, e->filename) ? e->soname : "",
+	   e->timestamp, e->checksum,
+	   (long long) e->base, (long long) e->end, (long long) e->pltgot,
+	   (long long) e->dev, (long long) e->ino,
+	   e->type, e->done, e->ndepends, e->refs, e->flags,
+	   e->prev ? e->prev->u.tmp : -1, e->next ? e->next->u.tmp : -1);
+  for (i = 0; i < e->ndepends; ++i)
+    fprintf (f, "%d-", e->depends [i]->u.tmp);
+  fputc ('|', f);
+  for (l = e->hardlink; l; l = l->next)
+    fprintf (f, "%s|", l->canon_filename);
+  fputs ("\n", f);
+}
+
+void
+prelink_entry_dump (htab_t htab, const char *filename)
+{
+  size_t i;
+
+  for (i = 0; i < htab->size; ++i)
+    if (htab->entries [i] && htab->entries [i] != (void *) 1)
+      ((struct prelink_entry *) htab->entries [i])->u.tmp = i;
+  htab_dump (htab, filename, prelink_entry_dumpfn);
+}
+
+static char *restore_line;
+static size_t restore_size;
+
+static void *
+prelink_entry_restorefn (FILE *f)
+{
+  struct prelink_entry *e;
+  struct prelink_link **plink;
+  char *p, *q, *s;
+  long long ll[5];
+  int ii[5];
+  int i;
+
+  if (getline (&restore_line, &restore_size, f) < 0)
+    abort ();
+  e = (struct prelink_entry *) calloc (1, sizeof (struct prelink_entry));
+  if (e == NULL)
+    abort ();
+  p = restore_line;
+  q = strchr (p, '|');
+  s = malloc (q - p + 1);
+  memcpy (s, p, q - p);
+  s [q - p] = '\0';
+  e->filename = s;
+  ++q;
+  p = q;
+  if (*p == '|')
+    e->canon_filename = strdup (e->filename);
+  else
+    {
+      q = strchr (p, '|');
+      s = malloc (q - p + 1);
+      memcpy (s, p, q - p);
+      s [q - p] = '\0';
+      e->canon_filename = s;
+    }
+  ++q;
+  p = q;
+  if (*p == '|')
+    e->soname = strdup (e->filename);
+  else
+    {
+      q = strchr (p, '|');
+      s = malloc (q - p + 1);
+      memcpy (s, p, q - p);
+      s [q - p] = '\0';
+      e->soname = s;
+    }
+  p = q + 1;
+  if (sscanf (p, "%x|%x|%llx|%llx|%llx|%llx|%llx|%d|%d|%d|%d|%d|%d|%d|%n",
+	      ii, ii + 1, ll, ll + 1, ll + 2, ll + 3, ll + 4,
+	      &e->type, &e->done, &e->ndepends, &e->refs, &e->flags,
+	      ii + 2, ii + 3, ii + 4) < 14)
+    abort ();
+  e->timestamp = ii[0];
+  e->checksum = ii[1];
+  e->base = ll[0];
+  e->end = ll[1];
+  e->pltgot = ll[2];
+  e->dev = ll[3];
+  e->ino = ll[4];
+  e->prev = (void *) (long) ii[2];
+  e->next = (void *) (long) ii[3];
+  e->depends = (struct prelink_entry **)
+	       malloc (e->ndepends * sizeof (struct prelink_entry *));
+  p += ii[4];
+  for (i = 0; i < e->ndepends; ++i)
+    {
+      e->depends [i] = (void *) strtol (p, &q, 0);
+      if (p == q || *q != '-')
+        abort ();
+      p = q + 1;
+    }
+  if (*p++ != '|')
+    abort ();
+  plink = &e->hardlink;
+  while (*p != '\n')
+    {
+      struct prelink_link *link = (struct prelink_link *)
+				  malloc (sizeof (struct prelink_link));
+      q = strchr (p, '|');
+      *plink = link;
+      plink = &link->next;
+      s = malloc (q - p + 1);
+      memcpy (s, p, q - p);
+      s [q - p] = '\0';
+      e->soname = s;
+      link->canon_filename = s;
+      p = q + 1;
+    }
+  *plink = NULL;
+  return e;
+}
+
+void
+prelink_entry_restore (htab_t htab, const char *filename)
+{
+  size_t i, j;
+  struct prelink_entry *e;
+
+  htab_restore (htab, filename, prelink_entry_restorefn);
+  free (restore_line);
+  for (i = 0; i < htab->size; ++i)
+    if (htab->entries [i] && htab->entries [i] != (void *) 1)
+      {
+	e = (struct prelink_entry *) htab->entries [i];
+	if (e->prev == (void *) -1)
+	  e->prev = NULL;
+	else
+	  e->prev = (struct prelink_entry *)
+		    htab->entries [(long) e->prev];
+	if (e->next == (void *) -1)
+	  e->next = NULL;
+	else
+	  e->next = (struct prelink_entry *)
+		    htab->entries [(long) e->next];
+	for (j = 0; j < e->ndepends; ++j)
+	  {
+	    e->depends [j] = (struct prelink_entry *)
+			     htab->entries [(long) e->depends [j]];
+	  }
+      }
+}
+#endif

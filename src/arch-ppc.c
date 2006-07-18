@@ -216,9 +216,11 @@ ppc_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
   switch (GELF_R_TYPE (rela->r_info))    
     {
     case R_PPC_ADDR32:
+    case R_PPC_UADDR32:
       buf_write_be32 (buf, rela->r_addend);
       break;
-    case R_PPC_ADDR16_LO:
+    case R_PPC_ADDR16:
+    case R_PPC_UADDR16:
       buf_write_be16 (buf, rela->r_addend);
       break;
     default:
@@ -330,10 +332,11 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   switch (r_type)    
     {
     case R_PPC_GLOB_DAT:
-    case R_PPC_ADDR32:
-    case R_PPC_UADDR32:
       r_type = R_PPC_ADDR32;
       break;
+    case R_PPC_ADDR32:
+    case R_PPC_UADDR32:
+      break;    
     case R_PPC_JMP_SLOT:
       break;
     case R_PPC_ADDR16_HA:
@@ -345,8 +348,9 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_PPC_ADDR16:
     case R_PPC_UADDR16:
     case R_PPC_ADDR16_LO:
-      r_type = R_PPC_ADDR16_LO;
-      value &= 0xffff;
+      if (r_type != R_PPC_UADDR16)
+	r_type = R_PPC_ADDR16;
+      value = ((value & 0xffff) ^ 0x8000) - 0x8000;
       break;
     case R_PPC_ADDR24:
       r_type = R_PPC_ADDR32;
@@ -522,7 +526,7 @@ struct ppc_layout_data
   struct
     {
       struct prelink_entry *e;
-      Elf32_Addr base, end;
+      Elf32_Addr base, end, layend;
     } ents[0];
 };
 
@@ -545,9 +549,9 @@ addr_cmp (const void *A, const void *B)
     return -1;
   else if (a->base > b->base)
     return 1;
-  if (a->end < b->end)
+  if (a->layend < b->layend)
     return -1;
-  else if (a->end > b->end)
+  else if (a->layend > b->layend)
     return 1;
   return 0;
 }
@@ -585,12 +589,12 @@ ppc_layout_libs_pre (struct layout_libs *l)
   mmap_start = REG0E - (mmap_start & 0xff0000);
   for (cnt = 0, e = l->list; e != NULL; e = e->next, ++cnt)
     {
-      if (e->base < mmap_start && e->end > mmap_start)
-	mmap_start = (e->end + 0xffff) & ~0xffff;
-      if (e->base < REG0S && e->end > REG0S && first_start > e->base)
+      if (e->base < mmap_start && e->layend > mmap_start)
+	mmap_start = (e->layend + 0xffff) & ~0xffff;
+      if (e->base < REG0S && e->layend > REG0S && first_start > e->base)
 	first_start = e->base;
-      if (e->base < REG0E && e->end > REG2S && last_start < e->end)
-	last_start = e->end;
+      if (e->base < REG0E && e->layend > REG2S && last_start < e->layend)
+	last_start = e->layend;
     }
   if (mmap_start > REG0E)
     mmap_start = REG0E;
@@ -606,14 +610,17 @@ ppc_layout_libs_pre (struct layout_libs *l)
   pld->e[0].u.tmp = -1;
   pld->e[0].base = REG1S + REG0E - mmap_start;
   pld->e[0].end = pld->e[0].base;
+  pld->e[0].layend = pld->e[0].end;
   pld->e[0].prev = &pld->e[0];
   pld->e[1].u.tmp = -1;
   pld->e[1].base = pld->e[0].end + mmap_start - REG0S;
   pld->e[1].end = pld->e[1].base;
+  pld->e[1].layend = pld->e[1].end;
   pld->e[1].prev = &pld->e[1];
   pld->e[2].u.tmp = -1;
   pld->e[2].base = pld->e[1].end + first_start - REG1S;
   pld->e[2].end = pld->e[1].base;
+  pld->e[2].layend = pld->e[2].end;
   pld->e[2].prev = &pld->e[2];
   for (cnt = 0, e = l->list; e != NULL; e = next, ++cnt)
     {
@@ -621,46 +628,48 @@ ppc_layout_libs_pre (struct layout_libs *l)
       pld->ents[cnt].e = e;
       pld->ents[cnt].base = e->base;
       pld->ents[cnt].end = e->end;
-      if (e->end <= REG0S)
+      pld->ents[cnt].layend = e->layend;
+      if (e->layend <= REG0S)
 	{
 	  if (e->base < REG1S)
 	    e->base = REG1S;
 	  else if (e->base > first_start)
 	    e->base = first_start;
-	  if (e->end < REG1S)
-	    e->end = REG1S;
-	  else if (e->end > first_start)
-	    e->end = first_start;
+	  if (e->layend < REG1S)
+	    e->layend = REG1S;
+	  else if (e->layend > first_start)
+	    e->layend = first_start;
 	  e->base += pld->e[1].end - REG1S;
-	  e->end += pld->e[1].end - REG1S;
+	  e->layend += pld->e[1].end - REG1S;
 	  list_append (&pld->e[1], e);
 	}
       else if (e->base < mmap_start)
 	{
 	  if (e->base < REG0S)
 	    e->base = REG0S;
-	  if (e->end > mmap_start)
-	    e->end = mmap_start;
-	  e->base = pld->e[0].end + mmap_start - e->end;
-	  e->end = pld->e[0].end + mmap_start - pld->ents[cnt].base;
+	  if (e->layend > mmap_start)
+	    e->layend = mmap_start;
+	  e->base = pld->e[0].end + mmap_start - e->layend;
+	  e->layend = pld->e[0].layend + mmap_start - pld->ents[cnt].base;
 	  list_append (&pld->e[0], e);
 	}
       else if (e->base < REG0E)
 	{
-	  if (e->end > REG0E)
-	    e->end = REG0E;
-	  e->base = REG1S + REG0E - e->end;
-	  e->end = REG1S + REG0E - pld->ents[cnt].base;
+	  if (e->layend > REG0E)
+	    e->layend = REG0E;
+	  e->base = REG1S + REG0E - e->layend;
+	  e->layend = REG1S + REG0E - pld->ents[cnt].base;
 	  list_append (&e0, e);
 	}
-      else if (e->end >= last_start)
+      else if (e->layend >= last_start)
 	{
 	  if (e->base < last_start)
 	    e->base = last_start;
 	  e->base += pld->e[2].end - last_start;
-	  e->end += pld->e[2].end - last_start;
+	  e->layend += pld->e[2].end - last_start;
 	  list_append (&pld->e[2], e);
 	}
+      e->end = e->layend;
     }
 
   list_sort (&pld->e[0]);
@@ -710,6 +719,7 @@ ppc_layout_libs_post (struct layout_libs *l)
   for (i = 0; i < pld->cnt; ++i)
     {
       pld->ents[i].e->base = pld->ents[i].base;
+      pld->ents[i].e->layend = pld->ents[i].layend;
       pld->ents[i].e->end = pld->ents[i].end;
       pld->ents[i].e->done |= 0x40;
     }
@@ -724,26 +734,30 @@ ppc_layout_libs_post (struct layout_libs *l)
     else
       {
 	base = e->base;
-	end = e->end;
+	end = e->layend;
 	if (e->base < pld->e[0].base)
 	  {
 	    e->base = REG1S + REG0E - end;
-	    e->end = REG1S + REG0E - base;
+	    e->end += e->base - base;
+	    e->layend = REG1S + REG0E - base;
 	  }
 	else if (e->base < pld->e[1].base)
 	  {
 	    e->base = pld->e[0].end + pld->mmap_start - end;
-	    e->end = pld->e[0].end + pld->mmap_start - base;
+	    e->end += e->base - base;
+	    e->layend = pld->e[0].end + pld->mmap_start - base;
 	  }
 	else if (e->base < pld->e[2].base)
 	  {
 	    e->base -= pld->e[1].end - REG1S;
 	    e->end -= pld->e[1].end - REG1S;
+	    e->layend -= pld->e[1].end - REG1S;
 	  }
 	else
 	  {
 	    e->base -= pld->e[2].end - pld->last_start;
 	    e->end -= pld->e[2].end - pld->last_start;
+	    e->layend -= pld->e[2].end - pld->last_start;
 	  }
       }
 

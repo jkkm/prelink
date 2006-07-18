@@ -250,7 +250,7 @@ struct prelink_entry
   struct prelink_link *hardlink;
   GElf_Word timestamp;
   GElf_Word checksum;
-  GElf_Addr base, end, pltgot;
+  GElf_Addr base, end, layend, pltgot;
   dev_t dev;
   ino64_t ino;
 #define ET_BAD		(ET_NUM)
