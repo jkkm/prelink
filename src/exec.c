@@ -25,227 +25,75 @@
 #include "prelink.h"
 #include "reloc.h"
 
-struct prelink_conflict *
-prelink_conflict (struct prelink_info *info, GElf_Word r_sym,
-		  int reloc_type)
-{
-  GElf_Word symoff = info->symtab_start + r_sym * info->symtab_entsize;
-  struct prelink_conflict *conflict;
-  int reloc_class = info->dso->arch->reloc_class (reloc_type);
-
-  for (conflict = info->curconflicts; conflict; conflict = conflict->next)
-    if (conflict->symoff == symoff && conflict->reloc_class == reloc_class)
-      {
-	conflict->used = 1;
-	return conflict;
-      }
-
-  return NULL;
-}
-
-GElf_Rela *
-prelink_conflict_add_rela (struct prelink_info *info)
-{
-  GElf_Rela *ret;
-
-  if (info->conflict_rela_alloced == info->conflict_rela_size)
-    {
-      info->conflict_rela_alloced += 10;
-      info->conflict_rela = realloc (info->conflict_rela,
-				     info->conflict_rela_alloced
-				     * sizeof (GElf_Rela));
-      if (info->conflict_rela == NULL)
-	{
-	  error (0, ENOMEM, "Could not build .gnu.conflict section memory image");
-	  return NULL;
-	}
-    }
-  ret = info->conflict_rela + info->conflict_rela_size++;
-  ret->r_offset = 0;
-  ret->r_info = 0;
-  ret->r_addend = 0;
-  return ret;
-}
-
-static int
-prelink_conflict_rel (DSO *dso, int n, struct prelink_info *info)
-{
-  Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
-  GElf_Rel rel;
-  int sec, ndx, maxndx;
-
-  while ((data = elf_getdata (scn, data)) != NULL)
-    {
-      GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
-
-      maxndx = data->d_size / dso->shdr[n].sh_entsize;
-      for (ndx = 0; ndx < maxndx;
-	   ++ndx, addr += dso->shdr[n].sh_entsize)
-	{
-	  gelfx_getrel (dso->elf, data, ndx, &rel);
-	  sec = addr_to_sec (dso, rel.r_offset);
-	  if (sec == -1)
-	    continue;
-
-	  if (dso->arch->prelink_conflict_rel (dso, info, &rel, addr))
-	    return 1;
-	}
-    }
-  return 0;
-}
-
-static int
-prelink_conflict_rela (DSO *dso, int n, struct prelink_info *info)
-{
-  Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
-  GElf_Rela rela;
-  int sec, ndx, maxndx;
-
-  while ((data = elf_getdata (scn, data)) != NULL)
-    {
-      GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
-      
-      maxndx = data->d_size / dso->shdr[n].sh_entsize;
-      for (ndx = 0; ndx < maxndx;
-	   ++ndx, addr += dso->shdr[n].sh_entsize)
-	{
-	  gelfx_getrela (dso->elf, data, ndx, &rela);
-	  sec = addr_to_sec (dso, rela.r_offset);
-	  if (sec == -1)
-	    continue;
-
-	  if (dso->arch->prelink_conflict_rela (dso, info, &rela, addr))
-	    return 1;
-	}
-    }
-  return 0;
-}
-
-struct copy_relocs
-{
-  GElf_Rela *rela;
-  int alloced;
-  int count;
-};
-
-static int
-prelink_add_copy_rel (DSO *dso, int n, GElf_Rel *rel, struct copy_relocs *cr)
-{
-  Elf_Data *data = NULL;
-  int symsec = dso->shdr[n].sh_link;
-  Elf_Scn *scn = elf_getscn (dso->elf, symsec);
-  GElf_Sym sym;
-  size_t entsize = dso->shdr[symsec].sh_entsize;
-  off_t off = GELF_R_SYM (rel->r_info) * entsize;
-    
-  while ((data = elf_getdata (scn, data)) != NULL)
-    {
-      if (data->d_off <= off &&
-	  data->d_off + data->d_size >= off + entsize)
-	{
-	  gelfx_getsym (dso->elf, data, (off - data->d_off) / entsize, &sym);
-	  if (sym.st_size == 0)
-	    {
-	      error (0, 0, "%s: Copy reloc against symbol with zero size",
-		     dso->filename);
-	      return 1;
-	    }
-
-	  if (cr->alloced == cr->count)
-	    {
-	      cr->alloced += 10;
-	      cr->rela = realloc (cr->rela, cr->alloced * sizeof (GElf_Rela));
-	      if (cr->rela == NULL)
-		{
-		  error (0, ENOMEM, "%s: Could not build list of COPY relocs",
-			 dso->filename);
-		  return 1;
-		}
-	    }
-	  cr->rela[cr->count].r_offset = rel->r_offset;
-	  cr->rela[cr->count].r_info = rel->r_info;
-	  cr->rela[cr->count].r_addend = sym.st_size;
-	  ++cr->count;
-	  return 0;
-	}
-    }
-
-  error (0, 0, "%s: Copy reloc against unknown symbol", dso->filename);
-  return 1;
-}
-
-static int
-prelink_find_copy_rel (DSO *dso, int n, struct copy_relocs *cr)
-{
-  Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
-  GElf_Rel rel;
-  int sec, ndx, maxndx;
-
-  while ((data = elf_getdata (scn, data)) != NULL)
-    {
-      maxndx = data->d_size / dso->shdr[n].sh_entsize;
-      for (ndx = 0; ndx < maxndx; ++ndx)
-	{
-	  gelfx_getrel (dso->elf, data, ndx, &rel);
-	  sec = addr_to_sec (dso, rel.r_offset);
-	  if (sec == -1)
-	    continue;
-
-	  if (GELF_R_TYPE (rel.r_info) == dso->arch->R_COPY
-	      && prelink_add_copy_rel (dso, n, &rel, cr))
-	    return 1;
-	}
-    }
-  return 0;
-}
-
-static int
-prelink_find_copy_rela (DSO *dso, int n, struct copy_relocs *cr)
-{
-  Elf_Data *data = NULL;
-  Elf_Scn *scn = elf_getscn (dso->elf, n);
-  union {
-    GElf_Rel rel;
-    GElf_Rela rela;
-  } u;
-  int sec, ndx, maxndx;
-
-  while ((data = elf_getdata (scn, data)) != NULL)
-    {
-      maxndx = data->d_size / dso->shdr[n].sh_entsize;
-      for (ndx = 0; ndx < maxndx; ++ndx)
-	{
-	  gelfx_getrela (dso->elf, data, ndx, &u.rela);
-	  sec = addr_to_sec (dso, u.rela.r_offset);
-	  if (sec == -1)
-	    continue;
-
-	  if (GELF_R_TYPE (u.rela.r_info) == dso->arch->R_COPY)
-	    {
-	      if (u.rela.r_addend != 0)
-		{
-		  error (0, 0, "%s: COPY reloc with non-zero addend?",
-			 dso->filename);
-		  return 1;
-		}
-	      if (prelink_add_copy_rel (dso, n, &u.rel, cr))
-		return 1;
-	    }
-	}
-    }
-  return 0;
-}
-
 struct readonly_adjust
 {
   off_t basemove_adjust;
   GElf_Addr basemove_end;
   int moveend;
   int move2;
+  int newcount, *new;
 };
+
+static void
+insert_readonly_section (GElf_Ehdr *ehdr, GElf_Shdr *shdr, int n,
+		       struct readonly_adjust *adjust)
+{
+  int i;
+
+  memmove (&shdr[n + 1], &shdr[n],
+	   (ehdr->e_shnum - n) * sizeof (GElf_Shdr));
+  ++ehdr->e_shnum;
+  for (i = 0; i < adjust->newcount; ++i)
+    if (adjust->new[i] >= n)
+      ++adjust->new[i];
+}
+
+static int
+remove_readonly_section (GElf_Ehdr *ehdr, GElf_Shdr *shdr, int n,
+			 struct readonly_adjust *adjust)
+{
+  int i, ret = -1;
+
+  memmove (&shdr[n], &shdr[n + 1],
+	   (ehdr->e_shnum - n) * sizeof (GElf_Shdr));
+  --ehdr->e_shnum;
+  for (i = 0; i < adjust->newcount; ++i)
+    if (adjust->new[i] > n)
+      --adjust->new[i];
+    else if (adjust->new[i] == n)
+      {
+	adjust->new[i] = -1;
+	ret = i;
+      }
+
+  return ret;
+}
+
+static inline int
+readonly_is_movable (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int k)
+{
+  if (! (shdr[k].sh_flags & (SHF_ALLOC | SHF_WRITE)))
+    return 0;
+
+  switch (shdr[k].sh_type)
+    {
+    case SHT_HASH:
+    case SHT_DYNSYM:
+    case SHT_REL:
+    case SHT_RELA:
+    case SHT_STRTAB:
+    case SHT_NOTE:
+    case SHT_GNU_verdef:
+    case SHT_GNU_verneed:
+    case SHT_GNU_versym:
+      return 1;
+    default:
+      if (strcmp (strptr (dso, ehdr->e_shstrndx,
+			  shdr[k].sh_name), ".interp") == 0)
+	return 1;
+      return 0;
+    }
+}
 
 static int
 find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
@@ -273,12 +121,10 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    {
 	      if (shdr[j].sh_addr >= add->sh_addr + add->sh_size)
 		{
-		  memmove (&shdr[j + 1], &shdr[j],
-			   (ehdr->e_shnum - j) * sizeof (GElf_Shdr));
+		  insert_readonly_section (ehdr, shdr, j, adjust);
 		  shdr[j] = *add;
 		  shdr[j].sh_offset = (shdr[j].sh_addr - phdr[i].p_vaddr)
 				       + phdr[i].p_offset;
-		  ++ehdr->e_shnum;
 		  return j;
 		}
 	      break;
@@ -294,7 +140,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 
 	if (phdr[i].p_offset < ehdr->e_phoff)
 	  start += ehdr->e_phoff
-		   + (ehdr->e_phnum + 1) * ehdr->e_phentsize
+		   + ehdr->e_phnum * ehdr->e_phentsize
 		   - phdr[i].p_offset;
 	start = (start + add->sh_addralign - 1) & ~(add->sh_addralign - 1);
 	for (j = 1; j < ehdr->e_shnum; ++j)
@@ -329,13 +175,11 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		      || shdr[j].sh_addr > phdr[i].p_vaddr)
 		    after = j - 1;
 	      }
-	    memmove (&shdr[after + 2], &shdr[after + 1],
-		     (ehdr->e_shnum - after - 1) * sizeof (GElf_Shdr));
+	    insert_readonly_section (ehdr, shdr, after + 1, adjust);
 	    shdr[after + 1] = *add;
 	    shdr[after + 1].sh_addr = start;
 	    shdr[after + 1].sh_offset = (start - phdr[i].p_vaddr)
 					 + phdr[i].p_offset;
-	    ++ehdr->e_shnum;
 	    if (start + add->sh_size > phdr[i].p_vaddr + phdr[i].p_filesz)
 	      {
 		adjust_nonalloc (dso, ehdr, shdr, 0, 0,
@@ -368,14 +212,12 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    shdr[j].sh_type = SHT_PROGBITS;
 	}
 
-      memmove (&shdr[j + 1], &shdr[j],
-	       (ehdr->e_shnum - j) * sizeof (GElf_Shdr));
+      insert_readonly_section (ehdr, shdr, j, adjust);
       shdr[j] = *add;
       shdr[j].sh_addr = (shdr[j - 1].sh_addr + shdr[j - 1].sh_size
 			 + add->sh_addralign - 1) & ~(add->sh_addralign - 1);
       shdr[j].sh_offset = (shdr[j].sh_addr - phdr[i].p_vaddr)
 			  + phdr[i].p_offset;
-      ++ehdr->e_shnum;
       phdr[i].p_filesz = shdr[j].sh_addr + add->sh_size - phdr[i].p_vaddr;
       phdr[i].p_memsz = phdr[i].p_filesz;
       adjust_nonalloc (dso, ehdr, shdr, 0, 0, phdr[i].p_offset
@@ -434,19 +276,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		  if (shdr[k].sh_addr > add->sh_addr)
 		    break;
 
-		  switch (shdr[k].sh_type)
+		  if (! readonly_is_movable (dso, ehdr, shdr, k))
 		    {
-		    case SHT_HASH:
-		    case SHT_DYNSYM:
-		    case SHT_REL:
-		    case SHT_RELA:
-		    case SHT_STRTAB:
-		    case SHT_NOTE:
-		    case SHT_GNU_verdef:
-		    case SHT_GNU_verneed:
-		    case SHT_GNU_versym:
-		      break;
-		    default:
 		      k = ehdr->e_shnum;
 		      break;
 		    }
@@ -492,10 +323,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		phdr[j].p_offset += addr;
 	    }
 	  adjust->basemove_adjust += addr;
-	  ++ehdr->e_shnum;
-	  adjust_nonalloc (dso, ehdr, shdr, 0, 0, addr);
-	  memmove (&shdr[k + 1], &shdr[k],
-		     (ehdr->e_shnum - k) * sizeof (GElf_Shdr));
+	  insert_readonly_section (ehdr, shdr, k, adjust);
 	  shdr[k] = *add;
 	  if (k == moveend)
 	    {
@@ -510,19 +338,143 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	  
 	  shdr[k].sh_addr = addr;
 	  shdr[k].sh_offset = (addr - phdr[i].p_vaddr) + phdr[i].p_offset;
+	  adjust_nonalloc (dso, ehdr, shdr, 0, 0, addr);
 	  return k;
 	}
     }
 
   /* We have to create new PT_LOAD if at all possible.  */
   addr = ehdr->e_phoff + (ehdr->e_phnum + 1) * ehdr->e_phentsize;
-  for (i = 1; i < ehdr->e_shnum; ++i)
+  for (j = 1; j < ehdr->e_shnum; ++j)
     {
-      if (addr > shdr[i].sh_offset)
+      if (addr > shdr[j].sh_offset)
 	{
-	  error (0, 0, "%s: No space in ELF segment table to add new ELF segment",
-		 dso->filename);
-	  return 0;
+	  GElf_Addr start, addstart, endaddr, *old_addr;
+	  GElf_Addr minsize = ~(GElf_Addr) 0;
+	  int movesec = -1, last, k, e;
+
+	  if (ehdr->e_phoff < phdr[i].p_offset
+	      || ehdr->e_phoff + (ehdr->e_phnum + 1) * ehdr->e_phentsize
+		 > phdr[i].p_offset + phdr[i].p_filesz
+	      || ! readonly_is_movable (dso, ehdr, shdr, j)
+	      || shdr[j].sh_addr >= phdr[i].p_vaddr + phdr[i].p_filesz)
+	    {
+	      error (0, 0, "%s: No space in ELF segment table to add new ELF segment",
+		     dso->filename);
+	      return 0;
+	    }
+
+	  start = phdr[i].p_vaddr - phdr[i].p_offset + ehdr->e_phoff
+		  + (ehdr->e_phnum + 1) * ehdr->e_phentsize;
+	  for (last = 1; last < ehdr->e_shnum; ++last)
+	    if (! readonly_is_movable (dso, ehdr, shdr, last)
+		|| shdr[last].sh_addr >= phdr[i].p_vaddr + phdr[i].p_filesz)
+	      break;
+	  for (j = 1; j < last; ++j)
+	    {
+	      addstart = (start + add->sh_addralign - 1)
+			 & ~(add->sh_addralign - 1);
+	      start = (start + shdr[j].sh_addralign - 1)
+		      & ~(shdr[j].sh_addralign - 1);
+	      if (j + 1 < last)
+		endaddr = shdr[j + 1].sh_addr;
+	      else
+		endaddr = phdr[i].p_vaddr + phdr[i].p_filesz;
+
+	      switch (shdr[j].sh_type)
+		{
+		case SHT_HASH:
+		case SHT_DYNSYM:
+		case SHT_STRTAB:
+		case SHT_GNU_verdef:
+		case SHT_GNU_verneed:
+		case SHT_GNU_versym:
+		  if (endaddr >= start
+		      && endaddr - start < minsize)
+		    {
+		      minsize = endaddr - start;
+		      movesec = j;
+		    }
+		  if (endaddr > addstart
+		      && endaddr - addstart > add->sh_size
+		      && endaddr - addstart - add->sh_size
+			 < minsize)
+		    {
+		      minsize = endaddr - addstart - add->sh_size;
+		      movesec = j;
+		    }
+		  break;
+		}
+
+	      if (start + shdr[j].sh_size <= endaddr)
+		{
+		  movesec = j + 1;
+		  break;
+		}
+	      start += shdr[j].sh_size;
+	    }
+
+	  if (movesec == -1)	  
+	    {
+	      error (0, 0, "%s: No space in ELF segment table to add new ELF segment",
+		     dso->filename);
+	      return 0;
+	    }
+
+	  start = phdr[i].p_vaddr - phdr[i].p_offset + ehdr->e_phoff
+		  + (ehdr->e_phnum + 1) * ehdr->e_phentsize;
+	  old_addr = (GElf_Addr *) alloca (movesec * sizeof (GElf_Addr));
+	  for (k = 1; k < movesec; ++k)
+	    {
+	      start = (start + shdr[k].sh_addralign - 1)
+		      & ~(shdr[k].sh_addralign - 1);
+	      old_addr[k] = shdr[k].sh_addr;
+	      shdr[k].sh_addr = start;
+	      shdr[k].sh_offset = start + phdr[i].p_offset
+				  - phdr[i].p_vaddr;
+	      start += shdr[k].sh_size;
+	    }
+
+	  for (e = 0; e < ehdr->e_phnum; ++e)
+	    if (phdr[e].p_type != PT_LOAD)
+	      for (k = 1; k < movesec; ++k)
+		if (old_addr[k] == phdr[e].p_vaddr)
+		  {
+		    if (phdr[e].p_filesz != shdr[k].sh_size
+			|| phdr[e].p_memsz != shdr[k].sh_size)
+		      {
+			error (0, 0, "%s: Non-PT_LOAD segment spanning more than one section",
+			       dso->filename);
+			return 0;
+		      }
+		    phdr[e].p_vaddr += shdr[k].sh_addr - old_addr[k];
+		    phdr[e].p_paddr += shdr[k].sh_addr - old_addr[k];
+		    phdr[e].p_offset += shdr[k].sh_addr - old_addr[k];
+		    break;
+		  }
+
+	  if (j < last)
+	    /* Now continue as if there was place for a new PT_LOAD
+	       in ElfW(Phdr) table initially.  */
+	    break;
+	  else
+	    {
+	      GElf_Shdr moveshdr;
+	      int newidx, ret, movedidx;
+
+	      moveshdr = shdr[movesec];
+	      newidx = remove_readonly_section (ehdr, shdr, movesec, adjust);
+	      ret = find_readonly_space (dso, add, ehdr, phdr, shdr, adjust);
+	      if (ret == 0)
+		return 0;
+	      movedidx = find_readonly_space (dso, &moveshdr, ehdr, phdr,
+					      shdr, adjust);
+	      if (movedidx == 0)
+		return 0;
+	      if (newidx != -1)
+		adjust->new[newidx] = movedidx;
+	      return ret;
+	    }
 	}
     }
 
@@ -539,7 +491,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		      & ~(add->sh_addralign - 1);
   phdr[j].p_align = phdr[j - 1].p_align;
   phdr[j].p_vaddr = phdr[j - 1].p_vaddr + phdr[j - 1].p_memsz;
-  phdr[j].p_vaddr += (2 * phdr[j].p_align - 1);
+  phdr[j].p_vaddr += (phdr[j].p_align - 1);
   phdr[j].p_vaddr &= ~(phdr[j].p_align - 1);
   phdr[j].p_vaddr += (phdr[j].p_offset & (phdr[j].p_align - 1));
   phdr[j].p_paddr = phdr[j].p_vaddr;
@@ -550,12 +502,10 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
     if (! (shdr[i].sh_flags & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR)))
       break;
   assert (i < ehdr->e_shnum);
-  memmove (&shdr[i + 1], &shdr[i],
-	   (ehdr->e_shnum - i) * sizeof (GElf_Shdr));
+  insert_readonly_section (ehdr, shdr, i, adjust);
   shdr[i] = *add;
   shdr[i].sh_addr = phdr[j].p_vaddr;
   shdr[i].sh_offset = phdr[j].p_offset;
-  ++ehdr->e_shnum;
   adjust_nonalloc (dso, ehdr, shdr, 0, 0, 
 		   phdr[j].p_offset + phdr[j].p_filesz - phdr[j - 1].p_offset
 		   - phdr[j - 1].p_filesz);
@@ -594,397 +544,6 @@ update_dynamic_tags (DSO *dso, GElf_Shdr *old_shdr, struct section_move *move)
     }
 
   return 0;
-}
-
-static int
-rela_cmp (const void *A, const void *B)
-{
-  GElf_Rela *a = (GElf_Rela *)A;
-  GElf_Rela *b = (GElf_Rela *)B;
-
-  if (a->r_offset < b->r_offset)
-    return -1;
-  if (a->r_offset > b->r_offset)
-    return 1;
-  return 0;
-}
-
-int
-get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
-		   char *buf, GElf_Word size)
-{
-  int sec = addr_to_sec (dso, addr), j;
-  Elf_Scn *scn;
-  Elf_Data *data;
-  off_t off;
-
-  if (sec == -1)
-    return 1;
-
-  memset (buf, 0, size);
-  if (dso->shdr[sec].sh_type != SHT_NOBITS)
-    {
-      scn = elf_getscn (dso->elf, sec);
-      data = NULL;
-      off = addr - dso->shdr[sec].sh_addr;
-      while ((data = elf_rawdata (scn, data)) != NULL)
-	{
-	  if (data->d_off < off + size
-	      && data->d_off + data->d_size > off)
-	    {
-	      off_t off2 = off - data->d_off;
-	      size_t len = size;
-
-	      if (off2 < 0)
-		{
-		  len += off2;
-		  off2 = 0;
-		}
-	      if (off2 + len > data->d_size)
-		len = data->d_size - off2;
-	      assert (off2 + len <= data->d_size);
-	      assert (len <= size);
-	      memcpy (buf + off2 - off, data->d_buf + off2, len);
-	    }
-	}
-    }
-
-  if (info->dso != dso)
-    {
-      /* This is tricky. We need to apply any conflicts
-	 against memory area which we've copied to the COPY
-	 reloc offset.  */
-      for (j = 0; j < info->conflict_rela_size; ++j)
-	{
-	  int reloc_type, reloc_size;
-	  off_t off;
-
-	  if (info->conflict_rela[j].r_offset >= addr + size)
-	    continue;
-	  if (info->conflict_rela[j].r_offset + dso->arch->max_reloc_size
-	      <= addr)
-	    continue;
-
-	  reloc_type = GELF_R_TYPE (info->conflict_rela[j].r_info);
-	  reloc_size = dso->arch->reloc_size (reloc_type);
-	  if (info->conflict_rela[j].r_offset + reloc_size <= addr)
-	    continue;
-
-	  off = info->conflict_rela[j].r_offset - addr;
-
-	  /* Check if whole relocation fits into the area.
-	     Punt if not.  */
-	  if (off < 0 || size - off < reloc_size)
-	    return 2;
-	  dso->arch->apply_conflict_rela (info, info->conflict_rela + j,
-					  buf + off);
-	}
-    }
-  else
-    {
-      int i, ndx, maxndx;
-      int reloc_type, reloc_size;
-      union { GElf_Rel rel; GElf_Rela rela; } u;
-      off_t off;
-
-      if (addr + size > info->dynbss_base
-	  && addr < info->dynbss_base + info->dynbss_size)
-	{
-	  if (addr < info->dynbss_base
-	      || addr + size > info->dynbss_base + info->dynbss_size)
-	    return 4;
-
-	  memcpy (buf, info->dynbss + (addr - info->dynbss_base), size);
-	  return 0;
-	}
-
-      for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	{
-
-	  if (! (dso->shdr[i].sh_flags & SHF_ALLOC))
-	    continue;
-	  if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-				dso->shdr[i].sh_name),
-			".gnu.conflict"))
-	    continue;
-	  switch (dso->shdr[i].sh_type)
-	    {
-	    case SHT_REL:
-	    case SHT_RELA:
-	      break;
-	    default:
-	      continue;
-	    }
-	  scn = elf_getscn (dso->elf, i);
-	  data = NULL;
-	  while ((data = elf_getdata (scn, data)) != NULL)
-	    {
-	      maxndx = data->d_size / dso->shdr[i].sh_entsize;
-	      for (ndx = 0; ndx < maxndx; ++ndx)
-		{
-		  if (dso->shdr[i].sh_type == SHT_REL)
-		    gelfx_getrel (dso->elf, data, ndx, &u.rel);
-		  else
-		    gelfx_getrela (dso->elf, data, ndx, &u.rela);
-
-		  if (u.rel.r_offset >= addr + size)
-		    continue;
-		  if (u.rel.r_offset + dso->arch->max_reloc_size <= addr)
-		    continue;
-
-		  reloc_type = GELF_R_TYPE (u.rel.r_info);
-		  reloc_size = dso->arch->reloc_size (reloc_type);
-		  if (u.rel.r_offset + reloc_size <= addr)
-		    continue;
-
-		  if (reloc_type == dso->arch->R_COPY)
-		    return 3;
-
-		  off = u.rel.r_offset - addr;
-
-		  /* Check if whole relocation fits into the area.
-		     Punt if not.  */
-		  if (off < 0 || size - off < reloc_size)
-		    return 2;
-
-		  if (dso->shdr[i].sh_type == SHT_REL)
-		    dso->arch->apply_rel (info, &u.rel, buf + off);
-		  else
-		    dso->arch->apply_rela (info, &u.rela, buf + off);
-		}
-	    }
-	}
-    }
-
-  return 0;
-}
-
-static int
-prelink_build_conflicts (struct prelink_info *info)
-{
-  int i, ndeps = info->ent->ndepends + 1;
-  struct prelink_entry *ent;
-  int ret = 0;
-  DSO *dso;
-  struct copy_relocs cr;
-
-  info->dsos = alloca (sizeof (struct DSO *) * ndeps);
-  memset (info->dsos, 0, sizeof (struct DSO *) * ndeps);
-  memset (&cr, 0, sizeof (cr));
-  info->dsos[0] = info->dso;
-  for (i = 1; i < ndeps; ++i)
-    {
-      ent = info->ent->depends[i - 1];
-      if ((dso = open_dso (ent->filename)) == NULL)
-	goto error_out;
-      info->dsos[i] = dso;
-      /* Now check that the DSO matches what we recorded about it.  */
-      if (ent->timestamp != dso->info_DT_GNU_PRELINKED
-	  || ent->checksum != dso->info_DT_CHECKSUM
-	  || ent->base != dso->base)
-	{
-	  error (0, 0, "%s: Library %s has changed since it has been prelinked",
-		 info->dso->filename, ent->filename);
-	  goto error_out;
-	}
-    }
-
-  for (i = 1; i < ndeps; ++i)
-    {
-      if (info->conflicts[i])
-	{
-	  
-	  int j, sec, first_conflict;
-	  struct prelink_conflict *conflict;
-
-	  dso = info->dsos[i];
-	  info->curconflicts = info->conflicts[i];
-	  first_conflict = info->conflict_rela_size;
-	  sec = addr_to_sec (dso, dso->info[DT_SYMTAB]);
-	  /* DT_SYMTAB should be found and should point to
-	     start of .dynsym section.  */
-	  if (sec == -1
-	      || dso->info[DT_SYMTAB] != dso->shdr[sec].sh_addr)
-	    {
-	      error (0, 0, "Bad symtab");
-	      goto error_out;
-	    }
-	  info->symtab_start = dso->shdr[sec].sh_addr - dso->base;
-	  info->symtab_end = info->symtab_start + dso->shdr[sec].sh_size;
-	  for (j = 0; j < dso->ehdr.e_shnum; ++j)
-	    {
-	      if (! (dso->shdr[j].sh_flags & SHF_ALLOC))
-		continue;
-	      switch (dso->shdr[j].sh_type)
-		{
-		case SHT_REL:
-		  if (prelink_conflict_rel (dso, j, info))
-		    goto error_out;
-		  break;
-		case SHT_RELA:
-		  if (prelink_conflict_rela (dso, j, info))
-		    goto error_out;
-		  break;
-		}
-	    }
-
-	  for (conflict = info->curconflicts; conflict;
-	       conflict = conflict->next)
-	    if (! conflict->used)
-	      {
-		error (0, 0, "%s: Conflict %08llx not found in any relocation",
-		       dso->filename, (unsigned long long) conflict->symoff);
-		ret = 1;
-	      }
-
-	  if (dynamic_info_is_set (dso, DT_TEXTREL)
-	      && info->conflict_rela_size > first_conflict)
-	    {
-	      /* We allow prelinking against non-PIC libraries, as long as
-		 no conflict is against read-only segment.  */
-	      int k;
-
-	      for (j = first_conflict; j < info->conflict_rela_size; ++j)
-		for (k = 0; k < dso->ehdr.e_phnum; ++k)
-		  if (dso->phdr[k].p_type == PT_LOAD
-		      && (dso->phdr[k].p_flags & PF_W) == 0
-		      && dso->phdr[k].p_vaddr
-			 <= info->conflict_rela[j].r_offset
-		      && dso->phdr[k].p_vaddr + dso->phdr[k].p_memsz
-			 > info->conflict_rela[j].r_offset)
-		    {
-		      error (0, 0, "%s: Cannot prelink against non-PIC shared library %s",
-			     info->dso->filename, dso->filename);
-		      goto error_out;
-		    }
-	    }
-	}
-    }
-
-  dso = info->dso;
-  for (i = 0; i < dso->ehdr.e_shnum; ++i)
-    {
-      if (! (dso->shdr[i].sh_flags & SHF_ALLOC))
-	continue;
-      switch (dso->shdr[i].sh_type)
-	{
-	case SHT_REL:
-	  if (prelink_find_copy_rel (dso, i, &cr))
-	    goto error_out;
-	  break;
-	case SHT_RELA:
-	  if (prelink_find_copy_rela (dso, i, &cr))
-	    goto error_out;
-	  break;
-	}
-    }
-
-  if (cr.count)
-    {
-      int bss;
-
-      qsort (cr.rela, cr.count, sizeof (GElf_Rela), rela_cmp);
-      if ((bss = addr_to_sec (dso, cr.rela[0].r_offset))
-	  != addr_to_sec (dso, cr.rela[cr.count - 1].r_offset))
-	{
-	  /* FIXME. When porting to architectures which use both
-	     .sbss and emit copy relocs, we need to support that somehow.  */
-	  error (0, 0, "%s: Not all copy relocs belong to the same section",
-		 dso->filename);
-	  goto error_out;
-	}
-      info->dynbss_size = cr.rela[cr.count - 1].r_offset - cr.rela[0].r_offset;
-      info->dynbss_size += cr.rela[cr.count - 1].r_addend;
-      info->dynbss = calloc (info->dynbss_size, 1);
-      info->dynbss_base = cr.rela[0].r_offset;
-      if (info->dynbss == NULL)
-	{
-	  error (0, ENOMEM, "%s: Cannot build .dynbss", dso->filename);
-	  goto error_out;
-	}
-      /* emacs apparently has .rel.bss relocations against .data section,
-	 crap.  */
-      if (dso->shdr[bss].sh_type != SHT_NOBITS
-	  && strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-			     dso->shdr[bss].sh_name),
-		     ".dynbss") != 0)
-	{
-	  error (0, 0, "%s: COPY relocations don't point into .bss section",
-		 dso->filename);
-	  goto error_out;
-	}
-      for (i = 0; i < cr.count; ++i)
-	{
-	  struct prelink_symbol *s;
-	  DSO *ndso = NULL;
-	  int j, reloc_class;
-
-	  reloc_class
-	    = dso->arch->reloc_class (GELF_R_TYPE (cr.rela[i].r_info));
-
-	  for (s = & info->symbols[GELF_R_SYM (cr.rela[i].r_info)]; s;
-	       s = s->next)
-	    if (s->reloc_class == reloc_class)
-	      break;
-
-	  if (s == NULL || s->ent == NULL)
-	    {
-	      error (0, 0, "%s: Could not find symbol copy reloc is against",
-		     dso->filename);
-	      goto error_out;
-	    }
-
-	  for (j = 1; j < ndeps; ++j)
-	    if (info->ent->depends[j - 1] == s->ent)
-	      {
-		ndso = info->dsos[j];
-		break;
-	      }
-
-	  assert (j < ndeps);
-	  j = get_relocated_mem (info, ndso, s->ent->base + s->value,
-				 info->dynbss + cr.rela[i].r_offset
-				 - info->dynbss_base, cr.rela[i].r_addend);
-	  switch (j)
-	    {
-	    case 1:
-	      error (0, 0, "%s: Could not find variable copy reloc is against",
-		     dso->filename);
-	      goto error_out;
-	    case 2:
-	      error (0, 0, "%s: Conflict partly overlaps with %08llx-%08llx area",
-		     dso->filename,
-		     (long long) cr.rela[i].r_offset,
-		     (long long) cr.rela[i].r_offset + cr.rela[i].r_addend);
-	      goto error_out;
-	    }
-	}
-    }
-
-  if (info->conflict_rela_size)
-    {
-      qsort (info->conflict_rela, info->conflict_rela_size, sizeof (GElf_Rela),
-	     rela_cmp);
-      if (enable_cxx_optimizations && remove_redundant_cxx_conflicts (info))
-	goto error_out;
-    }
-
-  for (i = 1; i < ndeps; ++i)
-    if (info->dsos[i])
-      close_dso (info->dsos[i]);
-
-  info->dsos = NULL;
-  free (cr.rela);
-  return ret;
-
-error_out:
-  free (cr.rela);
-  free (info->dynbss);
-  info->dynbss = NULL;
-  for (i = 1; i < ndeps; ++i)
-    if (info->dsos[i])
-      close_dso (info->dsos[i]);
-  return 1;
 }
 
 int
@@ -1168,6 +727,7 @@ prelink_exec (struct prelink_info *info)
     }
   addcnt = i;
   memset (&adjust, 0, sizeof (adjust));
+  adjust.new = new;
 
   for (i = 0; i < addcnt; ++i)
     {
@@ -1179,9 +739,7 @@ prelink_exec (struct prelink_info *info)
       add_section (move, new[i]);
       if (i == new_reloc && new_plt != -1)
 	k = 2;
-      for (j = 0; j < i; ++j)
-	if (new[j] >= new[i])
-	  new[j] += k;
+      ++adjust.newcount;
       if (old[i])
 	{
 	  move->old_to_new[old[i]] = new[i];
@@ -1191,9 +749,7 @@ prelink_exec (struct prelink_info *info)
 	{
 	  k = new[i];
 	  shdr[k].sh_size -= add[i+1].sh_size;
-	  memmove (&shdr[k + 2], &shdr[k + 1],
-		   (ehdr.e_shnum - k - 1) * sizeof (GElf_Shdr));
-	  ++ehdr.e_shnum;
+	  insert_readonly_section (&ehdr, shdr, k + 1, &adjust);
 	  shdr[k + 1] = add[i + 1];
 	  shdr[k + 1].sh_addr = shdr[k].sh_addr + shdr[k].sh_size;
 	  shdr[k + 1].sh_offset = shdr[k].sh_offset + shdr[k].sh_size;
@@ -1202,6 +758,7 @@ prelink_exec (struct prelink_info *info)
 	  move->old_to_new[rinfo.plt] = k + 1;
 	  move->new_to_old[k + 1] = rinfo.plt;
 	  ++i;
+	  ++adjust.newcount;
 	}
     }
 
