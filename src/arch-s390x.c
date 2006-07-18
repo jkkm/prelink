@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -82,7 +82,12 @@ s390x_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
     {
     case R_390_RELATIVE:
       if (rela->r_addend >= start)
-	rela->r_addend += adjust;
+	{
+	  addr = read_ube64 (dso, rela->r_offset);
+	  if (addr == rela->r_addend)
+	    write_be64 (dso, rela->r_offset, addr + adjust);
+	  rela->r_addend += adjust;
+	}
       break;
     case R_390_JMP_SLOT:
       addr = read_ube64 (dso, rela->r_offset);
@@ -117,7 +122,7 @@ s390x_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_390_GLOB_DAT:
     case R_390_JMP_SLOT:
@@ -170,7 +175,7 @@ static int
 s390x_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_390_64:
       buf_write_be64 (buf, rela->r_addend);
@@ -205,7 +210,7 @@ s390x_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_390_NONE:
       break;
@@ -366,11 +371,108 @@ s390x_arch_prelink (DSO *dso)
 			 ".plt"))
 	break;
 
-      assert (i < dso->ehdr.e_shnum);
+      if (i == dso->ehdr.e_shnum)
+	return 0;
       data = dso->shdr[i].sh_addr + 0x2e;
       write_be64 (dso, dso->info[DT_PLTGOT] + 8, data);
     }
 
+  return 0;
+}
+
+static int
+s390x_arch_undo_prelink (DSO *dso)
+{
+  int i;
+
+  if (dso->info[DT_PLTGOT])
+    {
+      /* Clear got[1] if it contains address of .plt + 0x2e.  */
+      int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
+      Elf64_Addr data;
+
+      if (sec == -1)
+	return 1;
+
+      for (i = 1; i < dso->ehdr.e_shnum; i++)
+	if (dso->shdr[i].sh_type == SHT_PROGBITS
+	    && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				 dso->shdr[i].sh_name),
+			 ".plt"))
+	break;
+
+      if (i == dso->ehdr.e_shnum)
+	return 0;
+      data = read_ube64 (dso, dso->info[DT_PLTGOT] + 8);
+      if (data == dso->shdr[i].sh_addr + 0x2e)
+	write_be64 (dso, dso->info[DT_PLTGOT] + 8, 0);
+    }
+
+  return 0;
+}
+
+static int
+s390x_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
+{
+  int sec;
+
+  switch (GELF_R_TYPE (rela->r_info))
+    {
+    case R_390_NONE:
+    case R_390_RELATIVE:
+      break;
+    case R_390_JMP_SLOT:
+      sec = addr_to_sec (dso, rela->r_offset);
+      if (sec == -1
+	  || strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			     dso->shdr[sec].sh_name), ".got"))
+	{
+	  error (0, 0, "%s: R_390_JMP_SLOT not pointing into .got section",
+		 dso->filename);
+	  return 1;
+	}
+      else
+	{
+	  Elf64_Addr data = read_ube64 (dso, dso->shdr[sec].sh_addr + 8);
+
+	  assert (rela->r_offset >= dso->shdr[sec].sh_addr + 24);
+	  assert (((rela->r_offset - dso->shdr[sec].sh_addr) & 3) == 0);
+	  write_be32 (dso, rela->r_offset,
+		      4 * (rela->r_offset - dso->shdr[sec].sh_addr - 24)
+		      + data);
+	}
+      break;
+    case R_390_GLOB_DAT:
+    case R_390_64:
+    case R_390_PC64:
+      write_be64 (dso, rela->r_offset, 0);
+      break;
+    case R_390_32:
+    case R_390_PC32:
+    case R_390_PC32DBL:
+    case R_390_PLT32DBL:
+      write_be32 (dso, rela->r_offset, 0);
+      break;
+    case R_390_16:
+    case R_390_PC16:
+    case R_390_PC16DBL:
+    case R_390_PLT16DBL:
+      write_be16 (dso, rela->r_offset, 0);
+      break;
+    case R_390_8:
+      write_8 (dso, rela->r_offset, 0);
+      break;
+    case R_390_COPY:
+      if (dso->ehdr.e_type == ET_EXEC)
+	/* COPY relocs are handled specially in generic code.  */
+	return 0;
+      error (0, 0, "%s: R_390_COPY reloc in shared library?", dso->filename);
+      return 1;
+    default:
+      error (0, 0, "%s: Unknown s390x relocation type %d", dso->filename,
+	     (int) GELF_R_TYPE (rela->r_info));
+      return 1;
+    }
   return 0;
 }
 
@@ -435,6 +537,8 @@ PL_ARCH = {
   .reloc_class = s390x_reloc_class,
   .max_reloc_size = 8,
   .arch_prelink = s390x_arch_prelink,
+  .arch_undo_prelink = s390x_arch_undo_prelink,
+  .undo_prelink_rela = s390x_undo_prelink_rela,
   /* Although TASK_UNMAPPED_BASE is 0x4000000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc
      does not take some library's VA slot.

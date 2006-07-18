@@ -207,7 +207,7 @@ fdopen_dso (int fd, const char *name)
 {
   Elf *elf = NULL;
   GElf_Ehdr ehdr;
-  int i, j, k, last, *sections;
+  int i, j, k, last, *sections, *invsections;
   DSO *dso = NULL;
   struct PLArch *plarch;
   extern struct PLArch __start_pl_arch[], __stop_pl_arch[];
@@ -281,7 +281,7 @@ fdopen_dso (int fd, const char *name)
       gelfx_getshdr (elf, dso->scn[i], dso->shdr + i);
     }
 
-  sections = (int *) alloca (dso->ehdr.e_shnum * sizeof (int));
+  sections = (int *) alloca (dso->ehdr.e_shnum * sizeof (int) * 2);
   sections[0] = 0;
   for (i = 1, j = 1, k = dso->ehdr.e_shnum, last = -1;
        i < dso->ehdr.e_shnum; ++i)
@@ -295,17 +295,23 @@ fdopen_dso (int fd, const char *name)
   assert (j == k);
 
   qsort (sections + k, dso->ehdr.e_shnum - k, sizeof (*sections), section_cmp);
+  invsections = sections + dso->ehdr.e_shnum;
+  invsections[0] = 0;
   for (i = 1; i < ehdr.e_shnum; ++i)
     {
       dso->scn[i] = elf_getscn (elf, sections[i]);
       gelfx_getshdr (elf, dso->scn[i], dso->shdr + i);
-      dso->shdr[i].sh_link = sections[dso->shdr[i].sh_link];
+      invsections[sections[i]] = i;
+    }
+  for (i = 1; i < ehdr.e_shnum; ++i)
+    {
+      dso->shdr[i].sh_link = invsections[dso->shdr[i].sh_link];
       if (dso->shdr[i].sh_type == SHT_REL
 	  || dso->shdr[i].sh_type == SHT_RELA
 	  || (dso->shdr[i].sh_flags & SHF_INFO_LINK))
-	dso->shdr[i].sh_info = sections[dso->shdr[i].sh_info];
+	dso->shdr[i].sh_info = invsections[dso->shdr[i].sh_info];
     }
-  dso->ehdr.e_shstrndx = sections[dso->ehdr.e_shstrndx];
+  dso->ehdr.e_shstrndx = invsections[dso->ehdr.e_shstrndx];
 
   for (plarch = __start_pl_arch; plarch < __stop_pl_arch; plarch++)
     if (plarch->class == ehdr.e_ident[EI_CLASS]

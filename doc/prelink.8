@@ -1,4 +1,4 @@
-.TH prelink 8 "10 July 2001"
+.TH prelink 8 "14 July 2002"
 .SH NAME
 prelink \- prelink ELF shared libraries and binaries to speed up startup time
 .SH SYNOPSIS
@@ -135,6 +135,38 @@ walking directory hierarchies.
 When processing command line directory arguments, limit directory tree walk
 to a single filesystem.
 .TP
+.B \-u \-\-undo
+Revert binaries and libraries to their original content before they were
+prelinked.
+Without
+.I \-a
+option this causes only the binaries and libraries specified on the command
+line to be reverted to their original state (and e.g. not their
+dependencies). If used together with
+.I \-a
+option all binaries and libraries from command line, all their dependencies,
+all binaries found in directories specified on command line and in config
+file and all their dependencies will be undone.
+.TP
+.B \-y \-\-verify
+Verifies a prelinked binary or library.
+This option can be used only on a single binary or library. It first applies
+an
+.I \-\-undo
+operation on the file, then prelinks just that file again and compares this
+with the original file. If both are identical, it prints the file after
+.I \-\-undo
+operation on standard output and exit with zero status. Otherwise it exits
+with error status.
+Thus if
+.I \-\-verify
+operation returns zero exit status and its standard output is
+equal to the content of the binary or library before prelinking, you can be
+sure that nobody modified the binaries or libraries after prelinking.
+Similarly with message digests and checksums (unless you trigger the
+unprobable case of modified file and original file having the same digest
+or checksum).
+.TP
 .B \-V \-\-version
 Print version and exit.
 .TP
@@ -166,6 +198,13 @@ will prelink ~/bin/progx program and all its dependant libraries (unless
 they were prelinked already e.g. during
 .I prelink \-a
 invocation).
+.RS
+# /usr/sbin/prelink -au
+.RE
+will revert all binaries and libraries to their original content.
+.RS
+# /usr/sbin/prelink -y /bin/prelinked_prog > /tmp/original_prog; echo $?
+will verify whether /bin/prelinked_prog hasn't been changed.
 .SH FILES
 .PD 0
 .TP 20
@@ -205,7 +244,6 @@ switch, meaning tree walk of the given directory will follow symbolic links.
 .SH BUGS
 .LP
 .B prelink
-still lacks an undo mode and verify mode. Also, it needs to be ported to
-more architectures beyond IA-32.
+Some architectures, including IA-64, HPPA and MIPS are not yet supported.
 .SH AUTHORS
 Jakub Jelinek <jakub@redhat.com>.

@@ -183,7 +183,7 @@ sparc64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 SPARC64_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (SPARC64_R_TYPE (rela->r_info))    
+  switch (SPARC64_R_TYPE (rela->r_info))
     {
     case R_SPARC_GLOB_DAT:
     case R_SPARC_64:
@@ -278,7 +278,7 @@ static int
 sparc64_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (SPARC64_R_TYPE (rela->r_info))    
+  switch (SPARC64_R_TYPE (rela->r_info))
     {
     case R_SPARC_64:
     case R_SPARC_UA64:
@@ -316,7 +316,7 @@ sparc64_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 SPARC64_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (SPARC64_R_TYPE (rela->r_info))    
+  switch (SPARC64_R_TYPE (rela->r_info))
     {
     case R_SPARC_NONE:
       break;
@@ -422,7 +422,7 @@ sparc64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   ret->r_offset = rela->r_offset;
   value += rela->r_addend;
   r_type = SPARC64_R_TYPE (rela->r_info);
-  switch (r_type)    
+  switch (r_type)
     {
     case R_SPARC_DISP64:
       value -= rela->r_offset;
@@ -576,7 +576,7 @@ sparc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_SPARC_UA64:
     case R_SPARC_DISP64:
       write_be64 (dso, rela->r_offset, 0);
-      break;    
+      break;
     case R_SPARC_32:
     case R_SPARC_UA32:
     case R_SPARC_DISP32:

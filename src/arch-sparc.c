@@ -146,7 +146,7 @@ sparc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_SPARC_GLOB_DAT:
     case R_SPARC_32:
@@ -204,7 +204,7 @@ static int
 sparc_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_SPARC_32:
     case R_SPARC_UA32:
@@ -238,7 +238,7 @@ sparc_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_SPARC_NONE:
       break;
@@ -313,7 +313,7 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   ret->r_offset = rela->r_offset;
   value += rela->r_addend;
   r_type = GELF_R_TYPE (rela->r_info);
-  switch (r_type)    
+  switch (r_type)
     {
     case R_SPARC_DISP32:
       value -= rela->r_offset;

@@ -494,12 +494,11 @@ i386_undo_prelink_rel (DSO *dso, GElf_Rel *rel, GElf_Addr reladdr)
 {
   int sec;
 
-  if (GELF_R_TYPE (rel->r_info) == R_386_RELATIVE
-      || GELF_R_TYPE (rel->r_info) == R_386_NONE)
-    /* Fast path: nothing to do.  */
-    return 0;
   switch (GELF_R_TYPE (rel->r_info))
     {
+    case R_386_NONE:
+    case R_386_RELATIVE:
+      break;
     case R_386_JMP_SLOT:
       sec = addr_to_sec (dso, rel->r_offset);
       if (sec == -1

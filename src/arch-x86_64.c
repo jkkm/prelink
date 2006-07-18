@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -82,7 +82,11 @@ x86_64_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
     {
     case R_X86_64_RELATIVE:
       if (rela->r_addend >= start)
-	rela->r_addend += adjust;
+	{
+	  if (read_ule64 (dso, rela->r_offset) == rela->r_addend)
+	    write_le64 (dso, rela->r_offset, rela->r_addend + adjust);
+	  rela->r_addend += adjust;
+	}
       break;
     case R_X86_64_JUMP_SLOT:
       addr = read_ule64 (dso, rela->r_offset);
@@ -102,7 +106,7 @@ x86_64_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
 
 static int
 x86_64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
-		   GElf_Addr relaaddr)
+		     GElf_Addr relaaddr)
 {
   DSO *dso;
   GElf_Addr value;
@@ -117,7 +121,7 @@ x86_64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     }
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_X86_64_GLOB_DAT:
     case R_X86_64_JUMP_SLOT:
@@ -148,7 +152,7 @@ static int
 x86_64_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_X86_64_GLOB_DAT:
     case R_X86_64_JUMP_SLOT:
@@ -178,7 +182,7 @@ x86_64_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
 
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_X86_64_NONE:
       break;
@@ -234,7 +238,7 @@ x86_64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     return 1;
   ret->r_offset = rela->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_X86_64_GLOB_DAT:
     case R_X86_64_JUMP_SLOT:
@@ -304,6 +308,90 @@ x86_64_arch_prelink (DSO *dso)
 }
 
 static int
+x86_64_arch_undo_prelink (DSO *dso)
+{
+  int i;
+
+  if (dso->info[DT_PLTGOT])
+    {
+      /* Clear got[1] if it contains address of .plt + 0x16.  */
+      int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
+      Elf32_Addr data;
+
+      if (sec == -1)
+	return 1;
+
+      for (i = 1; i < dso->ehdr.e_shnum; i++)
+	if (dso->shdr[i].sh_type == SHT_PROGBITS
+	    && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				 dso->shdr[i].sh_name),
+			 ".plt"))
+	break;
+
+      if (i == dso->ehdr.e_shnum)
+	return 0;
+      data = read_ule64 (dso, dso->info[DT_PLTGOT] + 8);
+      if (data == dso->shdr[i].sh_addr + 0x16)
+	write_le64 (dso, dso->info[DT_PLTGOT] + 8, 0);
+    }
+
+  return 0;
+}
+
+static int
+x86_64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
+{
+  int sec;
+
+  switch (GELF_R_TYPE (rela->r_info))
+    {
+    case R_X86_64_NONE:
+    case R_X86_64_RELATIVE:
+      break;
+    case R_X86_64_JUMP_SLOT:
+      sec = addr_to_sec (dso, rela->r_offset);
+      if (sec == -1
+	  || strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			     dso->shdr[sec].sh_name), ".got"))
+	{
+	  error (0, 0, "%s: R_X86_64_JUMP_SLOT not pointing into .got section",
+		 dso->filename);
+	  return 1;
+	}
+      else
+	{
+	  Elf32_Addr data = read_ule64 (dso, dso->shdr[sec].sh_addr + 8);
+
+	  assert (rela->r_offset >= dso->shdr[sec].sh_addr + 24);
+	  assert (((rela->r_offset - dso->shdr[sec].sh_addr) & 7) == 0);
+	  write_le64 (dso, rela->r_offset,
+		      2 * (rela->r_offset - dso->shdr[sec].sh_addr - 24)
+		      + data);
+	}
+      break;
+    case R_X86_64_GLOB_DAT:
+    case R_X86_64_64:
+      write_le64 (dso, rela->r_offset, 0);
+      break;
+    case R_X86_64_32:
+    case R_X86_64_PC32:
+      write_le32 (dso, rela->r_offset, 0);
+      break;
+    case R_X86_64_COPY:
+      if (dso->ehdr.e_type == ET_EXEC)
+	/* COPY relocs are handled specially in generic code.  */
+	return 0;
+      error (0, 0, "%s: R_X86_64_COPY reloc in shared library?", dso->filename);
+      return 1;
+    default:
+      error (0, 0, "%s: Unknown X86-64 relocation type %d", dso->filename,
+	     (int) GELF_R_TYPE (rela->r_info));
+      return 1;
+    }
+  return 0;
+}
+
+static int
 x86_64_reloc_size (int reloc_type)
 {
   switch (reloc_type)
@@ -352,6 +440,8 @@ PL_ARCH = {
   .reloc_class = x86_64_reloc_class,
   .max_reloc_size = 8,
   .arch_prelink = x86_64_arch_prelink,
+  .arch_undo_prelink = x86_64_arch_undo_prelink,
+  .undo_prelink_rela = x86_64_undo_prelink_rela,
   /* Although TASK_UNMAPPED_BASE is 0x2a95555555, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc
      does not take some library's VA slot.

@@ -58,6 +58,13 @@ alpha_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 	    rela->r_addend += adjust;
 	}
     }
+  else if (GELF_R_TYPE (rela->r_info) == R_ALPHA_GLOB_DAT)
+    {
+      GElf_Addr val = read_ule64 (dso, rela->r_offset) - rela->r_addend;
+
+      if (val && val >= start)
+	write_le64 (dso, rela->r_offset, val + adjust + rela->r_addend);
+    }
   return 0;
 }
 
@@ -152,7 +159,7 @@ alpha_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_ALPHA_GLOB_DAT:
     case R_ALPHA_REFQUAD:
@@ -201,7 +208,7 @@ alpha_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
 
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_ALPHA_NONE:
       break;
@@ -249,7 +256,7 @@ alpha_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     return 1;
   ret->r_offset = rela->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_ALPHA_GLOB_DAT:
     case R_ALPHA_REFQUAD:
@@ -320,6 +327,7 @@ alpha_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
       /* br at,.plt  */
       write_le32 (dso, relaaddr,
 		  0xc39fffff - (relaaddr - dso->info[DT_PLTGOT]) / 4);
+      write_le64 (dso, relaaddr + 4, 0);
       write_le64 (dso, rela->r_offset, relaaddr);
       break;
     case R_ALPHA_GLOB_DAT:
@@ -327,7 +335,7 @@ alpha_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 	 reloc, but instead puts in sym.st_value + addend.  */
       sec = addr_to_sec (dso, relaaddr);
       assert (sec != -1);
-      sec = dso->shdr[sec].sh_info;
+      sec = dso->shdr[sec].sh_link;
       assert (sec > 0 && sec < dso->ehdr.e_shnum);
       scn = dso->scn[sec];
       data = elf_getdata (scn, NULL);
@@ -339,7 +347,7 @@ alpha_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
       break;
     case R_ALPHA_REFQUAD:
       write_le64 (dso, rela->r_offset, 0);
-      break;    
+      break;
     default:
       error (0, 0, "%s: Unknown alpha relocation type %d", dso->filename,
 	     (int) GELF_R_TYPE (rela->r_info));

@@ -24,14 +24,47 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/sendfile.h>
 #include "prelink.h"
+
+static ssize_t
+send_file (int outfd, int infd, off_t *poff, size_t count)
+{
+  char buf[65536], *p, *q;
+  size_t todo = count, len;
+  ssize_t n;
+
+  if (lseek (infd, *poff, SEEK_SET) != *poff)
+    return -1;
+  while (todo > 0)
+    {
+      len = todo > sizeof (buf) ? sizeof (buf) : todo;
+      p = buf;
+      q = buf + len;
+      while (p != q)
+	{
+	  n = TEMP_FAILURE_RETRY (read (infd, p, q - p));
+	  if (n < 0)
+	    return -1;
+	  p += n;
+	}
+      p = buf;
+      while (p != q)
+        {
+	  n = TEMP_FAILURE_RETRY (write (outfd, p, q - p));
+	  if (n < 0)
+	    return -1;
+	  p += n;
+        }
+      todo -= len;
+    }
+  return count;
+}
 
 int
 prelink_verify (const char *filename)
 {
   DSO *dso = NULL, *dso2 = NULL;
-  int fd = -1, undo, ret;
+  int fd = -1, fdorig = -1, fdundone = -1, undo, ret;
   struct stat64 st, st2;
   off_t off;
   struct prelink_entry *ent;
@@ -119,6 +152,15 @@ prelink_verify (const char *filename)
       goto failure;
     }
 
+  fdorig = dup (dso->fdro);
+  if (fdorig < 0)
+    {
+      error (0, errno, "Could not verify %s", filename);
+      goto failure;
+    }
+
+  ent->filename = strdupa (dso->temp_filename);
+
   fchmod (fd, 0700);
 
   dso2 = fdopen_dso (fd, filename);
@@ -132,10 +174,11 @@ prelink_verify (const char *filename)
   if (ent->type == ET_DYN && relocate_dso (dso2, base))
     goto failure;
 
-  ent->filename = dso->temp_filename;
-
   if (prelink (dso2, ent))
     goto failure;
+
+  close_dso (dso);
+  dso = NULL;
 
   if (write_dso (dso2))
     goto failure;
@@ -147,7 +190,17 @@ prelink_verify (const char *filename)
       goto failure;
     }
 
-  if (fstat64 (dso->fdro, &st2) < 0)
+  fdundone = dup (dso2->fdro);
+  if (fdundone < 0)
+    {
+      error (0, errno, "Could not verify %s", filename);
+      goto failure;
+    }
+
+  close_dso (dso2);
+  dso2 = NULL;
+
+  if (fstat64 (fdorig, &st2) < 0)
     {
       error (0, errno, "Couldn't fstat %s", filename);
       goto failure;
@@ -172,7 +225,7 @@ prelink_verify (const char *filename)
       goto failure;
     }
 
-  if (lseek (dso->fdro, 0, SEEK_SET) != 0
+  if (lseek (fdorig, 0, SEEK_SET) != 0
       || lseek (fd, 0, SEEK_SET) != 0)
     {
       error (0, errno, "%s: couldn't seek to start of files", filename);
@@ -186,7 +239,7 @@ prelink_verify (const char *filename)
 
       if (len > count)
 	len = count;
-      if (read (dso->fdro, buffer, len) != len)
+      if (read (fdorig, buffer, len) != len)
         {
           error (0, errno, "%s: couldn't read file", filename);
           goto failure;
@@ -204,30 +257,31 @@ prelink_verify (const char *filename)
       count -= len;
     }
 
-  if (fstat64 (dso2->fdro, &st2) < 0)
+  if (fstat64 (fdundone, &st2) < 0)
     {
       error (0, errno, "%s: couldn't fstat temporary file", filename);
       goto failure;
     }
 
   off = 0;
-  if (sendfile (1, dso2->fdro, &off, st2.st_size) != st2.st_size)
+  if (send_file (1, fdundone, &off, st2.st_size) != st2.st_size)
     {
       error (0, errno, "Couldn't write file to standard output");
       goto failure;
     }
 
-  close_dso (dso2);
-  close_dso (dso);
   close (fd);
+  close (fdorig);
+  close (fdundone);
   return 0;
 
 failure:
-  /* Allow for debugging to figure out where exactly the files differ.  */
-  if (getenv ("DEBUG_PRELINK"))
-    return EXIT_FAILURE;
   if (fd != -1)
     close (fd);
+  if (fdorig != -1)
+    close (fdorig);
+  if (fdundone != -1)
+    close (fdundone);
   if (dso)
     close_dso (dso);
   if (dso2)
@@ -243,7 +297,7 @@ not_prelinked:
   if (fstat64 (fd, &st) < 0)
     error (EXIT_FAILURE, errno, "Couldn't fstat %s", filename);
   off = 0;
-  if (sendfile (1, fd, &off, st.st_size) != st.st_size)
+  if (send_file (1, fd, &off, st.st_size) != st.st_size)
     error (EXIT_FAILURE, errno, "Couldn't write file to standard output");
   close (fd);
   return 0;

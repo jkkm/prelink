@@ -132,7 +132,7 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
       return 0;
     }
 
-  if (pltend == end)
+  if (pltstart != end && pltend == end)
     {
       rinfo->overlap = 1;
       --last;

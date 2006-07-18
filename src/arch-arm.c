@@ -247,7 +247,7 @@ arm_apply_rel (struct prelink_info *info, GElf_Rel *rel, char *buf)
     case R_ARM_PC24:
       val = value + rel->r_offset;
       value = read_ule32 (info->dso, rel->r_offset) << 8;
-      value = (Elf32_Sword) value >> 6;
+      value = ((Elf32_Sword) value) >> 6;
       val += value;
       val >>= 2;
       if ((Elf32_Word) val + 0x800000 >= 0x1000000)
@@ -421,11 +421,38 @@ arm_rel_to_rela (DSO *dso, GElf_Rel *rel, GElf_Rela *rela)
       break;
     case R_ARM_PC24:
       rela->r_addend = read_ule32 (dso, rel->r_offset) << 8;
-      rela->r_addend = (Elf32_Sword) rela->r_addend >> 6;
+      rela->r_addend = ((Elf32_Sword) rela->r_addend) >> 6;
       break;
     case R_ARM_COPY:
     case R_ARM_GLOB_DAT:
       rela->r_addend = 0;
+      break;
+    }
+  return 0;
+}
+
+static int
+arm_rela_to_rel (DSO *dso, GElf_Rela *rela, GElf_Rel *rel)
+{
+  rel->r_offset = rela->r_offset;
+  rel->r_info = rela->r_info;
+  switch (GELF_R_TYPE (rel->r_info))
+    {
+    case R_ARM_JUMP_SLOT:
+      /* We should be never converting .rel.plt into .rela.plt
+	 and thus never .rela.plt back to .rel.plt.  */
+      abort ();
+    case R_ARM_RELATIVE:
+    case R_ARM_ABS32:
+      write_le32 (dso, rela->r_offset, rela->r_addend);
+      break;
+    case R_ARM_PC24:
+      write_le32 (dso, rela->r_offset,
+		  (read_ule32 (dso, rela->r_offset) & 0xff000000)
+		  | ((rela->r_addend >> 2) & 0xffffff));
+      break;
+    case R_ARM_GLOB_DAT:
+      write_le32 (dso, rela->r_offset, 0);
       break;
     }
   return 0;
@@ -488,11 +515,107 @@ arm_arch_prelink (DSO *dso)
                          ".plt"))
         break;
 
-      assert (i < dso->ehdr.e_shnum);
+      if (i == dso->ehdr.e_shnum)
+	return 0;
       data = dso->shdr[i].sh_addr;
       write_le32 (dso, dso->info[DT_PLTGOT] + 4, data);
     }
 
+  return 0;
+}
+
+static int
+arm_arch_undo_prelink (DSO *dso)
+{
+  int i;
+
+  if (dso->info[DT_PLTGOT])
+    {
+      /* Clear got[1] if it contains address of .plt.  */
+      int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
+      Elf32_Addr data;
+
+      if (sec == -1)
+	return 1;
+
+      for (i = 1; i < dso->ehdr.e_shnum; i++)
+	if (dso->shdr[i].sh_type == SHT_PROGBITS
+	    && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				 dso->shdr[i].sh_name),
+			 ".plt"))
+	break;
+
+      if (i == dso->ehdr.e_shnum)
+	return 0;
+      data = read_ule32 (dso, dso->info[DT_PLTGOT] + 4);
+      if (data == dso->shdr[i].sh_addr)
+	write_le32 (dso, dso->info[DT_PLTGOT] + 4, 0);
+    }
+
+  return 0;
+}
+
+static int
+arm_undo_prelink_rel (DSO *dso, GElf_Rel *rel, GElf_Addr reladdr)
+{
+  int sec;
+
+  switch (GELF_R_TYPE (rel->r_info))
+    {
+    case R_ARM_RELATIVE:
+    case R_ARM_NONE:
+      break;
+    case R_ARM_JUMP_SLOT:
+      sec = addr_to_sec (dso, rel->r_offset);
+      if (sec == -1
+	  || strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			     dso->shdr[sec].sh_name), ".got"))
+	{
+	  error (0, 0, "%s: R_ARM_JMP_SLOT not pointing into .got section",
+		 dso->filename);
+	  return 1;
+	}
+      else
+	{
+	  Elf32_Addr data = read_ule32 (dso, dso->shdr[sec].sh_addr + 4);
+
+	  assert (rel->r_offset >= dso->shdr[sec].sh_addr + 12);
+	  assert (((rel->r_offset - dso->shdr[sec].sh_addr) & 3) == 0);
+	  write_le32 (dso, rel->r_offset, data);
+	}
+      break;
+    case R_ARM_GLOB_DAT:
+      sec = addr_to_sec (dso, rel->r_offset);
+
+      write_le32 (dso, rel->r_offset, 0);
+      if (sec != -1)
+	{
+	  if (strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			      dso->shdr[sec].sh_name),
+		      ".got"))
+	    {
+	      rel->r_info = GELF_R_INFO (GELF_R_SYM (rel->r_info), R_ARM_ABS32);
+	      return 2;
+	    }
+	}
+      break;
+    case R_ARM_ABS32:
+    case R_ARM_PC24:
+      error (0, 0, "%s: R_ARM_%s relocs should not be present in prelinked REL sections",
+	     GELF_R_TYPE (rel->r_info) == R_ARM_ABS32 ? "ABS32" : "PC24",
+	     dso->filename);
+      return 1;
+    case R_ARM_COPY:
+      if (dso->ehdr.e_type == ET_EXEC)
+	/* COPY relocs are handled specially in generic code.  */
+	return 0;
+      error (0, 0, "%s: R_ARM_COPY reloc in shared library?", dso->filename);
+      return 1;
+    default:
+      error (0, 0, "%s: Unknown arm relocation type %d", dso->filename,
+	     (int) GELF_R_TYPE (rel->r_info));
+      return 1;
+    }
   return 0;
 }
 
@@ -533,11 +656,14 @@ PL_ARCH = {
   .apply_rel = arm_apply_rel,
   .apply_rela = arm_apply_rela,
   .rel_to_rela = arm_rel_to_rela,
+  .rela_to_rel = arm_rela_to_rel,
   .need_rel_to_rela = arm_need_rel_to_rela,
   .reloc_size = arm_reloc_size,
   .reloc_class = arm_reloc_class,
   .max_reloc_size = 4,
   .arch_prelink = arm_arch_prelink,
+  .arch_undo_prelink = arm_arch_undo_prelink,
+  .undo_prelink_rel = arm_undo_prelink_rel,
   /* Although TASK_UNMAPPED_BASE is 0x40000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc
      does not take some library's VA slot.

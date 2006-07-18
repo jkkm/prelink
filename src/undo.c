@@ -220,6 +220,7 @@ prelink_undo (DSO *dso)
       COPY (e_shentsize);
       COPY (e_shnum);
       COPY (e_shstrndx);
+#undef COPY
     }
 
   if (memcmp (ehdr.e_ident, dso->ehdr.e_ident, sizeof (ehdr.e_ident))
@@ -265,7 +266,7 @@ prelink_undo (DSO *dso)
       dst.d_buf = alloca (dst.d_size);
       break;
     case ELFCLASS64:
-      dst.d_buf = &phdr;
+      dst.d_buf = phdr;
       break;
     }
   if (gelf_xlatetom (dso->elf, &dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
@@ -290,6 +291,7 @@ prelink_undo (DSO *dso)
 	  COPY(p_filesz);
 	  COPY(p_memsz);
 	  COPY(p_align);
+#undef COPY
 	}
     }
 
@@ -297,7 +299,7 @@ prelink_undo (DSO *dso)
   memset (shdr, 0, sizeof (GElf_Shdr));
   src.d_type = ELF_T_SHDR;
   src.d_buf += src.d_size;
-  src.d_size = gelf_fsize (dso->elf, ELF_T_SHDR, ehdr.e_shnum, EV_CURRENT);
+  src.d_size = gelf_fsize (dso->elf, ELF_T_SHDR, ehdr.e_shnum - 1, EV_CURRENT);
   dst = src;
   switch (gelf_getclass (dso->elf))
     {
@@ -334,6 +336,7 @@ prelink_undo (DSO *dso)
 	  COPY (sh_info);
 	  COPY (sh_addralign);
 	  COPY (sh_entsize);
+#undef COPY
 	}
     }
 

@@ -99,17 +99,23 @@ buf_read_ube32 (unsigned char *data)
 inline uint64_t
 buf_read_ule64 (unsigned char *data)
 {
-  return (data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24))
-	 | (((uint64_t)(data[4] | (data[5] << 8) | (data[6] << 16)
-			| (data[7] << 24))) << 32);
+  return (data[0] | (data[1] << 8) | (data[2] << 16))
+	 | (((uint64_t)data[3]) << 24)
+	 | (((uint64_t)data[4]) << 32)
+	 | (((uint64_t)data[5]) << 40)
+	 | (((uint64_t)data[6]) << 48)
+	 | (((uint64_t)data[7]) << 56);
 }
 
 inline uint64_t
 buf_read_ube64 (unsigned char *data)
 {
-  return (data[7] | (data[6] << 8) | (data[5] << 16) | (data[4] << 24))
-	 | (((uint64_t)(data[3] | (data[2] << 8) | (data[1] << 16)
-			| (data[0] << 24))) << 32);
+  return (data[7] | (data[6] << 8) | (data[5] << 16))
+	 | (((uint64_t)data[4]) << 24)
+	 | (((uint64_t)data[3]) << 32)
+	 | (((uint64_t)data[2]) << 40)
+	 | (((uint64_t)data[1]) << 48)
+	 | (((uint64_t)data[0]) << 56);
 }
 
 inline void
