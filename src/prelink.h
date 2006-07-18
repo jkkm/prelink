@@ -53,6 +53,12 @@ typedef struct
   GElf_Addr info_DT_GNU_PRELINKED;
   GElf_Addr info_DT_CHECKSUM;
   GElf_Addr info_DT_VERNEED, info_DT_VERDEF, info_DT_VERSYM;
+#define DT_GNU_PRELINKED_BIT 50
+#define DT_CHECKSUM_BIT 51
+#define DT_VERNEED_BIT 52
+#define DT_VERDEF_BIT 53
+#define DT_VERSYM_BIT 54
+  uint64_t info_set_mask;
   int fd, fdro;
   int lastscn, dynamic;
   const char *soname;
@@ -62,6 +68,8 @@ typedef struct
   int nadjust;
   GElf_Shdr shdr[0];
 } DSO;
+
+#define dynamic_info_is_set(dso,bit) ((dso)->info_set_mask & (1ULL << (bit)))
 
 struct PLArch
 {
@@ -80,10 +88,12 @@ struct PLArch
   int (*prelink_rela) (struct prelink_info *info, GElf_Rela *rela);
   int (*prelink_conflict_rel) (struct prelink_info *info, GElf_Rel *rel);
   int (*prelink_conflict_rela) (struct prelink_info *info, GElf_Rela *rela);
-  int (*copy_rela) (struct prelink_info *info, GElf_Rela *rela, char *buf,
-		    size_t len);
+  int (*apply_conflict_rela) (struct prelink_info *info, GElf_Rela *rela,
+			      char *buf);
   int (*rel_to_rela) (DSO *dso, GElf_Rel *rel, GElf_Rela *rela);
   int (*need_rel_to_rela) (DSO *dso, int first, int last);
+  /* Return reloc size in bytes for given non-COPY reloc type.  */
+  int (*reloc_size) (int);
   int (*arch_prelink) (DSO *dso);
   GElf_Addr mmap_base, mmap_end, page_size;
 };
@@ -102,6 +112,7 @@ struct section_move *init_section_move (DSO *dso);
 void add_section (struct section_move *move, int sec);
 void remove_section (struct section_move *move, int sec);
 int reopen_dso (DSO *dso, struct section_move *move);
+int check_dso (DSO *dso);
 int dso_is_rdwr (DSO *dso);
 void read_dynamic (DSO *dso);
 int set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal);
@@ -121,20 +132,19 @@ int shstrtabadd (DSO *dso, const char *name);
 
 /* data.c */
 unsigned char * get_data (DSO *dso, GElf_Addr addr, int *scnp);
-uint8_t read_u8 (DSO *dso, GElf_Addr addr);
-uint16_t read_ule16 (DSO *dso, GElf_Addr addr);
-uint16_t read_ube16 (DSO *dso, GElf_Addr addr);
-uint32_t read_ule32 (DSO *dso, GElf_Addr addr);
-uint32_t read_ube32 (DSO *dso, GElf_Addr addr);
-uint64_t read_ule64 (DSO *dso, GElf_Addr addr);
-uint64_t read_ube64 (DSO *dso, GElf_Addr addr);
-int write_8 (DSO *dso, GElf_Addr addr, uint8_t val);
-int write_le16 (DSO *dso, GElf_Addr addr, uint16_t val);
-int write_be16 (DSO *dso, GElf_Addr addr, uint16_t val);
-int write_le32 (DSO *dso, GElf_Addr addr, uint32_t val);
-int write_be32 (DSO *dso, GElf_Addr addr, uint32_t val);
-int write_le64 (DSO *dso, GElf_Addr addr, uint64_t val);
-int write_be64 (DSO *dso, GElf_Addr addr, uint64_t val);
+#define READWRITEPROTO(le,nn)					\
+uint##nn##_t buf_read_u##le##nn (unsigned char *data);		\
+uint##nn##_t read_u##le##nn (DSO *dso, GElf_Addr addr);		\
+void buf_write_##le##nn (unsigned char *data, uint##nn##_t val);\
+int write_##le##nn (DSO *dso, GElf_Addr addr, uint##nn##_t val);
+READWRITEPROTO(,8)
+READWRITEPROTO(le,16)
+READWRITEPROTO(be,16)
+READWRITEPROTO(le,32)
+READWRITEPROTO(be,32)
+READWRITEPROTO(le,64)
+READWRITEPROTO(be,64)
+#undef READWRITEPROTO
 const char * strptr (DSO *dso, int sec, off_t offset);
 
 #define PL_ARCH \
@@ -272,7 +282,7 @@ struct prelink_conflict *
 GElf_Rela *prelink_conflict_add_rela (struct prelink_info *info);
 int prelink_get_relocations (struct prelink_info *info);
 int prelink_exec (struct prelink_info *info);
-uint32_t prelink_set_checksum (DSO *dso);
+int prelink_set_checksum (DSO *dso);
 int is_ldso_soname (const char *soname);
 
 int gather_object (const char *dir, int deref, int onefs);
@@ -298,5 +308,6 @@ extern int conserve_memory;
 extern int verbose;
 extern int dry_run;
 extern int libs_only;
+extern int enable_cxx_optimizations;
 
 #endif /* PRELINK_H */

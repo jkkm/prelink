@@ -36,6 +36,7 @@ read_dynamic (DSO *dso)
   int i;
 
   memset (dso->info, 0, sizeof(dso->info));
+  dso->info_set_mask = 0;
   for (i = 0; i < dso->ehdr.e_shnum; i++)
     if (dso->shdr[i].sh_type == SHT_DYNAMIC)
       {
@@ -55,17 +56,36 @@ read_dynamic (DSO *dso)
 		if (dyn.d_tag == DT_NULL)
 		  break;
 		else if (dyn.d_tag < DT_NUM)
-		  dso->info[dyn.d_tag] = dyn.d_un.d_val;
+		  {
+		    dso->info[dyn.d_tag] = dyn.d_un.d_val;
+		    if (dyn.d_tag < 50)
+		      dso->info_set_mask |= (1ULL << dyn.d_tag);
+		  }
 		else if (dyn.d_tag == DT_CHECKSUM)
-		  dso->info_DT_CHECKSUM = dyn.d_un.d_val;
+		  {
+		    dso->info_DT_CHECKSUM = dyn.d_un.d_val;
+		    dso->info_set_mask |= (1ULL << DT_CHECKSUM_BIT);
+		  }
 		else if (dyn.d_tag == DT_GNU_PRELINKED)
-		  dso->info_DT_GNU_PRELINKED = dyn.d_un.d_val;
+		  {
+		    dso->info_DT_GNU_PRELINKED = dyn.d_un.d_val;
+		    dso->info_set_mask |= (1ULL << DT_GNU_PRELINKED_BIT);
+		  }
 		else if (dyn.d_tag == DT_VERDEF)
-		  dso->info_DT_VERDEF = dyn.d_un.d_val;
+		  {
+		    dso->info_DT_VERDEF = dyn.d_un.d_val;
+		    dso->info_set_mask |= (1ULL << DT_VERDEF_BIT);
+		  }
 		else if (dyn.d_tag == DT_VERNEED)
-		  dso->info_DT_VERNEED = dyn.d_un.d_val;
+		  {
+		    dso->info_DT_VERNEED = dyn.d_un.d_val;
+		    dso->info_set_mask |= (1ULL << DT_VERNEED_BIT);
+		  }
 		else if (dyn.d_tag == DT_VERSYM)
-		  dso->info_DT_VERSYM = dyn.d_un.d_val;
+		  {
+		    dso->info_DT_VERSYM = dyn.d_un.d_val;
+		    dso->info_set_mask |= (1ULL << DT_VERSYM_BIT);
+		  }
 	      }
 	    if (ndx < maxndx)
 	      break;
@@ -81,6 +101,7 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
   GElf_Dyn dyn;
   int ndx, maxndx;
   int pt_dynamic, pt_load, i;
+  uint64_t mask = dso->info_set_mask;
 
   assert (dso->shdr[dso->dynamic].sh_type == SHT_DYNAMIC);
 
@@ -88,6 +109,24 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
 
   data = elf_getdata (scn, NULL);
   assert (elf_getdata (scn, data) == NULL);
+
+  switch (tag)
+    {
+    case DT_CHECKSUM:
+      mask |= (1ULL << DT_CHECKSUM_BIT); break;
+    case DT_GNU_PRELINKED:
+      mask |= (1ULL << DT_GNU_PRELINKED_BIT); break;
+    case DT_VERDEF:
+      mask |= (1ULL << DT_VERDEF_BIT); break;
+    case DT_VERNEED:
+      mask |= (1ULL << DT_VERNEED_BIT); break;
+    case DT_VERSYM:
+      mask |= (1ULL << DT_VERSYM_BIT); break;
+    default:
+      if (tag < DT_NUM && tag < 50)
+	mask |= (1ULL << tag);
+      break;
+    }
 
   maxndx = data->d_size / dso->shdr[dso->dynamic].sh_entsize;
   for (ndx = 0; ndx < maxndx; ndx++)
@@ -134,6 +173,7 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
       dyn.d_tag = tag;
       dyn.d_un.d_ptr = value;
       gelfx_update_dyn (dso->elf, data, ndx, &dyn);
+      dso->info_set_mask = mask;
       elf_flagscn (scn, ELF_C_SET, ELF_F_DIRTY);
       return 0;
     }
@@ -195,7 +235,27 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
       dso->phdr[pt_load].p_filesz += dso->shdr[dso->dynamic].sh_entsize;
       gelf_update_phdr (dso->elf, pt_load, dso->phdr + pt_load);
     }
+  dso->info_set_mask = mask;
   elf_flagphdr (dso->elf, ELF_C_SET, ELF_F_DIRTY);
+  return 0;
+}
+
+int
+check_dso (DSO *dso)
+{
+  int i;
+
+  /* FIXME: Several routines in prelink and in libelf-0.7.0 too
+     rely on sh_offset's monotonically increasing.  */
+  for (i = 2; i < dso->ehdr.e_shnum; ++i)
+    if (dso->shdr[i - 1].sh_offset
+	+ (dso->shdr[i - 1].sh_type == SHT_NOBITS
+	   ? 0 : dso->shdr[i - 1].sh_size) > dso->shdr[i].sh_offset)
+      {
+	error (0, 0, "%s: section file offsets not monotonically increasing",
+	       dso->filename);
+	return 1;
+      }
   return 0;
 }
 
@@ -1148,7 +1208,7 @@ close_dso_1 (DSO *dso)
       int i;
 
       for (i = 1; i < dso->ehdr.e_shnum; ++i)
-        {
+	{
 	  Elf_Scn *scn = elf_getscn (dso->elf, i);
 	  Elf_Data *data = NULL;
 
@@ -1157,7 +1217,7 @@ close_dso_1 (DSO *dso)
 	      free (data->d_buf);
 	      data->d_buf = NULL;
 	    }
-        }
+	}
     }
 
   elf_end (dso->elf);
@@ -1206,6 +1266,12 @@ update_dso (DSO *dso)
       struct stat64 st;
       int i;
 
+      if (check_dso (dso))
+	{
+	  close_dso (dso);
+	  return 1;
+	}
+
       name1 = alloca (len + 1);
       name2 = alloca (len + sizeof (".#prelink#"));
       memcpy (name1, dso->filename, len + 1);
@@ -1224,18 +1290,18 @@ update_dso (DSO *dso)
 	  return 1;
 	}
       if (fstat64 (dso->fdro, &st) < 0)
-        {
-          error (0, errno, "Could not stat %s", dso->filename);
-          close_dso (dso);
-          return 1;
-        }
+	{
+	  error (0, errno, "Could not stat %s", dso->filename);
+	  close_dso (dso);
+	  return 1;
+	}
       if (fchown (dso->fd, st.st_uid, st.st_gid) < 0
-          || fchmod (dso->fd, st.st_mode & 07777) < 0)
-        {
-          error (0, errno, "Could not set %s owner or mode", dso->filename);
-          close_dso (dso);
-          return 1;
-        }
+	  || fchmod (dso->fd, st.st_mode & 07777) < 0)
+	{
+	  error (0, errno, "Could not set %s owner or mode", dso->filename);
+	  close_dso (dso);
+	  return 1;
+	}
       close_dso_1 (dso);
       u.actime = time (NULL);
       u.modtime = st.st_mtime;

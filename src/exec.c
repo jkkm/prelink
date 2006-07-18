@@ -601,6 +601,360 @@ rela_cmp (const void *A, const void *B)
 }
 
 static int
+get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
+		   char *buf, GElf_Word size)
+{
+  int sec = addr_to_sec (dso, addr), j;
+  Elf_Scn *scn;
+  Elf_Data *data;
+  off_t off;
+
+  if (sec == -1)
+    return 1;
+
+  memset (buf, 0, size);
+  if (dso->shdr[sec].sh_type != SHT_NOBITS)
+    {
+      scn = elf_getscn (dso->elf, sec);
+      data = NULL;
+      off = addr - dso->shdr[sec].sh_addr;
+      while ((data = elf_rawdata (scn, data)) != NULL)
+	{
+	  if (data->d_off < off + size
+	      && data->d_off + data->d_size > off)
+	    {
+	      off_t off2 = off - data->d_off;
+	      size_t len = size;
+
+	      if (off2 < 0)
+		{
+		  len += off2;
+		  off2 = 0;
+		}
+	      if (off2 + len > data->d_size)
+		len = data->d_size - off2;
+	      assert (off2 + len <= data->d_size);
+	      assert (len <= size);
+	      memcpy (buf + off2 - off, data->d_buf + off2, len);
+	    }
+	}
+    }
+
+  if (info->dso != dso)
+    {
+      /* This is tricky. We need to apply any conflicts
+	 against memory area which we've copied to the COPY
+	 reloc offset.  */
+      for (j = 0; j < info->conflict_rela_size; ++j)
+	{
+	  int reloc_type, reloc_size;
+
+	  reloc_type = GELF_R_TYPE (info->conflict_rela[j].r_info);
+	  reloc_size = dso->arch->reloc_size (reloc_type);
+	  if (info->conflict_rela[j].r_offset + reloc_size > addr
+	      && info->conflict_rela[j].r_offset < addr + size)
+	    {
+	      off_t off = info->conflict_rela[j].r_offset - addr;
+
+	      /* Check if whole relocation fits into the area.
+		 Punt if not.  */
+	      if (off < 0 || size - off < reloc_size)
+		return 2;
+	      dso->arch->apply_conflict_rela (info, info->conflict_rela + j,
+					      buf + off);
+	    }
+	}
+    }
+  else
+    {
+      /* FIXME */
+      return 3;
+    }
+
+  return 0;
+}
+
+struct find_cxx_sym
+{
+  DSO *dso;
+  int n;
+  struct prelink_entry *ent;
+  Elf_Data *symtab, *strtab;
+  int symsec, strsec;
+  GElf_Sym sym;
+};
+
+static int
+find_cxx_sym (struct prelink_info *info, GElf_Addr addr,
+	      struct find_cxx_sym *fcs, int reloc_size)
+{
+  int n, ndeps = info->ent->ndepends + 1;
+  int ndx, maxndx;
+  DSO *dso;
+  Elf_Scn *scn;
+
+  if (fcs->ent == NULL
+      || addr < fcs->ent->base
+      || addr >= fcs->ent->end)
+    {
+      for (n = 1; n < ndeps; ++n)
+	{
+	  fcs->ent = info->ent->depends[n - 1];
+	  if (addr >= fcs->ent->base
+	      && addr < fcs->ent->end)
+	    break;
+	}
+
+      if (n == ndeps
+	  && addr >= info->dso->base
+	  && addr < info->dso->end)
+	{
+	  n = 0;
+	  fcs->ent = info->ent;
+	}
+
+      assert (n < ndeps);
+      fcs->n = n;
+      fcs->dso = dso = info->dsos[n];
+      fcs->symsec = addr_to_sec (dso, dso->info[DT_SYMTAB]);
+      if (fcs->symsec == -1)
+	{
+	  fcs->ent = NULL;
+	  return -1;
+	}
+      scn = elf_getscn (dso->elf, fcs->symsec);
+      fcs->symtab = elf_getdata (scn, NULL);
+      assert (elf_getdata (scn, fcs->symtab) == NULL);
+      fcs->strsec = addr_to_sec (dso, dso->info[DT_STRTAB]);
+      if (fcs->strsec == -1)
+	{
+	  fcs->ent = NULL;
+	  return -1;
+	}
+      scn = elf_getscn (dso->elf, fcs->strsec);
+      fcs->strtab = elf_getdata (scn, NULL);
+      assert (elf_getdata (scn, fcs->strtab) == NULL);
+    }
+  else
+    dso = fcs->dso;
+
+  maxndx = fcs->symtab->d_size / dso->shdr[fcs->symsec].sh_entsize;
+  for (ndx = 0; ndx < maxndx; ++ndx)
+    {
+      gelfx_getsym (dso->elf, fcs->symtab, ndx, &fcs->sym);
+      if (fcs->sym.st_value <= addr
+	  && fcs->sym.st_value + fcs->sym.st_size >=
+	     addr + reloc_size)
+	break;
+    }
+
+  if (ndx == maxndx)
+    return -1;
+
+  return ndx;
+}
+
+/* The idea here is that C++ virtual tables are always emitted
+   in .gnu.linkonce.d.* sections as WEAK symbols and they
+   need to be the same.
+   We check if they are and if yes, remove conflicts against
+   virtual tables which will not be used.  */
+
+static int
+remove_redundant_cxx_conflicts (struct prelink_info *info)
+{
+  int i, j, k, n, o, state, removed = 0;
+  int ndx, maxndx, sec;
+  int reloc_type, reloc_size;
+  struct find_cxx_sym fcs1, fcs2;
+  char *name = NULL, *mem1, *mem2;
+  const char *secname = NULL;
+  GElf_Addr symtab_start;
+  GElf_Word symoff;
+  struct prelink_conflict *conflict;
+  static struct
+    {
+      unsigned char *prefix;
+      unsigned char prefix_len, st_info;
+      unsigned char *section;
+    }
+  specials[] =
+    {
+      /* G++ 3.0 ABI.  */
+      /* Virtual table.  */
+      { "_ZTV", 4, GELF_ST_INFO (STB_WEAK, STT_OBJECT), ".data" },
+      /* Typeinfo.  */
+      { "_ZTI", 4, GELF_ST_INFO (STB_WEAK, STT_OBJECT), ".data" },
+      /* G++ 2.96-RH ABI.  */
+      /* Virtual table.  */
+#define OLDABI_VT 2
+      { "__vt_", 5, GELF_ST_INFO (STB_WEAK, STT_OBJECT), ".data" },
+      { NULL, 0, 0, NULL }
+    };
+
+  state = 0;
+  memset (&fcs1, 0, sizeof (fcs1));
+  memset (&fcs2, 0, sizeof (fcs2));
+  for (i = 0; i < info->conflict_rela_size; ++i)
+    {
+      reloc_type = GELF_R_TYPE (info->conflict_rela[i].r_info);
+      reloc_size = info->dso->arch->reloc_size (reloc_type);
+
+      if (GELF_R_SYM (info->conflict_rela[i].r_info) != 0)
+	continue;
+
+      if (state
+	  && fcs1.sym.st_value <= info->conflict_rela[i].r_offset
+	  && fcs1.sym.st_value + fcs1.sym.st_size
+	     >= info->conflict_rela[i].r_offset + reloc_size)
+	{
+	  if (state == 2)
+	    {
+	      if (verbose > 3)
+		error (0, 0, "Removing C++ conflict at %s:%s+%d",
+		       fcs1.dso->filename, name,
+		       (int) (info->conflict_rela[i].r_offset
+			      - fcs1.sym.st_value));
+	      info->conflict_rela[i].r_info =
+		GELF_R_INFO (1, GELF_R_TYPE (info->conflict_rela[i].r_info));
+	      ++removed;
+	    }
+	  continue;
+	}
+
+      n = find_cxx_sym (info, info->conflict_rela[i].r_offset,
+			&fcs1, reloc_size);
+
+      name = (char *) fcs1.strtab->d_buf + fcs1.sym.st_name;
+      state = 0;
+      if (n == -1)
+	continue;
+      state = 1;
+      sec = addr_to_sec (fcs1.dso, fcs1.sym.st_value);
+      if (sec == -1)
+	continue;
+      secname = strptr (fcs1.dso, fcs1.dso->ehdr.e_shstrndx,
+			fcs1.dso->shdr[sec].sh_name);
+      if (secname == NULL)
+	continue;
+
+      for (k = 0; specials[k].prefix; ++k)
+	if (GELF_ST_VISIBILITY (fcs1.sym.st_other) == STV_DEFAULT
+	    && fcs1.sym.st_info == specials[k].st_info
+	    && strncmp (name, specials[k].prefix, specials[k].prefix_len) == 0
+	    && strcmp (secname, specials[k].section) == 0)
+	  break;
+
+      if (specials[k].prefix == NULL)
+	continue;
+
+      /* Now check there are no other symbols pointing to it.  */
+      maxndx = fcs1.symtab->d_size / fcs1.dso->shdr[fcs1.symsec].sh_entsize;
+      for (ndx = 0; ndx < maxndx; ++ndx)
+	if (ndx != n)
+	  {
+	    GElf_Sym sym;
+
+	    gelfx_getsym (fcs1.dso->elf, fcs1.symtab, ndx, &sym);
+	    if ((sym.st_value + sym.st_size > fcs1.sym.st_value
+		 && sym.st_value < fcs1.sym.st_value + fcs1.sym.st_size)
+		|| sym.st_value == fcs1.sym.st_value)
+	      break;
+	  }
+
+      if (ndx < maxndx)
+	continue;
+
+      symtab_start = fcs1.dso->shdr[fcs1.symsec].sh_addr - fcs1.dso->base;
+      symoff = symtab_start + n * fcs1.dso->shdr[fcs1.symsec].sh_entsize;
+
+      for (conflict = info->conflicts[fcs1.n]; conflict;
+	   conflict = conflict->next)
+	if (conflict->symoff == symoff
+	    && conflict->reloc_type != fcs1.dso->arch->R_COPY
+	    && conflict->reloc_type != fcs1.dso->arch->R_JMP_SLOT)
+	  break;
+
+      if (conflict == NULL)
+	continue;
+
+      if (conflict->conflictent != fcs1.ent
+	  || fcs1.dso->base + conflict->conflictval != fcs1.sym.st_value)
+	continue;
+
+      if (verbose > 4)
+	error (0, 0, "Possible C++ conflict removal at %s:%s+%d",
+	       fcs1.dso->filename, name,
+	       (int) (info->conflict_rela[i].r_offset - fcs1.sym.st_value));
+
+      /* Limit size slightly.  */
+      if (fcs1.sym.st_size > 16384)
+	continue;
+
+      o = find_cxx_sym (info, conflict->lookupent->base + conflict->lookupval,
+			&fcs2, fcs1.sym.st_size);
+
+      if (o == -1
+	  || fcs1.sym.st_size != fcs2.sym.st_size
+	  || fcs1.sym.st_info != fcs2.sym.st_info
+	  || GELF_ST_VISIBILITY (fcs2.sym.st_other) != STV_DEFAULT
+	  || strcmp (name, (char *) fcs2.strtab->d_buf + fcs2.sym.st_name) != 0)
+	continue;
+
+      mem1 = malloc (fcs1.sym.st_size * 2);
+      if (mem1 == NULL)
+	continue;
+
+      mem2 = mem1 + fcs1.sym.st_size;
+
+      if (get_relocated_mem (info, fcs1.dso, fcs1.sym.st_value, mem1,
+			     fcs1.sym.st_size)
+	  || get_relocated_mem (info, fcs2.dso, fcs2.sym.st_value, mem2,
+				fcs1.sym.st_size)
+	  || memcmp (mem1, mem2, fcs1.sym.st_size) != 0)
+	{
+	  free (mem1);
+	  continue;
+	}
+
+      free (mem1);
+
+      state = 2;
+
+      if (verbose > 3)
+	error (0, 0, "Removing C++ conflict at %s:%s+%d",
+	       fcs1.dso->filename, name,
+	       (int) (info->conflict_rela[i].r_offset - fcs1.sym.st_value));
+
+      info->conflict_rela[i].r_info =
+	GELF_R_INFO (1, GELF_R_TYPE (info->conflict_rela[i].r_info));
+      ++removed;
+
+      if (k == OLDABI_VT)
+	{
+	  /* Assume that if an old style C++ virtual table is not used,
+	     typeinfo function is not used either and thus typeinfo nodes
+	     are not used either.  */
+	  /* FIXME: Write this.  */
+	}
+    }
+
+  if (removed)
+    {
+      for (i = 0, j = 0; i < info->conflict_rela_size; ++i)
+	if (GELF_R_SYM (info->conflict_rela[i].r_info) == 0)
+	  {
+	    if (i != j)
+	      info->conflict_rela[j] = info->conflict_rela[i];
+	    ++j;
+	  }
+      info->conflict_rela_size = j;
+    }
+
+  return 0;
+}
+
+static int
 prelink_build_conflicts (struct prelink_info *info)
 {
   int i, ndeps = info->ent->ndepends + 1;
@@ -613,7 +967,7 @@ prelink_build_conflicts (struct prelink_info *info)
   memset (info->dsos, 0, sizeof (struct DSO *) * ndeps);
   memset (&cr, 0, sizeof (cr));
   info->dsos[0] = info->dso;
-  for (i = 1; i < ndeps; i++)
+  for (i = 1; i < ndeps; ++i)
     {
       ent = info->ent->depends[i - 1];
       if ((dso = open_dso (ent->filename)) == NULL)
@@ -635,11 +989,12 @@ prelink_build_conflicts (struct prelink_info *info)
       if (info->conflicts[i])
 	{
 	  
-	  int j, sec;
+	  int j, sec, first_conflict;
 	  struct prelink_conflict *conflict;
 
 	  dso = info->dsos[i];
 	  info->curconflicts = info->conflicts[i];
+	  first_conflict = info->conflict_rela_size;
 	  sec = addr_to_sec (dso, dso->info[DT_SYMTAB]);
 	  /* DT_SYMTAB should be found and should point to
 	     start of .dynsym section.  */
@@ -676,6 +1031,28 @@ prelink_build_conflicts (struct prelink_info *info)
 		       dso->filename, (unsigned long long) conflict->symoff);
 		ret = 1;
 	      }
+
+	  if (dynamic_info_is_set (dso, DT_TEXTREL)
+	      && info->conflict_rela_size > first_conflict)
+	    {
+	      /* We allow prelinking against non-PIC libraries, as long as
+		 no conflict is against read-only segment.  */
+	      int k;
+
+	      for (j = first_conflict; j < info->conflict_rela_size; ++j)
+		for (k = 0; k < dso->ehdr.e_phnum; ++k)
+		  if (dso->phdr[k].p_type == PT_LOAD
+		      && (dso->phdr[k].p_flags & PF_W) == 0
+		      && dso->phdr[k].p_vaddr
+			 <= info->conflict_rela[j].r_offset
+		      && dso->phdr[k].p_vaddr + dso->phdr[k].p_memsz
+			 > info->conflict_rela[j].r_offset)
+		    {
+		      error (0, 0, "%s: Cannot prelink against non-PIC shared library %s",
+			     info->dso->filename, dso->filename);
+		      goto error_out;
+		    }
+	    }
         }
     }
 
@@ -735,10 +1112,7 @@ prelink_build_conflicts (struct prelink_info *info)
 	{
 	  struct prelink_symbol *s;
 	  DSO *ndso = NULL;
-	  Elf_Data *data;
-	  Elf_Scn *scn;
-	  int sec, j;
-	  off_t off;
+	  int j;
   
 	  for (s = & info->symbols[GELF_R_SYM (cr.rela[i].r_info)]; s;
 	       s = s->next)
@@ -760,62 +1134,31 @@ prelink_build_conflicts (struct prelink_info *info)
 	      }
 
 	  assert (j < ndeps);
-	  sec = addr_to_sec (ndso, s->ent->base + s->value);
-	  if (sec == -1)
+	  j = get_relocated_mem (info, ndso, s->ent->base + s->value,
+				 info->dynbss + cr.rela[i].r_offset
+				 - info->dynbss_base, cr.rela[i].r_addend);
+	  switch (j)
 	    {
+	    case 1:
 	      error (0, 0, "%s: Could not find variable copy reloc is against",
 		     dso->filename);
 	      goto error_out;
+	    case 2:
+	      error (0, 0, "%s: Conflict partly overlaps with %08llx-%08llx area",
+		     dso->filename,
+		     (long long) cr.rela[i].r_offset,
+		     (long long) cr.rela[i].r_offset + cr.rela[i].r_addend);
+	      goto error_out;
 	    }
-
-	  if (ndso->shdr[sec].sh_type != SHT_NOBITS)
-	    {
-	      scn = elf_getscn (ndso->elf, sec);
-	      data = NULL;
-	      off = s->ent->base + s->value - ndso->shdr[sec].sh_addr;
-	      while ((data = elf_rawdata (scn, data)) != NULL)
-		{
-		  if (data->d_off < off + cr.rela[i].r_addend
-		      && data->d_off + data->d_size > off)
-		    {
-		      off_t off2 = off - data->d_off;
-		      size_t len = cr.rela[i].r_addend;
-
-		      if (off2 < 0)
-			{
-			  len += off2;
-			  off2 = 0;
-			}
-		      if (off2 + len > data->d_size)
-			len = data->d_size - off2;
-		      assert (off2 + len <= data->d_size);
-		      assert (len <= cr.rela[i].r_addend);
-		      memcpy (info->dynbss + cr.rela[i].r_offset
-			      - info->dynbss_base + off2 - off,
-			      data->d_buf + off2, len);
-		    }
-	        }
-	    }
-
-	  /* This is tricky. We need to apply any conflicts
-	     against memory area which we've copied to the COPY
-	     reloc offset.  */
-	  for (j = 0; j < info->conflict_rela_size; ++j)
-	    if (info->conflict_rela[j].r_offset >= s->ent->base + s->value
-		&& info->conflict_rela[j].r_offset < s->ent->base + s->value
-		   + cr.rela[i].r_addend)
-	      {
-		char *buf = info->dynbss + cr.rela[i].r_offset
-			    - info->dynbss_base;
-		size_t len = cr.rela[i].r_addend;
-		off_t off = info->conflict_rela[j].r_offset
-			    - (s->ent->base + s->value);
-		                       
-		buf += off;
-		len -= off;
-		dso->arch->copy_rela (info, info->conflict_rela + j, buf, len);
-	      }
 	}
+    }
+
+  if (info->conflict_rela_size)
+    {
+      qsort (info->conflict_rela, info->conflict_rela_size, sizeof (GElf_Rela),
+	     rela_cmp);
+      if (enable_cxx_optimizations)
+	remove_redundant_cxx_conflicts (info);
     }
 
   for (i = 1; i < ndeps; i++)
@@ -1304,8 +1647,6 @@ prelink_exec (struct prelink_info *info)
 	  error (0, ENOMEM, "%s: Could not build .gnu.conflict section", dso->filename);
 	  goto error_out;
 	}
-      qsort (info->conflict_rela, info->conflict_rela_size, sizeof (GElf_Rela),
-	     rela_cmp);
       for (j = 0; j < info->conflict_rela_size; ++j)
 	gelfx_update_rela (dso->elf, data, j, info->conflict_rela + j);
       free (info->conflict_rela);

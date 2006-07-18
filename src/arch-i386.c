@@ -178,11 +178,11 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela)
 }
 
 static int
-i386_copy_rela (struct prelink_info *info, GElf_Rela *rela, char *buf,
-		size_t len)
+i386_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
+			  char *buf)
 {
   Elf32_Addr value;
-  int i;
+  unsigned int i;
 
   switch (GELF_R_TYPE (rela->r_info))    
     {
@@ -191,8 +191,8 @@ i386_copy_rela (struct prelink_info *info, GElf_Rela *rela, char *buf,
     case R_386_32:
     case R_386_PC32:
       value = rela->r_addend;
-      for (i = 0; i < len && i < sizeof (Elf32_Addr); ++i)
-	*buf++ = value, value >>= 8;
+      for (i = 0; i < sizeof (Elf32_Addr); ++i, value >>= 8)
+	*buf++ = value;
       break;
     default:
       abort ();
@@ -369,6 +369,13 @@ i386_arch_prelink (DSO *dso)
   return 0;
 }
 
+static int
+i386_reloc_size (int reloc_type)
+{
+  assert (reloc_type != R_386_COPY);
+  return 4;
+}
+
 PL_ARCH = {
   .class = ELFCLASS32,
   .machine = EM_386,
@@ -382,9 +389,10 @@ PL_ARCH = {
   .prelink_rela = i386_prelink_rela,
   .prelink_conflict_rel = i386_prelink_conflict_rel,
   .prelink_conflict_rela = i386_prelink_conflict_rela,
-  .copy_rela = i386_copy_rela,
+  .apply_conflict_rela = i386_apply_conflict_rela,
   .rel_to_rela = i386_rel_to_rela,
   .need_rel_to_rela = i386_need_rel_to_rela,
+  .reloc_size = i386_reloc_size,
   .arch_prelink = i386_arch_prelink,
   /* Although TASK_UNMAPPED_BASE is 0x40000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc

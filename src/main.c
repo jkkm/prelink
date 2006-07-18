@@ -42,6 +42,7 @@ int libs_only;
 int dry_run;
 int dereference;
 int one_file_system;
+int enable_cxx_optimizations = 1;
 const char *dynamic_linker;
 const char *ld_library_path;
 const char *prelink_conf = PRELINK_CONF;
@@ -56,6 +57,7 @@ static char argp_doc[] = "prelink -- program to relocate and prelink an ELF shar
 #define OPT_DYNAMIC_LINKER	0x80
 #define OPT_LD_LIBRARY_PATH	0x81
 #define OPT_LIBS_ONLY		0x82
+#define OPT_CXX_DISABLE		0x83
 
 static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
@@ -76,6 +78,7 @@ static struct argp_option options[] = {
   {"ld-library-path",	OPT_LD_LIBRARY_PATH, "PATHLIST",
 			        0,  "What LD_LIBRARY_PATH should be used" },
   {"libs-only",		OPT_LIBS_ONLY, 0, 0, "Prelink only libraries, no binaries" },
+  {"disable-c++-optimizations", OPT_CXX_DISABLE, 0, OPTION_HIDDEN, "" },
   { 0 }
 };
 
@@ -96,7 +99,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
       print_cache = 1;
       break;
     case 'v':
-      verbose = 1;
+      ++verbose;
       break;
     case 'R':
       random_base = 1;
@@ -136,6 +139,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
     case OPT_LIBS_ONLY:
       libs_only = 1;
+      break;
+    case OPT_CXX_DISABLE:
+      enable_cxx_optimizations = 0;
       break;
     default:
       return ARGP_ERR_UNKNOWN;
@@ -203,7 +209,8 @@ main (int argc, char *argv[])
 	      continue;
 	    }
 
-	  if (dso->info_DT_CHECKSUM && ! prelink_set_checksum (dso))
+	  if (dynamic_info_is_set (dso, DT_CHECKSUM_BIT)
+	      && prelink_set_checksum (dso))
 	    {
 	      ++failures;
 	      close_dso (dso);

@@ -472,18 +472,19 @@ error_out:
   return 1;
 }
 
-uint32_t
+int
 prelink_set_checksum (DSO *dso)
 {
   extern uint32_t crc32 (uint32_t crc, unsigned char *buf, size_t len);
   uint32_t crc;
   int i, cvt;
 
-  if (dso->info_DT_GNU_PRELINKED && set_dynamic (dso, DT_GNU_PRELINKED, 0, 1))
-    return 0;
+  if (dynamic_info_is_set (dso, DT_GNU_PRELINKED_BIT)
+      && set_dynamic (dso, DT_GNU_PRELINKED, 0, 1))
+    return 1;
 
   if (set_dynamic (dso, DT_CHECKSUM, 0, 1))
-    return 0;
+    return 1;
 
   cvt = ! ((__BYTE_ORDER == __LITTLE_ENDIAN
 	    && dso->ehdr.e_ident[EI_DATA] == ELFDATA2LSB)
@@ -517,17 +518,14 @@ prelink_set_checksum (DSO *dso)
 	}
     }
 
-  /* Simplify handling by making sure it is never 0.  */
-  if (crc == 0)
-    crc = 1;
-
   if (set_dynamic (dso, DT_CHECKSUM, crc, 1))
     abort ();
   if (dso->info_DT_GNU_PRELINKED
       && set_dynamic (dso, DT_GNU_PRELINKED, dso->info_DT_GNU_PRELINKED, 1))
     abort ();
+  dso->info_DT_CHECKSUM = crc;
 
-  return crc;
+  return 0;
 }
 
 static int
@@ -536,14 +534,10 @@ prelink_set_timestamp (struct prelink_info *info)
   DSO *dso = info->dso;
 
   info->ent->timestamp = (GElf_Word) time (NULL);
-  /* Simplify handling by making sure it is never 0.  */
-  if (info->ent->timestamp == 0)
-    info->ent->timestamp = 1;
-
   dso->info_DT_GNU_PRELINKED = info->ent->timestamp;
-  info->ent->checksum = prelink_set_checksum (dso);
-  if (! info->ent->checksum)
+  if (prelink_set_checksum (dso))
     return 1;
+  info->ent->checksum = dso->info_DT_CHECKSUM;
   return 0;
 }
 

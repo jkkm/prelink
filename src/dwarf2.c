@@ -81,64 +81,20 @@ static int ptr_size;
   ret;					\
 })
 
-static uint16_t
-read_le2 (unsigned char *p)
+static uint64_t
+buf_read_ule32_64 (unsigned char *p)
 {
-  return p[0] | (p[1] << 8);
-}
-
-static inline uint32_t
-read_le4 (unsigned char *p)
-{
-  return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
+  return buf_read_ule32 (p);
 }
 
 static uint64_t
-read_le48 (unsigned char *p)
+buf_read_ube32_64 (unsigned char *p)
 {
-  return read_le4 (p);
-}
-
-static uint64_t
-read_le8 (unsigned char *p)
-{
-  return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24)
-	 | (((uint64_t) p[4]) << 32)
-	 | (((uint64_t) p[5]) << 40)
-	 | (((uint64_t) p[6]) << 48)
-	 | (((uint64_t) p[7]) << 56);
-}
-
-static uint16_t
-read_be2 (unsigned char *p)
-{
-  return p[1] | (p[0] << 8);
-}
-
-static inline uint32_t
-read_be4 (unsigned char *p)
-{
-  return p[3] | (p[2] << 8) | (p[1] << 16) | (p[0] << 24);
-}
-
-static uint64_t
-read_be48 (unsigned char *p)
-{
-  return read_be4 (p);
-}
-
-static uint64_t
-read_be8 (unsigned char *p)
-{
-  return p[7] | (p[6] << 8) | (p[5] << 16) | (p[4] << 24)
-	 | (((uint64_t) p[3]) << 32)
-	 | (((uint64_t) p[2]) << 40)
-	 | (((uint64_t) p[1]) << 48)
-	 | (((uint64_t) p[0]) << 56);
+  return buf_read_ube32 (p);
 }
 
 static void
-write_le4 (unsigned char *p, GElf_Addr val)
+dwarf2_write_le32 (unsigned char *p, GElf_Addr val)
 {
   uint32_t v = (uint32_t) val;
 
@@ -149,7 +105,7 @@ write_le4 (unsigned char *p, GElf_Addr val)
 }
 
 static void
-write_le8 (unsigned char *p, GElf_Addr val)
+dwarf2_write_le64 (unsigned char *p, GElf_Addr val)
 {
   p[0] = val;
   p[1] = val >> 8;
@@ -162,7 +118,7 @@ write_le8 (unsigned char *p, GElf_Addr val)
 }
 
 static void
-write_be4 (unsigned char *p, GElf_Addr val)
+dwarf2_write_be32 (unsigned char *p, GElf_Addr val)
 {
   uint32_t v = (uint32_t) val;
 
@@ -173,7 +129,7 @@ write_be4 (unsigned char *p, GElf_Addr val)
 }
 
 static void
-write_be8 (unsigned char *p, GElf_Addr val)
+dwarf2_write_be64 (unsigned char *p, GElf_Addr val)
 {
   p[7] = val;
   p[6] = val >> 8;
@@ -746,21 +702,21 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 
   if (dso->ehdr.e_ident[EI_DATA] == ELFDATA2LSB)
     {
-      do_read_16 = read_le2;
-      do_read_32 = read_le4;
-      do_read_32_64 = read_le48;
-      do_read_64 = read_le8;
-      write_32 = write_le4;
-      write_64 = write_le8;
+      do_read_16 = buf_read_ule16;
+      do_read_32 = buf_read_ule32;
+      do_read_32_64 = buf_read_ule32_64;
+      do_read_64 = buf_read_ule64;
+      write_32 = dwarf2_write_le32;
+      write_64 = dwarf2_write_le64;
     }
   else if (dso->ehdr.e_ident[EI_DATA] == ELFDATA2MSB)
     {
-      do_read_16 = read_be2;
-      do_read_32 = read_be4;
-      do_read_32_64 = read_be48;
-      do_read_64 = read_be8;
-      write_32 = write_be4;
-      write_64 = write_be8;
+      do_read_16 = buf_read_ube16;
+      do_read_32 = buf_read_ube32;
+      do_read_32_64 = buf_read_ube32_64;
+      do_read_64 = buf_read_ube64;
+      write_32 = dwarf2_write_be32;
+      write_64 = dwarf2_write_be64;
     }
   else
     {

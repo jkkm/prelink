@@ -51,6 +51,9 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   Elf32_Lib *liblist = NULL;
   int nliblist = 0;
 
+  if (check_dso (dso))
+    goto error_out;
+
   ent->soname = strdup (dso->soname);
   if (ent->soname == NULL)
     {
@@ -61,7 +64,8 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   if (strcmp (dso->filename, dynamic_linker) == 0
       || is_ldso_soname (dso->soname))
     {
-      if (ent->timestamp && ent->checksum)
+      if (dynamic_info_is_set (dso, DT_GNU_PRELINKED_BIT)
+	  && dynamic_info_is_set (dso, DT_CHECKSUM_BIT))
 	ent->done = 2;
       close_dso (dso);
       return 0;
@@ -110,10 +114,10 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
     {
       n = getline (&line, &len, f);
       if (n < 0)
-        break;
+	break;
 
       if (line[n - 1] == '\n')
-        line[n - 1] = '\0';
+	line[n - 1] = '\0';
 
       p = strstr (line, " => ");
       if (p)
@@ -207,7 +211,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	  break;
 
       if (i == ndepends)
-        ent->done = 2;
+	ent->done = 2;
     }
 
   return 0;
@@ -226,6 +230,8 @@ error_out:
 static int
 gather_dso (DSO *dso, struct prelink_entry *ent)
 {
+  int prelinked;
+
   if (dso->ehdr.e_type != ET_DYN)
     {
       error (0, 0, "%s is not a shared library", ent->filename);
@@ -233,12 +239,13 @@ gather_dso (DSO *dso, struct prelink_entry *ent)
       return 1;
     }
 
+  prelinked = (dynamic_info_is_set (dso, DT_GNU_PRELINKED_BIT)
+	       && dynamic_info_is_set (dso, DT_CHECKSUM_BIT));
   ent->timestamp = dso->info_DT_GNU_PRELINKED;
   ent->checksum = dso->info_DT_CHECKSUM;
   ent->base = dso->base;
   ent->end = dso->end;
-  if (dso->arch->need_rel_to_rela != NULL
-      && ent->timestamp == 0)
+  if (dso->arch->need_rel_to_rela != NULL && ! prelinked)
     {
       /* If the library has not been prelinked yet and we need
 	 to convert REL to RELA, then make room for it.  */
@@ -268,7 +275,7 @@ gather_dso (DSO *dso, struct prelink_entry *ent)
 	  adjust += dso->shdr[rinfo.plt].sh_size / 2;
 	}
       if (adjust)
-        {
+	{
 	  for (; sec < dso->ehdr.e_shnum; ++sec)
 	    if (dso->shdr[sec].sh_flags
 		& (SHF_ALLOC | SHF_WRITE | SHF_EXECINSTR))
@@ -278,13 +285,13 @@ gather_dso (DSO *dso, struct prelink_entry *ent)
 			   & ~(dso->shdr[sec].sh_addralign - 1);
 	      }
 	  ent->end += adjust;
-        }
+	}
     }
 
   if (gather_deps (dso, ent))
     return 1;
 
-  if (ent->done && (! ent->timestamp || ! ent->checksum))
+  if (ent->done && ! prelinked)
     ent->done = 0;
   ent->type = ET_DYN;
   return 0;
@@ -425,7 +432,7 @@ gather_func (const char *name, const struct stat64 *st, int type,
 
       fd = open (name, O_RDONLY);
       if (fd == -1)
-        return 0;
+	return 0;
 
       if (read (fd, e_ident, sizeof (e_ident)) != sizeof (e_ident))
 	{
@@ -576,7 +583,7 @@ gather_object (const char *name, int deref, int onefs)
   if (stat64 (name, &st) < 0)
     {
       if (implicit)
-        return 0;
+	return 0;
       error (0, errno, "Could not stat %s", name);
       return 1;
     }
@@ -621,8 +628,8 @@ gather_config (const char *config)
       char *p;
 
       if (i < 0)
-        break;
-                            
+	break;
+
       if (line[i - 1] == '\n')
 	line[i - 1] = '\0';
 

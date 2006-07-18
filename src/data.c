@@ -17,6 +17,36 @@
 
 #include "prelink.h"
 
+#define UREAD(le,nn)						\
+uint##nn##_t							\
+read_u##le##nn (DSO *dso, GElf_Addr addr)			\
+{								\
+  unsigned char *data = get_data (dso, addr, NULL);		\
+								\
+  if (data == NULL)						\
+    return 0;							\
+								\
+  return buf_read_u##le##nn (data);				\
+}
+
+#define WRITE(le,nn)						\
+int								\
+write_##le##nn (DSO *dso, GElf_Addr addr, uint##nn##_t val)	\
+{								\
+  int sec;							\
+  unsigned char *data = get_data (dso, addr, &sec);		\
+								\
+  if (data == NULL)						\
+    return -1;							\
+								\
+  buf_write_##le##nn (data, val);				\
+  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET,		\
+	       ELF_F_DIRTY);					\
+  return 0;							\
+}
+
+#define READWRITE(le,nn) UREAD(le,nn) WRITE(le,nn)
+
 unsigned char *
 get_data (DSO *dso, GElf_Addr addr, int *secp)
 {
@@ -37,174 +67,93 @@ get_data (DSO *dso, GElf_Addr addr, int *secp)
   return NULL;
 }
 
-uint8_t
-read_u8 (DSO *dso, GElf_Addr addr)
+inline uint8_t
+buf_read_u8 (unsigned char *data)
 {
-  unsigned char *data = get_data (dso, addr, NULL);
-
-  if (data == NULL)
-    return 0;
-
-  return data[0];
+  return *data;
 }
 
-uint16_t
-read_ule16 (DSO *dso, GElf_Addr addr)
+inline uint16_t
+buf_read_ule16 (unsigned char *data)
 {
-  unsigned char *data = get_data (dso, addr, NULL);
-
-  if (data == NULL)
-    return 0;
-
   return data[0] | (data[1] << 8);
 }
 
-uint16_t
-read_ube16 (DSO *dso, GElf_Addr addr)
+inline uint16_t
+buf_read_ube16 (unsigned char *data)
 {
-  unsigned char *data = get_data (dso, addr, NULL);
-
-  if (data == NULL)
-    return 0;
-
   return data[1] | (data[0] << 8);
 }
 
-uint32_t
-read_ule32 (DSO *dso, GElf_Addr addr)
+inline uint32_t
+buf_read_ule32 (unsigned char *data)
 {
-  unsigned char *data = get_data (dso, addr, NULL);
-
-  if (data == NULL)
-    return 0;
-
   return data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
 }
 
-uint32_t
-read_ube32 (DSO *dso, GElf_Addr addr)
+inline uint32_t
+buf_read_ube32 (unsigned char *data)
 {
-  unsigned char *data = get_data (dso, addr, NULL);
-
-  if (data == NULL)
-    return 0;
-
   return data[3] | (data[2] << 8) | (data[1] << 16) | (data[0] << 24);
 }
 
-uint64_t
-read_ule64 (DSO *dso, GElf_Addr addr)
+inline uint64_t
+buf_read_ule64 (unsigned char *data)
 {
-  unsigned char *data = get_data (dso, addr, NULL);
-
-  if (data == NULL)
-    return 0;
-
   return (data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24))
 	 || (((uint64_t)(data[4] | (data[5] << 8) | (data[6] << 16)
 			 | (data[7] << 24))) << 32);
 }
 
-uint64_t
-read_ube64 (DSO *dso, GElf_Addr addr)
+inline uint64_t
+buf_read_ube64 (unsigned char *data)
 {
-  unsigned char *data = get_data (dso, addr, NULL);
-
-  if (data == NULL)
-    return 0;
-
   return (data[7] | (data[6] << 8) | (data[5] << 16) | (data[4] << 24))
 	 || (((uint64_t)(data[3] | (data[2] << 8) | (data[1] << 16)
 			 | (data[0] << 24))) << 32);
 }
 
-int
-write_8 (DSO *dso, GElf_Addr addr, uint8_t val)
+inline void
+buf_write_8 (unsigned char *data, uint8_t val)
 {
-  int sec;
-  unsigned char *data = get_data (dso, addr, &sec);
-
-  if (data == NULL)
-    return -1;
-
-  data[0] = val;
-  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET, ELF_F_DIRTY);
-  return 0;
+  *data = val;
 }
 
-int
-write_le16 (DSO *dso, GElf_Addr addr, uint16_t val)
+inline void
+buf_write_le16 (unsigned char *data, uint16_t val)
 {
-  int sec;
-  unsigned char *data = get_data (dso, addr, &sec);
-
-  if (data == NULL)
-    return -1;
-
   data[0] = val;
   data[1] = val >> 8;
-  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET, ELF_F_DIRTY);
-  return 0;
 }
 
-int
-write_be16 (DSO *dso, GElf_Addr addr, uint16_t val)
+inline void
+buf_write_be16 (unsigned char *data, uint16_t val)
 {
-  int sec;
-  unsigned char *data = get_data (dso, addr, &sec);
-
-  if (data == NULL)
-    return -1;
-
   data[1] = val;
   data[0] = val >> 8;
-  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET, ELF_F_DIRTY);
-  return 0;
 }
 
-int
-write_le32 (DSO *dso, GElf_Addr addr, uint32_t val)
+inline void
+buf_write_le32 (unsigned char *data, uint32_t val)
 {
-  int sec;
-  unsigned char *data = get_data (dso, addr, &sec);
-
-  if (data == NULL)
-    return -1;
-
   data[0] = val;
   data[1] = val >> 8;
   data[2] = val >> 16;
   data[3] = val >> 24;
-  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET, ELF_F_DIRTY);
-  return 0;
 }
 
-int
-write_be32 (DSO *dso, GElf_Addr addr, uint32_t val)
+inline void
+buf_write_be32 (unsigned char *data, uint32_t val)
 {
-  int sec;
-  unsigned char *data = get_data (dso, addr, &sec);
-
-  if (data == NULL)
-    return -1;
-
   data[3] = val;
   data[2] = val >> 8;
   data[1] = val >> 16;
   data[0] = val >> 24;
-  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET, ELF_F_DIRTY);
-  return 0;
 }
 
-int
-write_le64 (DSO *dso, GElf_Addr addr, uint64_t val)
+inline void
+buf_write_le64 (unsigned char *data, uint64_t val)
 {
-  int sec;
-  unsigned char *data = get_data (dso, addr, &sec);
-
-  if (data == NULL)
-    return -1;
-
   data[0] = val;
   data[1] = val >> 8;
   data[2] = val >> 16;
@@ -213,19 +162,11 @@ write_le64 (DSO *dso, GElf_Addr addr, uint64_t val)
   data[5] = val >> 40;
   data[6] = val >> 48;
   data[7] = val >> 56;
-  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET, ELF_F_DIRTY);
-  return 0;
 }
 
-int
-write_be64 (DSO *dso, GElf_Addr addr, uint64_t val)
+inline void
+buf_write_be64 (unsigned char *data, uint64_t val)
 {
-  int sec;
-  unsigned char *data = get_data (dso, addr, &sec);
-
-  if (data == NULL)
-    return -1;
-
   data[7] = val;
   data[6] = val >> 8;
   data[5] = val >> 16;
@@ -234,9 +175,15 @@ write_be64 (DSO *dso, GElf_Addr addr, uint64_t val)
   data[2] = val >> 40;
   data[1] = val >> 48;
   data[0] = val >> 56;
-  elf_flagscn (elf_getscn (dso->elf, sec), ELF_C_SET, ELF_F_DIRTY);
-  return 0;
 }
+
+READWRITE(,8)
+READWRITE(le,16)
+READWRITE(be,16)
+READWRITE(le,32)
+READWRITE(be,32)
+READWRITE(le,64)
+READWRITE(be,64)
 
 const char *
 strptr (DSO *dso, int sec, off_t offset)
