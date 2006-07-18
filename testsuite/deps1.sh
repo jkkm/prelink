@@ -2,11 +2,11 @@
 . `dirname $0`/functions.sh
 
 PRELINK=`echo $PRELINK \
-	 | sed -e 's| \./\(prelink\.\(cache\|conf\)\)| deps1.tree/etc/\1|g' \
-	       -e 's|path=\.|path=deps1.tree/lib:deps1.tree/usr/lib:deps1.tree/opt/lib|' \
-	       -e 's|linker=\./|linker=deps1.tree/lib/|'`
+	 | sed -e 's, \./\(prelink\.\(cache\|conf\)\), deps1.tree/etc/\1,g' \
+	       -e 's,path=\.,path=deps1.tree/lib:deps1.tree/usr/lib:deps1.tree/opt/lib,' \
+	       -e 's,linker=\./,linker=deps1.tree/lib/,'`
 CCLINK=`echo $CCLINK \
-	| sed -e 's|linker=\./|linker=deps1.tree/lib/|'`
+	| sed -e 's,linker=\./,linker=deps1.tree/lib/,'`
 rm -rf deps1.tree
 rm -f deps1.log
 mkdir -p deps1.tree/{lib,etc,usr/lib,opt/lib,usr/bin}

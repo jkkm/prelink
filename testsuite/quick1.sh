@@ -24,11 +24,11 @@ check_log() {
 }
 
 PRELINK=`echo $PRELINK \
-	 | sed -e 's| \./\(prelink\.\(cache\|conf\)\)| quick1.tree/etc/\1|g' \
-	       -e 's|path=\.|path=quick1.tree/lib:quick1.tree/usr/lib|' \
-	       -e 's|linker=\./|linker=quick1.tree/lib/|'`
+	 | sed -e 's, \./\(prelink\.\(cache\|conf\)\), quick1.tree/etc/\1,g' \
+	       -e 's,path=\.,path=quick1.tree/lib:quick1.tree/usr/lib,' \
+	       -e 's,linker=\./,linker=quick1.tree/lib/,'`
 CCLINK=`echo $CCLINK \
-	| sed -e 's|linker=\./|linker=quick1.tree/lib/|'`
+	| sed -e 's,linker=\./,linker=quick1.tree/lib/,'`
 rm -rf quick1.tree
 rm -f quick1.log
 mkdir -p quick1.tree/{lib,etc,usr/lib,usr/bin}
