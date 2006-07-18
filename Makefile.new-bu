@@ -1,9 +1,0 @@
-TOPDIR := $(shell pwd)
-CFLAGS += -I/usr/src/new-bu-0.10/libelf/ -I$(TOPDIR) -I$(TOPDIR)/gelfx -g -D_GNU_SOURCE -Wall -D_FILE_OFFSET_BITS=64
-LDFLAGS += -L/usr/src/new-bu-0.10/obj/libelf/.libs
-LIBS = /usr/src/new-bu-0.10/obj/libelf/.libs/libelf.a
-SYSDEPS = $(patsubst %.c,%.o,$(wildcard sysdeps/*.c))
-prelink: main.o dso.o data.o prelink.o cache.o exec.o get.o reloc.o $(SYSDEPS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
-clean:
-	rm -f *~ core *.o sysdeps/*~ sysdeps/*.o prelink gelfx*/*~ gelfx*/*.o
