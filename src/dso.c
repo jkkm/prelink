@@ -1620,11 +1620,8 @@ close_dso (DSO *dso)
 {
   int rdwr = dso_is_rdwr (dso);
 
-  if (rdwr)
-    {
-      assert (dso->temp_filename != NULL);
-      unlink (dso->temp_filename);
-    }
+  if (rdwr && dso->temp_filename != NULL)
+    unlink (dso->temp_filename);
   close_dso_1 (dso);
   return 0;
 }

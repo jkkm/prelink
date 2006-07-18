@@ -266,7 +266,7 @@ prelink_verify (const char *filename)
       break;
     }
 
-  fd = dup (dso->fd);
+  fd = open (dso->temp_filename, O_RDONLY);
   if (fd < 0)
     {
       error (0, errno, "Could not verify %s", filename);
@@ -280,7 +280,10 @@ prelink_verify (const char *filename)
       goto failure;
     }
 
-  ent->filename = strdupa (dso->temp_filename);
+  ent->filename = dso->temp_filename;
+  dso->temp_filename = NULL;
+  close_dso (dso);
+  dso = NULL;
 
   fchmod (fd, 0700);
 
@@ -298,8 +301,7 @@ prelink_verify (const char *filename)
   if (prelink (dso2, ent))
     goto failure;
 
-  close_dso (dso);
-  dso = NULL;
+  unlink (ent->filename);
 
   if (write_dso (dso2))
     goto failure;
