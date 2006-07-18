@@ -302,7 +302,6 @@ prelink_prepare (DSO *dso)
 
   if (! liblist || ! libstr || ! undo)
     {
-      Elf_Data data;
       struct section_move *move;
 
       move = init_section_move (dso);
@@ -345,7 +344,6 @@ prelink_prepare (DSO *dso)
 
       if (reopen_dso (dso, move))
 	{
-	  free (data.d_buf);
 	  free (move);
 	  return 1;
 	}

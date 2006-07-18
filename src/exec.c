@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -259,6 +259,12 @@ prelink_exec (struct prelink_info *info)
   assert (j == move->new_shnum);
   ehdr.e_shnum = j;
 
+  if (old_sdynbss != -1 && old_dynbss == -1)
+    {
+      old_dynbss = old_sdynbss;
+      old_sdynbss = -1;
+    }
+
   add = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*add));
   old = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*old));
   new = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*new));
@@ -515,7 +521,9 @@ prelink_exec (struct prelink_info *info)
 	      {
 		Elf_Data *data = elf_getdata (dso->scn[j], NULL);
 
-		assert (data->d_size == dso->shdr[j].sh_size);
+		assert (data->d_size == dso->shdr[j].sh_size
+			|| j == new_dynbss + 1
+			|| j == new_sdynbss + 1);
 		if (data->d_size)
 		  {
 		    data->d_buf = realloc (data->d_buf, data->d_size);
@@ -766,7 +774,13 @@ prelink_exec (struct prelink_info *info)
 
 	  dso->shdr[new_dynbss] = dso->shdr[new_dynbss + 1];
 
-	  dso->shdr[new_dynbss].sh_name = shstrtabadd (dso, ".dynbss");
+	  if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				dso->shdr[new_dynbss + 1].sh_name),
+			".sbss")
+	      && new_sdynbss == -1)
+	    dso->shdr[new_dynbss].sh_name = shstrtabadd (dso, ".sdynbss");
+	  else
+	    dso->shdr[new_dynbss].sh_name = shstrtabadd (dso, ".dynbss");
 	  if (dso->shdr[new_dynbss].sh_name == 0)
 	    goto error_out;
 

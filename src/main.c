@@ -228,7 +228,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = { options, parse_opt, 0, argp_doc };
+static struct argp argp = { options, parse_opt, "[FILES]", argp_doc };
 
 int
 main (int argc, char *argv[])

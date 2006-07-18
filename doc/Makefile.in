@@ -99,6 +99,19 @@ AUTOMAKE_OPTIONS = 1.4 gnu
 
 man_MANS = prelink.8 execstack.8
 EXTRA_DIST = prelink.8 execstack.8 prelink.conf
+PDFLATEXINPUTS = TEXINPUTS_pdflatex=.:$(srcdir):`kpsewhich --progname=pdflatex --show-path=cnf.pdflatex`
+LATEXINPUTS = TEXINPUTS_latex=.:$(srcdir):`kpsewhich --progname=latex --show-path=cnf.latex`
+
+noinst_DATA = prelink.pdf
+pics = gap bss basemove newseg dso1 dso2 dso3
+
+SUFFIXES = .fig .eps .pdf
+
+CLEANFILES = $(pics:=.eps) $(pics:=.pdf) prelink.aux prelink.dvi \
+	     prelink.log prelink.mtc prelink.mtc1 prelink.pdf prelink.ps \
+	     prelink.glo prelink.idx prelink.out prelink.tpt prelink.ilg \
+	     prelink.gls prelink.toc
+
 subdir = doc
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = $(top_builddir)/config.h
@@ -107,10 +120,13 @@ DIST_SOURCES =
 
 NROFF = nroff
 MANS = $(man_MANS)
+DATA = $(noinst_DATA)
+
 DIST_COMMON = Makefile.am Makefile.in
 all: all-am
 
 .SUFFIXES:
+.SUFFIXES: .fig .eps .pdf
 $(srcdir)/Makefile.in:  Makefile.am  $(top_srcdir)/configure.in $(ACLOCAL_M4)
 	cd $(top_srcdir) && \
 	  $(AUTOMAKE) --gnu  doc/Makefile
@@ -200,7 +216,7 @@ distdir: $(DISTFILES)
 	done
 check-am: all-am
 check: check-am
-all-am: Makefile $(MANS)
+all-am: Makefile $(MANS) $(DATA)
 
 installdirs:
 	$(mkinstalldirs) $(DESTDIR)$(man8dir)
@@ -222,6 +238,7 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
+	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-rm -f Makefile $(CONFIG_CLEAN_FILES)
@@ -277,6 +294,30 @@ uninstall-man: uninstall-man8
 	mostlyclean-libtool uninstall uninstall-am uninstall-info-am \
 	uninstall-man uninstall-man8
 
+
+prelink.pdf: prelink.tex $(pics:=.fig) linuxtag.sty \
+	     prelinklisting.sty lineno.sty glossary.conf
+	$(MAKE) $(pics:=.pdf)
+	$(PDFLATEXINPUTS) pdflatex $<
+	makeindex -s $(srcdir)/glossary.conf -o prelink.gls prelink.glo
+	if grep -q Rerun prelink.log; then $(PDFLATEXINPUTS) pdflatex $<; fi
+	thumbpdf $@ && $(PDFLATEXINPUTS) pdflatex $<
+	mv $@ prelinkin.pdf
+	pdfopt prelinkin.pdf $@
+	rm prelinkin.pdf
+
+prelink.ps: prelink.dvi
+	dvips $< -o $@
+
+prelink.dvi: prelink.tex $(pics:=.eps)
+	$(LATEXINPUTS) latex $<
+	if grep -q Rerun prelink.log; then $(LATEXINPUTS) latex $<; fi
+
+.fig.eps:
+	fig2dev -L eps $^ $@
+
+.fig.pdf:
+	fig2dev -L pdf $^ $@
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:
