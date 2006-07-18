@@ -402,6 +402,7 @@ extern const char *dynamic_linker;
 extern const char *ld_library_path;
 extern const char *prelink_cache;
 extern const char *prelink_conf;
+extern const char *undo_output;
 extern int all;
 extern int force;
 extern int random_base;

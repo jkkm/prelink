@@ -57,6 +57,7 @@ const char *dynamic_linker;
 const char *ld_library_path;
 const char *prelink_conf = PRELINK_CONF;
 const char *prelink_cache = PRELINK_CACHE;
+const char *undo_output;
 
 const char *argp_program_version = "prelink 1.0";
 
@@ -87,6 +88,7 @@ static struct argp_option options[] = {
   {"conserve-memory",	'm', 0, 0,  "Allow libraries to overlap as long as they never appear in the same program" },
   {"no-update-cache",	'N', 0, 0,  "Don't update prelink cache" },
   {"dry-run",		'n', 0, 0,  "Don't actually prelink anything" },
+  {"undo-output",	'o', "FILE", 0, "Undo output file" },
   {"print-cache",	'p', 0,	0,  "Print prelink cache" },
   {"quick",		'q', 0, 0,  "Quick scan" },
   {"random",		'R', 0, 0,  "Choose random base for libraries" },
@@ -175,6 +177,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'y':
       verify = 1;
       break;
+    case 'o':
+      undo_output = arg;
+      break;
     case OPT_DYNAMIC_LINKER:
       dynamic_linker = arg;
       break;
@@ -261,6 +266,12 @@ main (int argc, char *argv[])
   if (remaining == argc && ! all)
     error (EXIT_FAILURE, 0, "no files given and --all not used");
 
+  if (undo_output && (!undo || all))
+    error (EXIT_FAILURE, 0, "-o can be only specified together with -u and without -a");
+
+  if (undo_output && remaining + 1 != argc)
+    error (EXIT_FAILURE, 0, "-o can only be used when undoing a single object");
+
   if (compute_checksum)
     {
       while (remaining < argc)
@@ -332,6 +343,19 @@ main (int argc, char *argv[])
 
 	  if (reloc_only)
 	    dso->permissive = 1;
+	  else if (undo_output)
+	    {
+	      const char *output = strdup (undo_output);
+	      if (!output)
+		{
+		  ++failures;
+		  close_dso (dso);
+		  continue;
+		}
+	      if (dso->filename != dso->soname)
+		free ((char *) dso->filename);
+	      dso->filename = output;
+	    }
 
 	  if (update_dso (dso))
 	    ++failures;

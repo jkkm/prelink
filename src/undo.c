@@ -499,6 +499,8 @@ prelink_undo (DSO *dso)
 
   if (undo == dso->ehdr.e_shnum)
     {
+      if (undo_output)
+	return reopen_dso (dso, NULL);
       error (0, 0, "%s does not have .gnu.prelink_undo section", dso->filename);
       return 1;
     }

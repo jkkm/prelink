@@ -498,6 +498,24 @@ fdopen_dso (int fd, const char *name)
       if (soname && soname[0] != '\0')
 	dso->soname = (const char *) strdup (soname);
     }
+
+  if (dso->arch->machine == EM_ALPHA
+      || dso->arch->machine == EM_MIPS)
+    for (i = 1; i < ehdr.e_shnum; ++i)
+      {
+	if ((dso->shdr[i].sh_type == SHT_ALPHA_DEBUG
+	     && dso->arch->machine == EM_ALPHA)
+	    || (dso->shdr[i].sh_type == SHT_MIPS_DEBUG
+		&& dso->arch->machine == EM_MIPS))
+	  {
+	    const char *name
+	      = strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[i].sh_name);
+	    if (! strcmp (name, ".mdebug"))
+	      dso->mdebug_orig_offset = dso->shdr[i].sh_offset;
+	    break;
+	  }
+      }
+
   return dso;
 
 error_out:
@@ -1549,6 +1567,7 @@ close_dso_1 (DSO *dso)
   if (dso->filename != dso->soname)
     free ((char *) dso->soname);
   free ((char *) dso->filename);
+  free ((char *) dso->temp_filename);
   free (dso->move);
   free (dso->adjust);
   free (dso->undo.d_buf);

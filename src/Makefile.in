@@ -99,46 +99,58 @@ AUTOMAKE_OPTIONS = 1.4 gnu
 
 DEFS = -D_GNU_SOURCE -DHAVE_CONFIG_H -Wall
 AM_CFLAGS = -Wall
+AM_CPPFLAGS = -DSBINDIR='"@sbindir@"'
 INCLUDES = @GELFINCLUDE@
 
 sbin_PROGRAMS = prelink
+bin_PROGRAMS = execstack
 
-prelink_SYSDEPS = arch-i386.c arch-alpha.c arch-ppc.c arch-ppc64.c \
-		  arch-sparc.c arch-sparc64.c arch-x86_64.c \
-		  arch-s390.c arch-s390x.c arch-arm.c arch-sh.c arch-ia64.c
+arch_SOURCES = arch-i386.c arch-alpha.c arch-ppc.c arch-ppc64.c \
+	       arch-sparc.c arch-sparc64.c arch-x86_64.c \
+	       arch-s390.c arch-s390x.c arch-arm.c arch-sh.c arch-ia64.c
 
-prelink_SOURCES = cache.c conflict.c cxx.c data.c doit.c dso.c dwarf2.c	     \
-		  dwarf2.h exec.c execle_open.c fptr.c fptr.h get.c gather.c \
-		  hashtab.c hashtab.h layout.c main.c mdebug.c prelink.c     \
-		  prelink.h prelinktab.h reloc.c reloc.h space.c stabs.c     \
-		  undo.c undoall.c verify.c crc32.c md5.c md5.h sha.c sha.h  \
-		  $(prelink_SYSDEPS)
+common_SOURCES = checksum.c data.c dso.c dwarf2.c dwarf2.h fptr.c fptr.h     \
+		 hashtab.c hashtab.h mdebug.c prelink.h stabs.c crc32.c
+
+prelink_SOURCES = cache.c conflict.c cxx.c doit.c exec.c execle_open.c get.c \
+		  gather.c layout.c main.c prelink.c prelinktab.h reloc.c    \
+		  reloc.h space.c undo.c undoall.c verify.c md5.c md5.h	     \
+		  sha.c sha.h $(common_SOURCES) $(arch_SOURCES)
 
 prelink_LDADD = @LIBGELF@
 prelink_LDFLAGS = -all-static
+
+execstack_SOURCES = execstack.c $(common_SOURCES) $(arch_SOURCES)
 
 extra_DIST = makecrc.c
 subdir = src
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = $(top_builddir)/config.h
 CONFIG_CLEAN_FILES =
+bin_PROGRAMS = execstack$(EXEEXT)
 sbin_PROGRAMS = prelink$(EXEEXT)
-PROGRAMS = $(sbin_PROGRAMS)
+PROGRAMS = $(bin_PROGRAMS) $(sbin_PROGRAMS)
 
-am__objects_1 = arch-i386.$(OBJEXT) arch-alpha.$(OBJEXT) \
+am__objects_1 = checksum.$(OBJEXT) data.$(OBJEXT) dso.$(OBJEXT) \
+	dwarf2.$(OBJEXT) fptr.$(OBJEXT) hashtab.$(OBJEXT) \
+	mdebug.$(OBJEXT) stabs.$(OBJEXT) crc32.$(OBJEXT)
+am__objects_2 = arch-i386.$(OBJEXT) arch-alpha.$(OBJEXT) \
 	arch-ppc.$(OBJEXT) arch-ppc64.$(OBJEXT) arch-sparc.$(OBJEXT) \
 	arch-sparc64.$(OBJEXT) arch-x86_64.$(OBJEXT) \
 	arch-s390.$(OBJEXT) arch-s390x.$(OBJEXT) arch-arm.$(OBJEXT) \
 	arch-sh.$(OBJEXT) arch-ia64.$(OBJEXT)
+am_execstack_OBJECTS = execstack.$(OBJEXT) $(am__objects_1) \
+	$(am__objects_2)
+execstack_OBJECTS = $(am_execstack_OBJECTS)
+execstack_LDADD = $(LDADD)
+execstack_DEPENDENCIES =
+execstack_LDFLAGS =
 am_prelink_OBJECTS = cache.$(OBJEXT) conflict.$(OBJEXT) cxx.$(OBJEXT) \
-	data.$(OBJEXT) doit.$(OBJEXT) dso.$(OBJEXT) dwarf2.$(OBJEXT) \
-	exec.$(OBJEXT) execle_open.$(OBJEXT) fptr.$(OBJEXT) \
-	get.$(OBJEXT) gather.$(OBJEXT) hashtab.$(OBJEXT) \
-	layout.$(OBJEXT) main.$(OBJEXT) mdebug.$(OBJEXT) \
+	doit.$(OBJEXT) exec.$(OBJEXT) execle_open.$(OBJEXT) \
+	get.$(OBJEXT) gather.$(OBJEXT) layout.$(OBJEXT) main.$(OBJEXT) \
 	prelink.$(OBJEXT) reloc.$(OBJEXT) space.$(OBJEXT) \
-	stabs.$(OBJEXT) undo.$(OBJEXT) undoall.$(OBJEXT) \
-	verify.$(OBJEXT) crc32.$(OBJEXT) md5.$(OBJEXT) sha.$(OBJEXT) \
-	$(am__objects_1)
+	undo.$(OBJEXT) undoall.$(OBJEXT) verify.$(OBJEXT) md5.$(OBJEXT) \
+	sha.$(OBJEXT) $(am__objects_1) $(am__objects_2)
 prelink_OBJECTS = $(am_prelink_OBJECTS)
 prelink_DEPENDENCIES =
 DEFAULT_INCLUDES =  -I. -I$(srcdir) -I$(top_builddir)
@@ -155,11 +167,12 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/arch-sparc.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/arch-sparc64.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/arch-x86_64.Po ./$(DEPDIR)/cache.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/conflict.Po ./$(DEPDIR)/crc32.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/cxx.Po ./$(DEPDIR)/data.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/doit.Po ./$(DEPDIR)/dso.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/dwarf2.Po ./$(DEPDIR)/exec.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/execle_open.Po ./$(DEPDIR)/fptr.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/checksum.Po ./$(DEPDIR)/conflict.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/crc32.Po ./$(DEPDIR)/cxx.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/data.Po ./$(DEPDIR)/doit.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/dso.Po ./$(DEPDIR)/dwarf2.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/exec.Po ./$(DEPDIR)/execle_open.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/execstack.Po ./$(DEPDIR)/fptr.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/gather.Po ./$(DEPDIR)/get.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/hashtab.Po ./$(DEPDIR)/layout.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/main.Po ./$(DEPDIR)/md5.Po \
@@ -176,9 +189,9 @@ CCLD = $(CC)
 LINK = $(LIBTOOL) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 	$(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
-DIST_SOURCES = $(prelink_SOURCES)
+DIST_SOURCES = $(execstack_SOURCES) $(prelink_SOURCES)
 DIST_COMMON = Makefile.am Makefile.in
-SOURCES = $(prelink_SOURCES)
+SOURCES = $(execstack_SOURCES) $(prelink_SOURCES)
 
 all: all-am
 
@@ -189,6 +202,35 @@ $(srcdir)/Makefile.in:  Makefile.am  $(top_srcdir)/configure.in $(ACLOCAL_M4)
 	  $(AUTOMAKE) --gnu  src/Makefile
 Makefile:  $(srcdir)/Makefile.in  $(top_builddir)/config.status
 	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)
+binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
+install-binPROGRAMS: $(bin_PROGRAMS)
+	@$(NORMAL_INSTALL)
+	$(mkinstalldirs) $(DESTDIR)$(bindir)
+	@list='$(bin_PROGRAMS)'; for p in $$list; do \
+	  p1=`echo $$p|sed 's/$(EXEEXT)$$//'`; \
+	  if test -f $$p \
+	     || test -f $$p1 \
+	  ; then \
+	    f=`echo "$$p1" | sed 's,^.*/,,;$(transform);s/$$/$(EXEEXT)/'`; \
+	   echo " $(INSTALL_PROGRAM_ENV) $(LIBTOOL) --mode=install $(binPROGRAMS_INSTALL) $$p $(DESTDIR)$(bindir)/$$f"; \
+	   $(INSTALL_PROGRAM_ENV) $(LIBTOOL) --mode=install $(binPROGRAMS_INSTALL) $$p $(DESTDIR)$(bindir)/$$f; \
+	  else :; fi; \
+	done
+
+uninstall-binPROGRAMS:
+	@$(NORMAL_UNINSTALL)
+	@list='$(bin_PROGRAMS)'; for p in $$list; do \
+	  f=`echo "$$p" | sed 's,^.*/,,;s/$(EXEEXT)$$//;$(transform);s/$$/$(EXEEXT)/'`; \
+	  echo " rm -f $(DESTDIR)$(bindir)/$$f"; \
+	  rm -f $(DESTDIR)$(bindir)/$$f; \
+	done
+
+clean-binPROGRAMS:
+	@list='$(bin_PROGRAMS)'; for p in $$list; do \
+	  f=`echo $$p|sed 's/$(EXEEXT)$$//'`; \
+	  echo " rm -f $$p $$f"; \
+	  rm -f $$p $$f ; \
+	done
 sbinPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 install-sbinPROGRAMS: $(sbin_PROGRAMS)
 	@$(NORMAL_INSTALL)
@@ -218,6 +260,9 @@ clean-sbinPROGRAMS:
 	  echo " rm -f $$p $$f"; \
 	  rm -f $$p $$f ; \
 	done
+execstack$(EXEEXT): $(execstack_OBJECTS) $(execstack_DEPENDENCIES) 
+	@rm -f execstack$(EXEEXT)
+	$(LINK) $(execstack_LDFLAGS) $(execstack_OBJECTS) $(execstack_LDADD) $(LIBS)
 prelink$(EXEEXT): $(prelink_OBJECTS) $(prelink_DEPENDENCIES) 
 	@rm -f prelink$(EXEEXT)
 	$(LINK) $(prelink_LDFLAGS) $(prelink_OBJECTS) $(prelink_LDADD) $(LIBS)
@@ -241,6 +286,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/arch-sparc64.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/arch-x86_64.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cache.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/checksum.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/conflict.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/crc32.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cxx.Po@am__quote@
@@ -250,6 +296,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dwarf2.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/exec.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/execle_open.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/execstack.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/fptr.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gather.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/get.Po@am__quote@
@@ -365,7 +412,7 @@ check: check-am
 all-am: Makefile $(PROGRAMS)
 
 installdirs:
-	$(mkinstalldirs) $(DESTDIR)$(sbindir)
+	$(mkinstalldirs) $(DESTDIR)$(bindir) $(DESTDIR)$(sbindir)
 
 install: install-am
 install-exec: install-exec-am
@@ -393,7 +440,8 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-am
 
-clean-am: clean-generic clean-libtool clean-sbinPROGRAMS mostlyclean-am
+clean-am: clean-binPROGRAMS clean-generic clean-libtool \
+	clean-sbinPROGRAMS mostlyclean-am
 
 distclean: distclean-am
 
@@ -410,7 +458,7 @@ info-am:
 
 install-data-am:
 
-install-exec-am: install-sbinPROGRAMS
+install-exec-am: install-binPROGRAMS install-sbinPROGRAMS
 
 install-info: install-info-am
 
@@ -427,19 +475,21 @@ mostlyclean: mostlyclean-am
 mostlyclean-am: mostlyclean-compile mostlyclean-generic \
 	mostlyclean-libtool
 
-uninstall-am: uninstall-info-am uninstall-sbinPROGRAMS
+uninstall-am: uninstall-binPROGRAMS uninstall-info-am \
+	uninstall-sbinPROGRAMS
 
-.PHONY: GTAGS all all-am check check-am clean clean-generic \
-	clean-libtool clean-sbinPROGRAMS distclean distclean-compile \
-	distclean-depend distclean-generic distclean-libtool \
-	distclean-tags distdir dvi dvi-am info info-am install \
-	install-am install-data install-data-am install-exec \
-	install-exec-am install-info install-info-am install-man \
-	install-sbinPROGRAMS install-strip installcheck installcheck-am \
-	installdirs maintainer-clean maintainer-clean-generic \
-	mostlyclean mostlyclean-compile mostlyclean-generic \
-	mostlyclean-libtool tags uninstall uninstall-am \
-	uninstall-info-am uninstall-sbinPROGRAMS
+.PHONY: GTAGS all all-am check check-am clean clean-binPROGRAMS \
+	clean-generic clean-libtool clean-sbinPROGRAMS distclean \
+	distclean-compile distclean-depend distclean-generic \
+	distclean-libtool distclean-tags distdir dvi dvi-am info \
+	info-am install install-am install-binPROGRAMS install-data \
+	install-data-am install-exec install-exec-am install-info \
+	install-info-am install-man install-sbinPROGRAMS install-strip \
+	installcheck installcheck-am installdirs maintainer-clean \
+	maintainer-clean-generic mostlyclean mostlyclean-compile \
+	mostlyclean-generic mostlyclean-libtool tags uninstall \
+	uninstall-am uninstall-binPROGRAMS uninstall-info-am \
+	uninstall-sbinPROGRAMS
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
