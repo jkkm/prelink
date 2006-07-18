@@ -26,12 +26,13 @@
 #include <stdlib.h>
 
 #include "prelink.h"
+#include "fptr.h"
 
 static int
 ia64_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		 GElf_Addr adjust)
 {
-  if (dyn->d_tag == DT_IA64_PLT_RESERVE)
+  if (dyn->d_tag == DT_IA_64_PLT_RESERVE)
     {
       int sec = addr_to_sec (dso, dyn->d_un.d_ptr);
       Elf64_Addr data;
@@ -95,13 +96,13 @@ ia64_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 
       if (GELF_R_TYPE (rela->r_info) & 1)
 	{
-	  val = read_le64 (dso, rela->r_offset);
-	  gp = read_le64 (dso, rela->r_offset + 8);
+	  val = read_ule64 (dso, rela->r_offset);
+	  gp = read_ule64 (dso, rela->r_offset + 8);
 	}
       else
 	{
-	  val = read_be64 (dso, rela->r_offset);
-	  gp = read_be64 (dso, rela->r_offset + 8);
+	  val = read_ube64 (dso, rela->r_offset);
+	  gp = read_ube64 (dso, rela->r_offset + 8);
 	}
       if (gp == dso->info[DT_PLTGOT])
 	{
@@ -150,15 +151,15 @@ ia64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     {
       /* Nothing to do.  */
     }
-  else if (GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_PCREL32MSB)
+  else if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_PCREL32MSB)
     {
       value -= rela->r_offset & -16;
     }
-  else if (GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_FPTR32MSB)
+  else if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_FPTR32MSB)
     {
       /* FIXME */
     }
-  else if (GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
+  else if ((GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
     {
       GElf_Addr gp = info->resolveent->pltgot;
 
@@ -196,7 +197,7 @@ static int
 ia64_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  if (GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
+  if ((GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
     {
       GElf_Addr gp = 0;
       int i;
@@ -205,7 +206,7 @@ ia64_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 	if (info->ent->depends[i]->base <= rela->r_addend
 	    && info->ent->depends[i]->end > rela->r_addend)
 	  {
-	    gp = info->resolveent->pltgot;
+	    gp = info->ent->depends[i]->pltgot;
 	    break;
 	  }
 
@@ -214,12 +215,12 @@ ia64_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 
       if (GELF_R_TYPE (rela->r_info) & 1)
 	{
-	  buf_write_le64 (buf, value);
+	  buf_write_le64 (buf, rela->r_addend);
 	  buf_write_le64 (buf + 8, gp);
 	}
       else
 	{
-	  buf_write_be64 (buf, value);
+	  buf_write_be64 (buf, rela->r_addend);
 	  buf_write_be64 (buf + 8, gp);
 	}
       return 0;
@@ -227,10 +228,10 @@ ia64_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 
   switch (GELF_R_TYPE (rela->r_info))
     {
-    case R_IA64_DIR32MSB: buf_write_be32 (buf, value); break;
-    case R_IA64_DIR32LSB: buf_write_le32 (buf, value); break;
-    case R_IA64_DIR64MSB: buf_write_be64 (buf, value); break;
-    case R_IA64_DIR64LSB: buf_write_le64 (buf, value); break;
+    case R_IA64_DIR32MSB: buf_write_be32 (buf, rela->r_addend); break;
+    case R_IA64_DIR32LSB: buf_write_le32 (buf, rela->r_addend); break;
+    case R_IA64_DIR64MSB: buf_write_be64 (buf, rela->r_addend); break;
+    case R_IA64_DIR64LSB: buf_write_le64 (buf, rela->r_addend); break;
     default:
       abort ();
     }
@@ -256,15 +257,15 @@ ia64_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
     {
       /* Nothing to do.  */
     }
-  else if (GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_PCREL32MSB)
+  else if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_PCREL32MSB)
     {
       value -= rela->r_offset & -16;
     }
-  else if (GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_FPTR32MSB)
+  else if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_FPTR32MSB)
     {
       /* FIXME */
     }
-  else if (GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
+  else if ((GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
     {
       GElf_Addr gp = info->resolveent->pltgot;
 
@@ -359,6 +360,62 @@ ia64_need_rel_to_rela (DSO *dso, int first, int last)
   return 0;
 }
 
+static GElf_Addr
+ia64_create_opd (struct prelink_info *info, int first, int last, int plt)
+{
+  Elf_Data *d;
+  Elf_Scn *scn;
+  Elf64_Rela *rela, *relaend;
+  DSO *dso = info->dso;
+  int sec;
+
+  if (opd_init (info))
+    return -1;
+
+  if (plt)
+    info->ent->opd->plt_start = dso->shdr[dso->shdr[plt].sh_info].sh_addr;
+  else
+    info->ent->opd->plt_start = dso->shdr[dso->dynamic].sh_addr;
+  sec = first;
+  while (sec <= last)
+    {
+      d = NULL;
+      scn = dso->scn[sec++];
+      while ((d = elf_getdata (scn, d)) != NULL)
+	{
+	  rela = (Elf64_Rela *) d->d_buf;
+	  relaend = rela + d->d_size / sizeof (Elf64_Rela);
+	  for (; rela < relaend; rela++)
+	    if ((ELF64_R_TYPE (rela->r_info) & ~3) == R_IA64_FPTR32MSB
+		&& opd_add (info, ELF64_R_SYM (rela->r_info),
+			    R_IA64_FPTR64LSB))
+	      return -1;
+        }
+    }
+
+  sec = first;
+  while (sec)
+    {
+      d = NULL;
+      if (sec == plt)
+	break;
+      scn = dso->scn[sec++];
+      if (sec == last + 1)
+	sec = plt;
+      while ((d = elf_getdata (scn, d)) != NULL)
+	{
+	  rela = (Elf64_Rela *) d->d_buf;
+	  relaend = rela + d->d_size / sizeof (Elf64_Rela);
+	  for (; rela < relaend; rela++)
+	    if ((ELF64_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
+	      opd_note_plt (info, ELF64_R_SYM (rela->r_info), R_IA64_IPLTLSB,
+			    rela->r_offset);
+        }
+    }
+
+  return opd_size (info, 16);
+}
+
 static int
 ia64_arch_prelink (DSO *dso)
 {
@@ -427,7 +484,7 @@ ia64_reloc_class (int reloc_type)
 
 PL_ARCH = {
   .class = ELFCLASS64,
-  .machine = EM_IA64,
+  .machine = EM_IA_64,
   .alternate_machine = { EM_NONE },
   .R_JMP_SLOT = R_IA64_IPLTLSB,
   .R_COPY = -1,
@@ -445,6 +502,7 @@ PL_ARCH = {
   .apply_rela = ia64_apply_rela,
   .rel_to_rela = ia64_rel_to_rela,
   .need_rel_to_rela = ia64_need_rel_to_rela,
+  .create_opd = ia64_create_opd,
   .reloc_size = ia64_reloc_size,
   .reloc_class = ia64_reloc_class,
   .max_reloc_size = 16,

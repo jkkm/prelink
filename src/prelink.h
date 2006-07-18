@@ -45,6 +45,7 @@
 
 struct prelink_info;
 struct PLArch;
+struct opd_lib;
 
 struct PLAdjust
 {
@@ -118,6 +119,8 @@ struct PLArch
   int (*apply_rela) (struct prelink_info *info, GElf_Rela *rela, char *buf);
   int (*rel_to_rela) (DSO *dso, GElf_Rel *rel, GElf_Rela *rela);
   int (*need_rel_to_rela) (DSO *dso, int first, int last);
+  GElf_Addr (*create_opd) (struct prelink_info *info, int first, int last,
+			   int plt);
   /* Return reloc size in bytes for given non-COPY reloc type.  */
   int (*reloc_size) (int);
 #define RTYPE_CLASS_VALID	8
@@ -247,6 +250,7 @@ struct prelink_entry
     } u;
   struct prelink_entry **depends;
   struct prelink_entry *prev, *next;
+  struct opd_lib *opd;
 };
 
 struct prelink_dir

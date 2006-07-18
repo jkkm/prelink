@@ -164,7 +164,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       goto error_out;
     }
 
-  if (dso->ehdr.e_type == ET_EXEC)
+  if (dso->ehdr.e_type == ET_EXEC || dso->arch->create_opd)
     {
       info->conflicts = (struct prelink_conflict **)
 			calloc (sizeof (struct prelink_conflict *), ndeps);
