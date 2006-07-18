@@ -1067,7 +1067,12 @@ adjust_old_to_new (DSO *dso, GElf_Addr addr)
 
   for (i = 0; i < dso->nadjust; i++)
     if (addr >= dso->adjust[i].start)
-      return addr + dso->adjust[i].adjust;
+      {
+	addr += dso->adjust[i].adjust;
+	assert (dso->ehdr.e_ident[EI_CLASS] != ELFCLASS32
+		|| addr == (Elf32_Addr) addr);
+	return addr;
+      }
 
   return addr;
 }
@@ -1082,7 +1087,12 @@ adjust_new_to_old (DSO *dso, GElf_Addr addr)
 
   for (i = 0; i < dso->nadjust; i++)
     if (addr >= dso->adjust[i].start + dso->adjust[i].adjust)
-      return addr - dso->adjust[i].adjust;
+      {
+	addr -= dso->adjust[i].adjust;
+	assert (dso->ehdr.e_ident[EI_CLASS] != ELFCLASS32
+		|| addr == (Elf32_Addr) addr);
+	return addr;
+      }
 
   return addr;
 }

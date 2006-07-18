@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -566,8 +566,11 @@ prelink_save_cache (int do_warn)
       deps[ndeps++] = i;
     }
 
-  unlink (prelink_cache);
-  fd = open (prelink_cache, O_WRONLY | O_CREAT | O_EXCL, 0644);
+  size_t prelink_cache_len = strlen (prelink_cache);
+  char prelink_cache_tmp [prelink_cache_len + sizeof (".XXXXXX")];
+  memcpy (mempcpy (prelink_cache_tmp, prelink_cache, prelink_cache_len),
+	  ".XXXXXX", sizeof (".XXXXXX"));
+  fd = mkstemp (prelink_cache_tmp);
   if (fd < 0)
     {
       error (0, errno, "Could not write prelink cache");
@@ -576,9 +579,12 @@ prelink_save_cache (int do_warn)
 
   if (write (fd, &cache, sizeof (cache)) != sizeof (cache)
       || write (fd, data, len) != len
-      || close (fd))
+      || fchmod (fd, 0644)
+      || close (fd)
+      || rename (prelink_cache_tmp, prelink_cache))
     {
       error (0, errno, "Could not write prelink cache");
+      unlink (prelink_cache_tmp);
       return 1;
     }
   return 0;

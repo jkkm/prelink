@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -56,6 +56,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
     } deps[info->ent->ndepends + 1];
   char *r;
   int i, ndeps = 0, undef = 0, seen = 0, tdeps = 0;
+  int mask_32bit = (info->dso->ehdr.e_ident[EI_CLASS] == ELFCLASS32);
 
   /* Record the dependencies.  */
   while ((r = fgets (buffer, 8192, f)) != NULL)
@@ -268,7 +269,10 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 			/* If the library the symbol is bound to is already
 			   prelinked, adjust the value so that it is relative
 			   to library base.  */
-			value[0] -= deps[i].start - deps[i].l_addr;
+			if (mask_32bit)
+			  value[0] -= (Elf32_Addr) (deps[i].start - deps[i].l_addr);
+			else
+			  value[0] -= deps[i].start - deps[i].l_addr;
 		      }
 		    break;
 		  }
@@ -457,7 +461,10 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 			    /* If the library the symbol is bound to is already
 			       prelinked, adjust the value so that it is relative
 			       to library base.  */
-			    value[j] -= deps[i].start - deps[i].l_addr;
+			    if (mask_32bit)
+			      value[j] -= (Elf32_Addr) (deps[i].start - deps[i].l_addr);
+			    else
+			      value[j] -= deps[i].start - deps[i].l_addr;
 			  }
 			break;
 		      }
