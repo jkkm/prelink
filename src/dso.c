@@ -291,10 +291,18 @@ fdopen_dso (int fd, const char *name)
     gelf_getphdr (elf, i, dso->phdr + i);
   dso->fd = fd;
 
-  for (i = 0; i < ehdr.e_shnum; ++i)
+  for (i = 0, j = 0; i < ehdr.e_shnum; ++i)
     {
       dso->scn[i] = elf_getscn (elf, i);
       gelfx_getshdr (elf, dso->scn[i], dso->shdr + i);
+      if ((dso->shdr[i].sh_flags & SHF_ALLOC) && dso->shdr[i].sh_type != SHT_NOBITS)
+	j = 1;
+    }
+  if (j == 0)
+    {
+      /* If all ALLOC sections are SHT_NOBITS, then this is a
+	 stripped-to-file debuginfo.  Skip it silently.  */
+      goto error_out;
     }
 
   sections = (int *) alloca (dso->ehdr.e_shnum * sizeof (int) * 2);
