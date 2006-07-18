@@ -128,12 +128,12 @@ sparc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     {
       /* 32-bit SPARC handles RELATIVE relocs as
 	 *(int *)rela->r_offset += l_addr + rela->r_addend.
-	 RELATIVE relocs against .got traditionally have the
+	 RELATIVE relocs against .got traditionally used to have the
 	 addend in memory pointed by r_offset and 0 r_addend,
-	 other RELATIVE relocs have 0 in memory and non-zero
-	 r_addend.  For prelinking, we need the value in
-	 memory to be already relocated for l_addr == 0 case,
-	 so we have to make sure r_addend will be 0.  */
+	 other RELATIVE relocs and more recent .got RELATIVE relocs
+	 too have 0 in memory and non-zero r_addend.  For prelinking,
+	 we need the value in memory to be already relocated for
+	 l_addr == 0 case, so we have to make sure r_addend will be 0.  */
       if (rela->r_addend == 0)
 	return 0;
       value = read_ube32 (dso, rela->r_offset);
@@ -392,23 +392,17 @@ sparc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_SPARC_RELATIVE:
       /* 32-bit SPARC handles RELATIVE relocs as
 	 *(int *)rela->r_offset += l_addr + rela->r_addend.
-	 RELATIVE relocs against .got traditionally have the
+	 RELATIVE relocs against .got traditionally used to have the
 	 addend in memory pointed by r_offset and 0 r_addend,
-	 other RELATIVE relocs have 0 in memory and non-zero
-	 r_addend.  */
-      sec = addr_to_sec (dso, rela->r_offset);
+	 other RELATIVE relocs and more recent RELATIVE relocs have 0
+	 in memory and non-zero r_addend.
+	 Always store 0 to memory when doing undo.  */
       assert (rela->r_addend == 0);
-      if (sec != -1 && strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-				       dso->shdr[sec].sh_name),
-			       ".got"))
-	{
-	  rela->r_addend = (Elf32_Sword) read_ube32 (dso, rela->r_offset);
-	  write_be32 (dso, rela->r_offset, 0);
-	  /* Tell undo_prelink_rela routine it should update the
-	     relocation.  */
-	  return 2;
-	}
-      break;
+      rela->r_addend = (Elf32_Sword) read_ube32 (dso, rela->r_offset);
+      write_be32 (dso, rela->r_offset, 0);
+      /* Tell undo_prelink_rela routine it should update the
+	 relocation.  */
+      return 2;
     case R_SPARC_GLOB_DAT:
     case R_SPARC_32:
     case R_SPARC_UA32:
