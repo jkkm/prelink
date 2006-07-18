@@ -139,6 +139,8 @@ void read_dynamic (DSO *dso);
 int set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal);
 int addr_to_sec (DSO *dso, GElf_Addr addr);
 int adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust);
+int adjust_nonalloc (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int first,
+		     GElf_Addr start, GElf_Addr adjust);
 int adjust_dso_nonalloc (DSO *dso, int first, GElf_Addr start,
 			 GElf_Addr adjust);
 int adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);

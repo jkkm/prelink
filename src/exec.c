@@ -241,7 +241,6 @@ prelink_find_copy_rela (DSO *dso, int n, struct copy_relocs *cr)
 
 struct readonly_adjust
 {
-  off_t nonalloc_adjust;
   off_t basemove_adjust;
   off_t basemove2_adjust;
   GElf_Addr basemove_end;
@@ -344,9 +343,9 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    ehdr->e_shnum++;
 	    if (start + add->sh_size > phdr[i].p_vaddr + phdr[i].p_filesz)
 	      {
-		adjust->nonalloc_adjust +=
-		  start + add->sh_size - phdr[i].p_vaddr
-		  - phdr[i].p_filesz;
+		adjust_nonalloc (dso, ehdr, shdr, 0, 0,
+				 start + add->sh_size - phdr[i].p_vaddr
+				 - phdr[i].p_filesz);
 		phdr[i].p_filesz = start + add->sh_size - phdr[i].p_vaddr;
 		phdr[i].p_memsz = phdr[i].p_filesz;
 	      }
@@ -463,9 +462,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	      else
 		phdr[j].p_offset += addr;
 	    }
-	  for (j = k; j < ehdr->e_shnum; ++j)
-	    shdr[j].sh_offset += addr;
 	  adjust->basemove_adjust += addr;
+	  adjust_nonalloc (dso, ehdr, shdr, 0, 0, addr);
 	  if (k == moveend && adjust->moveend2 >= k)
 	    ++adjust->moveend2;
 	  memmove (&shdr[k + 1], &shdr[k],
@@ -532,63 +530,42 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
   shdr[i] = *add;
   shdr[i].sh_addr = phdr[j].p_vaddr;
   shdr[i].sh_offset = phdr[j].p_offset;
-  adjust->nonalloc_adjust +=
-    phdr[j].p_offset + phdr[j].p_filesz - phdr[j - 1].p_offset
-    - phdr[j - 1].p_filesz;
+  adjust_nonalloc (dso, ehdr, shdr, 0, 0, 
+		   phdr[j].p_offset + phdr[j].p_filesz - phdr[j - 1].p_offset
+		   - phdr[j - 1].p_filesz);
   ehdr->e_shnum++;
   return i;
 }
 
 static int
-readonly_space_adjust (DSO *dso, struct readonly_adjust *adjust)
+update_dynamic_tags (DSO *dso, GElf_Shdr *old_shdr, struct section_move *move)
 {
-  if (adjust->nonalloc_adjust
-      && adjust_dso_nonalloc (dso, 0, 0, adjust->nonalloc_adjust))
-    return 1;
-
-  if (adjust->basemove_adjust)
+  int i, j;
+  
+  for (i = 1; i < dso->ehdr.e_shnum; ++i)
     {
-      int i, adj = 0;
-
-      for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	if (i < adjust->moveend)
-	  dso->shdr[i].sh_addr -= adjust->basemove_adjust;
-	else if (adj || dso->shdr[i].sh_addr >= adjust->basemove_end)
-	  {
-	    dso->shdr[i].sh_offset += adjust->basemove_adjust;
-	    adj = 1;
-	  }
-
-      dso->ehdr.e_shoff += adjust->basemove_adjust;
-      if (adjust->basemove2_adjust)
-        {
-	  for (i = adjust->moveend; i < adjust->moveend2; ++i)
-	    {
-	      if (dso->shdr[i].sh_type == SHT_NULL)
-	        continue;
-	      if ((dso->info[DT_HASH] == dso->shdr[i].sh_addr
-		   && set_dynamic (dso, DT_HASH, dso->shdr[i].sh_addr
-					- adjust->basemove2_adjust, 1))
-		  || (dso->info[DT_SYMTAB] == dso->shdr[i].sh_addr
-		      && set_dynamic (dso, DT_SYMTAB, dso->shdr[i].sh_addr
-					- adjust->basemove2_adjust, 1))					
-		  || (dso->info[DT_STRTAB] == dso->shdr[i].sh_addr
-		      && set_dynamic (dso, DT_STRTAB, dso->shdr[i].sh_addr
-					- adjust->basemove2_adjust, 1))
-		  || (dso->info_DT_VERDEF == dso->shdr[i].sh_addr
-		      && set_dynamic (dso, DT_VERDEF, dso->shdr[i].sh_addr
-					- adjust->basemove2_adjust, 1))
-		  || (dso->info_DT_VERNEED == dso->shdr[i].sh_addr
-		      && set_dynamic (dso, DT_VERNEED, dso->shdr[i].sh_addr
-					- adjust->basemove2_adjust, 1))
-		  || (dso->info_DT_VERSYM == dso->shdr[i].sh_addr
-		      && set_dynamic (dso, DT_VERSYM, dso->shdr[i].sh_addr
-					- adjust->basemove2_adjust, 1)))
-		return 1;
-	      dso->shdr[i].sh_addr -= adjust->basemove2_adjust;
-	      dso->shdr[i].sh_offset -= adjust->basemove2_adjust;
-	    }
-        }
+      j = move->new_to_old[i];
+      if (j == -1)
+	continue;
+      if ((dynamic_info_is_set (dso, DT_HASH)
+	   && dso->info[DT_HASH] == old_shdr[j].sh_addr
+	   && set_dynamic (dso, DT_HASH, dso->shdr[i].sh_addr, 1))
+	  || (dynamic_info_is_set (dso, DT_SYMTAB)
+	      && dso->info[DT_SYMTAB] == old_shdr[j].sh_addr
+	      && set_dynamic (dso, DT_SYMTAB, dso->shdr[i].sh_addr, 1))
+	  || (dynamic_info_is_set (dso, DT_STRTAB)
+	      && dso->info[DT_STRTAB] == old_shdr[j].sh_addr
+	      && set_dynamic (dso, DT_STRTAB, dso->shdr[i].sh_addr, 1))
+	  || (dynamic_info_is_set (dso, DT_VERDEF_BIT)
+	      && dso->info_DT_VERDEF == old_shdr[j].sh_addr
+	      && set_dynamic (dso, DT_VERDEF, dso->shdr[i].sh_addr, 1))
+	  || (dynamic_info_is_set (dso, DT_VERNEED_BIT)
+	      && dso->info_DT_VERNEED == old_shdr[j].sh_addr
+	      && set_dynamic (dso, DT_VERNEED, dso->shdr[i].sh_addr, 1)) 
+	  || (dynamic_info_is_set (dso, DT_VERSYM_BIT)
+	      && dso->info_DT_VERSYM == old_shdr[j].sh_addr
+	      && set_dynamic (dso, DT_VERSYM, dso->shdr[i].sh_addr, 1)))
+	return 1;
     }
 
   return 0;
@@ -715,7 +692,7 @@ get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
 	    }
 	  scn = elf_getscn (dso->elf, i);
 	  data = NULL;
-          while ((data = elf_getdata (scn, data)) != NULL)
+	  while ((data = elf_getdata (scn, data)) != NULL)
 	    {
 	      maxndx = data->d_size / dso->shdr[i].sh_entsize;
 	      for (ndx = 0; ndx < maxndx; ++ndx)
@@ -751,7 +728,7 @@ get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
 		    dso->arch->apply_rela (info, &u.rela, buf + off);
 		}
 	    }
-        }
+	}
     }
 
   return 0;
@@ -856,7 +833,7 @@ prelink_build_conflicts (struct prelink_info *info)
 		      goto error_out;
 		    }
 	    }
-        }
+	}
     }
 
   dso = info->dso;
@@ -870,7 +847,7 @@ prelink_build_conflicts (struct prelink_info *info)
 	  if (prelink_find_copy_rel (dso, i, &cr))
 	    goto error_out;
 	  break;
-        case SHT_RELA:
+	case SHT_RELA:
 	  if (prelink_find_copy_rela (dso, i, &cr))
 	    goto error_out;
 	  break;
@@ -923,7 +900,7 @@ prelink_build_conflicts (struct prelink_info *info)
 	  for (s = & info->symbols[GELF_R_SYM (cr.rela[i].r_info)]; s;
 	       s = s->next)
 	    if (s->reloc_class == reloc_class)
-              break;
+	      break;
 
 	  if (s == NULL || s->ent == NULL)
 	    {
@@ -1001,7 +978,8 @@ prelink_exec (struct prelink_info *info)
   GElf_Ehdr ehdr;
   Elf_Data rel_dyn_data;
   GElf_Phdr phdr[dso->ehdr.e_phnum + 1];
-  GElf_Shdr shdr[dso->ehdr.e_shnum + 20], add[5];
+  GElf_Shdr old_shdr[dso->ehdr.e_shnum], new_shdr[dso->ehdr.e_shnum + 20];
+  GElf_Shdr *shdr, add[5];
   Elf32_Lib *liblist = NULL;
   struct readonly_adjust adjust;
   struct section_move *move = NULL;
@@ -1052,6 +1030,8 @@ prelink_exec (struct prelink_info *info)
   /* Find where to create .gnu.liblist and .gnu.conflict.  */
   ehdr = dso->ehdr;
   memcpy (phdr, dso->phdr, dso->ehdr.e_phnum * sizeof (GElf_Phdr));
+  memcpy (old_shdr, dso->shdr, dso->ehdr.e_shnum * sizeof (GElf_Shdr));
+  shdr = new_shdr;
   shdr[0] = dso->shdr[0];
   if (info->dynbss)
     {
@@ -1211,6 +1191,7 @@ prelink_exec (struct prelink_info *info)
 	    ++adjust.moveend2;
 	  memmove (&shdr[new_dynbss + 1], &shdr[new_dynbss],
 		   (ehdr.e_shnum - new_dynbss) * sizeof (GElf_Shdr));
+	  shdr[new_dynbss].sh_size = 0;
 	  ++ehdr.e_shnum;
 	  add_section (move, new_dynbss);
 	}
@@ -1223,6 +1204,9 @@ prelink_exec (struct prelink_info *info)
       undo = move->old_to_new[dso->ehdr.e_shstrndx];
       memmove (&shdr[undo + 1], &shdr[undo],
 	       (ehdr.e_shnum - undo) * sizeof (GElf_Shdr));
+      memset (&shdr[undo], 0, sizeof (shdr[undo]));
+      shdr[undo].sh_type = SHT_PROGBITS;
+      shdr[undo].sh_addralign = dso->undo.d_align;
       ++ehdr.e_shnum;
       add_section (move, undo);
     }
@@ -1236,16 +1220,70 @@ prelink_exec (struct prelink_info *info)
 
   assert (i == dso->ehdr.e_shnum);
 
-  if (readonly_space_adjust (dso, &adjust))
+  if (move->old_shnum != move->new_shnum)
+    adjust_nonalloc (dso, &dso->ehdr, shdr, 0,
+		     dso->ehdr.e_shoff + 1,
+		     ((long) move->new_shnum - (long) move->old_shnum)
+		     * gelf_fsize (dso->elf, ELF_T_SHDR, 1, EV_CURRENT));
+
+  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+    if (move->new_to_old[i] == -1)
+      dso->shdr[i] = shdr[i];
+    else
+      {
+	dso->shdr[i].sh_type = shdr[i].sh_type;
+	dso->shdr[i].sh_addr = shdr[i].sh_addr;
+	dso->shdr[i].sh_size = shdr[i].sh_size;
+	dso->shdr[i].sh_offset = shdr[i].sh_offset;
+      }
+
+  for (i = 0; i < dso->ehdr.e_phnum; ++i)
+    if (dso->phdr[i].p_type == PT_LOAD)
+      {
+	GElf_Addr last_offset = dso->phdr[i].p_offset;
+
+	for (j = 1; j < dso->ehdr.e_shnum; ++j)
+	  if (dso->shdr[j].sh_addr >= dso->phdr[i].p_vaddr
+	      && dso->shdr[j].sh_addr + dso->shdr[j].sh_size
+		 <= dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz)
+	    {
+	      if (dso->shdr[j].sh_type == SHT_NOBITS)
+		{
+		  last_offset += dso->shdr[j].sh_addralign - 1;
+		  last_offset &= ~(dso->shdr[j].sh_addralign - 1);
+		  if (last_offset > dso->phdr[i].p_offset
+				    + dso->phdr[i].p_filesz)
+		    last_offset = dso->phdr[i].p_offset
+				  + dso->phdr[i].p_filesz;
+		  dso->shdr[j].sh_offset = last_offset;
+		  shdr[j].sh_offset = last_offset;
+		}
+	      else if (dso->shdr[j].sh_addr + dso->shdr[j].sh_size
+		       > dso->phdr[i].p_vaddr + dso->phdr[i].p_filesz)
+		{
+		  error (0, 0, "%s: section spans beyond end of segment",
+			 dso->filename);
+		  goto error_out;
+		}
+	      else
+		{
+		  dso->shdr[j].sh_offset
+		    = dso->phdr[i].p_offset + dso->shdr[j].sh_addr
+		      - dso->phdr[i].p_vaddr;
+		  shdr[j].sh_offset = dso->shdr[j].sh_offset;
+		  assert ((dso->shdr[j].sh_offset
+			   & (dso->shdr[j].sh_addralign - 1)) == 0);
+		  last_offset = dso->shdr[j].sh_offset + dso->shdr[j].sh_size;
+		}
+	    }
+      }
+
+  if (update_dynamic_tags (dso, old_shdr, move))
     goto error_out;
+
   /* Create .rel*.dyn if necessary.  */
   rinfo.first = move->old_to_new[rinfo.first];
-  if (new_reloc != -1)
-    {
-      assert (rinfo.first == new[new_reloc]);
-      dso->shdr[rinfo.first].sh_addr = shdr[rinfo.first].sh_addr;
-      dso->shdr[rinfo.first].sh_offset = shdr[rinfo.first].sh_offset;
-    }
+  assert (new_reloc == -1 || rinfo.first == new[new_reloc]);
 
   if (rinfo.first && ! rinfo.reldyn)
     {
@@ -1265,22 +1303,26 @@ prelink_exec (struct prelink_info *info)
 
   if (rinfo.rel_to_rela)
     {
+      assert (sizeof (Elf32_Rel) * 3 == sizeof (Elf32_Rela) * 2);
+      assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
+      dso->shdr[rinfo.first].sh_size
+	= dso->shdr[rinfo.first].sh_size / 3 * 2;
       if (convert_rel_to_rela (dso, rinfo.first))
 	goto error_out;
       dso->shdr[rinfo.first].sh_size = shdr[rinfo.first].sh_size;
     }
-  else if (rinfo.first && ! rinfo.reldyn)
-    dso->shdr[rinfo.first].sh_size = shdr[rinfo.first].sh_size;
 
   /* Adjust .rel*.plt if necessary.  */
   rinfo.plt = move->old_to_new[rinfo.plt];
   if (new_plt != -1)
     {
       assert (rinfo.plt == new[new_plt]);
-      dso->shdr[rinfo.plt].sh_addr = shdr[rinfo.plt].sh_addr;
-      dso->shdr[rinfo.plt].sh_offset = shdr[rinfo.plt].sh_offset;
       if (rinfo.rel_to_rela_plt)
 	{
+	  assert (sizeof (Elf32_Rel) * 3 == sizeof (Elf32_Rela) * 2);
+	  assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
+	  dso->shdr[rinfo.first].sh_size
+	    = dso->shdr[rinfo.first].sh_size / 3 * 2;
 	  if (convert_rel_to_rela (dso, rinfo.plt))
 	    goto error_out;
 	  dso->shdr[rinfo.plt].sh_size = shdr[rinfo.plt].sh_size;
@@ -1299,11 +1341,7 @@ prelink_exec (struct prelink_info *info)
       i = new[new_dynstr];
       data = elf_getdata (elf_getscn (dso->elf, i), NULL);
       assert (data->d_off == 0);
-      assert (data->d_size == dso->shdr[i].sh_size);
-      dso->shdr[i].sh_addr = shdr[i].sh_addr;
-      dso->shdr[i].sh_offset = shdr[i].sh_offset;
-      dso->shdr[i].sh_size = shdr[i].sh_size;
-      data->d_buf = realloc (data->d_buf, shdr[i].sh_size);
+      data->d_buf = realloc (data->d_buf, dso->shdr[i].sh_size);
       if (data->d_buf == NULL)
 	{
 	  error (0, ENOMEM, "%s: Could not append names needed for .gnu.liblist to .dynstr",
@@ -1311,7 +1349,7 @@ prelink_exec (struct prelink_info *info)
 	  goto error_out;
 	}
       ptr = data->d_buf + data->d_size;
-      data->d_size = shdr[i].sh_size;
+      data->d_size = dso->shdr[i].sh_size;
       for (j = 0; j < ndeps - 1; j++)
 	if (liblist[j].l_name == 0)
 	  {
@@ -1319,11 +1357,6 @@ prelink_exec (struct prelink_info *info)
 	    ptr = stpcpy (ptr, info->sonames[j + 1]) + 1;
 	  }
       assert (ptr == (char *) data->d_buf + data->d_size);
-      if (dso->info[DT_STRTAB] != dso->shdr[i].sh_addr)
-	{
-	  if (set_dynamic (dso, DT_STRTAB, dso->shdr[i].sh_addr, 1))
-	    goto error_out;
-	}
     }
 
   /* Create or update .dynbss if necessary.  */
@@ -1332,7 +1365,7 @@ prelink_exec (struct prelink_info *info)
       Elf_Data *data;
 
       if (old_dynbss == -1)
-        {
+	{
 	  dso->shdr[new_dynbss] = dso->shdr[new_dynbss + 1];
 
 	  dso->shdr[new_dynbss].sh_name = shstrtabadd (dso, ".dynbss");
@@ -1388,7 +1421,7 @@ prelink_exec (struct prelink_info *info)
 	       ++i)
 	    dso->shdr[i].sh_offset
 	      += dso->shdr[new_dynbss].sh_size;
-        }
+	}
       else
 	{
 	  if (dso->shdr[new_dynbss].sh_type != SHT_PROGBITS
@@ -1410,7 +1443,7 @@ prelink_exec (struct prelink_info *info)
       data->d_size = info->dynbss_size;
       data->d_type = ELF_T_BYTE;
       if (old_dynbss == -1)
-        {
+	{
 	  data = elf_getdata (elf_getscn (dso->elf, new_dynbss + 1), NULL);
 	  assert (data->d_buf == NULL);
 	  assert (data->d_size == dso->shdr[new_dynbss].sh_size
@@ -1491,15 +1524,12 @@ prelink_exec (struct prelink_info *info)
       Elf_Data *data;
       GElf_Addr newoffset;
 
-      memset (&dso->shdr[undo], 0, sizeof (GElf_Shdr));
       dso->shdr[undo].sh_name = shstrtabadd (dso, ".gnu.prelink_undo");
       if (dso->shdr[undo].sh_name == 0)
 	return 1;
-      dso->shdr[undo].sh_type = SHT_PROGBITS;
       dso->shdr[undo].sh_offset = dso->shdr[undo - 1].sh_offset;
       if (dso->shdr[undo - 1].sh_type != SHT_NOBITS)
 	dso->shdr[undo].sh_offset += dso->shdr[undo - 1].sh_size;
-      dso->shdr[undo].sh_addralign = dso->undo.d_align;
       dso->shdr[undo].sh_entsize = gelf_fsize (dso->elf, ELF_T_SHDR, 1,
 					       EV_CURRENT);
       dso->shdr[undo].sh_size = dso->undo.d_size;

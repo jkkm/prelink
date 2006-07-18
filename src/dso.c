@@ -950,49 +950,48 @@ adjust_rela (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 }
 
 int
-adjust_dso_nonalloc (DSO *dso, int first, GElf_Addr start, GElf_Addr adjust)
+adjust_nonalloc (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int first,
+		 GElf_Addr start, GElf_Addr adjust)
 {
   int i;
 
-  for (i = 1; i < dso->ehdr.e_shnum; i++)
+  for (i = 1; i < ehdr->e_shnum; i++)
     {
-      if (RELOCATE_SCN (dso->shdr[i].sh_flags))
+      if (RELOCATE_SCN (shdr[i].sh_flags))
 	continue;
 
-      if ((dso->shdr[i].sh_offset > start
-	   || (dso->shdr[i].sh_offset == start && i >= first))
-	  && (adjust & (dso->shdr[i].sh_addralign - 1)))
-	adjust = (adjust + dso->shdr[i].sh_addralign - 1)
-		 & ~(dso->shdr[i].sh_addralign - 1);
+      if ((shdr[i].sh_offset > start
+	   || (shdr[i].sh_offset == start && i >= first))
+	  && (adjust & (shdr[i].sh_addralign - 1)))
+	adjust = (adjust + shdr[i].sh_addralign - 1)
+		 & ~(shdr[i].sh_addralign - 1);
     }
 
-  if (dso->ehdr.e_shoff >= start)
+  if (ehdr->e_shoff >= start)
     {
       GElf_Addr shdralign = gelf_fsize (dso->elf, ELF_T_ADDR, 1, EV_CURRENT);
 
       if (adjust & (shdralign - 1))
 	adjust = (adjust + shdralign - 1) & ~(shdralign - 1);
-      dso->ehdr.e_shoff += adjust;
-      gelf_update_ehdr (dso->elf, &dso->ehdr);
-      elf_flagehdr (dso->elf, ELF_C_SET, ELF_F_DIRTY);
+      ehdr->e_shoff += adjust;
     }
 
-  for (i = 1; i < dso->ehdr.e_shnum; i++)
+  for (i = 1; i < ehdr->e_shnum; i++)
     {
-      if (RELOCATE_SCN (dso->shdr[i].sh_flags))
+      if (RELOCATE_SCN (shdr[i].sh_flags))
 	continue;
 
-      if (dso->shdr[i].sh_offset > start
-	  || (dso->shdr[i].sh_offset == start && i >= first))
-	{
-	  Elf_Scn *scn = elf_getscn (dso->elf, i);
-
-	  dso->shdr[i].sh_offset += adjust;
-	  gelfx_update_shdr (dso->elf, scn, dso->shdr + i);
-	  elf_flagshdr (scn, ELF_C_SET, ELF_F_DIRTY);
-	}
+      if (shdr[i].sh_offset > start
+	  || (shdr[i].sh_offset == start && i >= first))
+	shdr[i].sh_offset += adjust;
     }
   return 0;
+}
+
+int
+adjust_dso_nonalloc (DSO *dso, int first, GElf_Addr start, GElf_Addr adjust)
+{
+  return adjust_nonalloc (dso, &dso->ehdr, dso->shdr, first, start, adjust);
 }
 
 /* Add ADJUST to all addresses above START.  */
