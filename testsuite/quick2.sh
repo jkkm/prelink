@@ -78,13 +78,44 @@ echo This is a sample shell script
 echo used to test whether even shell scripts
 echo and other executable non-ELF files
 echo are cached as non-prelinkable
-echo in /etc/prelink.cache and thus don\'t
+echo in /etc/prelink.cache and thus do not
 echo need to be reread every time prelink -aq
 echo is run.
 exit 0
 EOF
 chmod 755 quick2.tree/usr/bin/bin8
+cat > quick2.tree/usr/bin/bin9.sh <<EOF
+#!/bin/sh
+echo This is another sample shell script,
+echo this time with a .sh extension.
+echo This does not need to be even cached
+echo as non-prelinkable, provided -b *.sh
+echo is present in prelink.conf.
+exit 0
+EOF
+chmod 755 quick2.tree/usr/bin/bin9.sh
+cat > quick2.tree/usr/bin/bin10.py <<EOF
+#! /usr/bin/env python
+print "This is a sample python script."
+print "This does not need to be even cached"
+print "as non-prelinkable, provided -b *.py"
+print "is present in prelink.conf."
+EOF
+chmod 755 quick2.tree/usr/bin/bin10.py
+cat > quick2.tree/usr/bin/bin11.script <<EOF
+#!/bin/sh
+echo This is another sample shell script,
+echo this time matching b*11*r[hijk]*t shell pattern.
+echo This does not need to be even cached
+echo as non-prelinkable, provided -b b*11*r[hijk]*t
+echo is present in prelink.conf.
+exit 0
+EOF
+chmod 755 quick2.tree/usr/bin/bin11.script
 cat > quick2.tree/etc/prelink.conf <<EOF
+-b *.sh
+-b *.py
+-b b*11*r[hijk]*t
 quick2.tree/usr/bin
 quick2.tree/lib
 quick2.tree/usr/lib

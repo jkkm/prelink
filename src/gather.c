@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <error.h>
 #include <fcntl.h>
+#include <fnmatch.h>
 #include <ftw.h>
 #include <glob.h>
 #include <stdio.h>
@@ -46,6 +47,13 @@ static struct prelink_dir *blacklist;
 static char *blacklist_dir;
 static size_t blacklist_dir_len;
 #endif
+static struct extension
+{
+  const char *ext;
+  size_t len;
+  int is_glob;
+} *blacklist_ext;
+static int blacklist_next;
 
 static int
 gather_deps (DSO *dso, struct prelink_entry *ent)
@@ -247,6 +255,12 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
     }
 
   ent->ndepends = ndepends;
+  char *cache_dyn_depends = NULL;
+  if (ndepends)
+    {
+      cache_dyn_depends = alloca (ndepends);
+      memset (cache_dyn_depends, '\0', ndepends);
+    }
   for (i = 0; i < ndepends; ++i)
     {
       ent->depends[i] = prelink_find_entry (depends [i], NULL, 1);
@@ -259,6 +273,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	  free (ent->depends[i]->depends);
 	  ent->depends[i]->depends = NULL;
 	  ent->depends[i]->ndepends = 0;
+	  cache_dyn_depends[i] = 1;
 	}
 
       if (ent->depends[i]->type != ET_NONE
@@ -267,7 +282,13 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	  && ent->depends[i]->type != ET_UNPRELINKABLE)
 	{
 	  error (0, 0, "%s is not a shared library", depends [i]);
-	  goto error_out_free_depends;
+error_out_regather_libs:
+          for (i = 0; i < ndepends; ++i)
+            {
+              if (cache_dyn_depends[i] && ent->depends[i]->type == ET_NONE)
+                gather_lib (ent->depends[i]);
+            }
+          goto error_out_free_depends;
 	}
     }
 
@@ -277,7 +298,10 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   for (i = 0; i < ndepends; ++i)
     if (ent->depends[i]->type == ET_NONE
 	&& gather_lib (ent->depends[i]))
-      goto error_out_free_depends;
+      {
+        cache_dyn_depends[i] = 0;
+        goto error_out_regather_libs;
+      }
 
   for (i = 0; i < ndepends; ++i)
     for (j = 0; j < ent->depends[i]->ndepends; ++j)
@@ -610,9 +634,30 @@ gather_func (const char *name, const struct stat64 *st, int type,
 #endif
   if (type == FTW_F && S_ISREG (st->st_mode) && (st->st_mode & 0111))
     {
-      int fd;
+      int fd, i;
       DSO *dso;
       struct prelink_entry *ent;
+      size_t len = strlen (name);
+      const char *base = NULL;
+
+      for (i = 0; i < blacklist_next; ++i)
+	if (blacklist_ext[i].is_glob)
+	  {
+	    if (base == NULL)
+	      {
+		base = strrchr (name, '/');
+		if (base == NULL)
+		  base = name;
+		else
+		  ++base;
+	      }
+	    if (fnmatch (blacklist_ext[i].ext, base, FNM_PERIOD) == 0)
+	      return FTW_CONTINUE;
+	  }
+	else if (blacklist_ext[i].len <= len
+		 && memcmp (name + len - blacklist_ext[i].len,
+			    blacklist_ext[i].ext, blacklist_ext[i].len) == 0)
+	  return FTW_CONTINUE;
 
       ent = prelink_find_entry (name, st, 0);
       if (ent != NULL && ent->type != ET_NONE)
@@ -620,10 +665,10 @@ gather_func (const char *name, const struct stat64 *st, int type,
 	  if (verbose > 5)
 	    {
 	      if (ent->type == ET_CACHE_EXEC || ent->type == ET_CACHE_DYN)
-	        printf ("Assuming prelinked %s\n", name);
-              if (ent->type == ET_UNPRELINKABLE)
-                printf ("Assuming non-prelinkable %s\n", name);
-            }
+		printf ("Assuming prelinked %s\n", name);
+	      if (ent->type == ET_UNPRELINKABLE)
+		printf ("Assuming non-prelinkable %s\n", name);
+	    }
 	  ent->u.explicit = 1;
 	  return FTW_CONTINUE;
 	}
@@ -1113,6 +1158,27 @@ add_to_blacklist (const char *name, int deref, int onefs)
   return 0;
 }
 
+void
+add_blacklist_ext (const char *ext)
+{
+  blacklist_ext = realloc (blacklist_ext,
+			   (blacklist_next + 1) * sizeof (*blacklist_ext));
+  if (blacklist_ext == NULL)
+    error (EXIT_FAILURE, errno, "can't create blacklist extension list");
+  if (*ext == '*' && strpbrk (ext + 1, "*?[{") == NULL)
+    {
+      blacklist_ext[blacklist_next].is_glob = 0;
+      ext++;
+    }
+  else
+    blacklist_ext[blacklist_next].is_glob = 1;
+  blacklist_ext[blacklist_next].ext = strdup (ext);
+  if (blacklist_ext[blacklist_next].ext == NULL)
+    error (EXIT_FAILURE, errno, "can't create blacklist extension list");
+  blacklist_ext[blacklist_next].len = strlen (ext);
+  blacklist_next++;
+}
+
 int
 blacklist_from_config (const char *config)
 {
@@ -1162,6 +1228,12 @@ blacklist_from_config (const char *config)
       if (*p == '\0' || !blacklist)
 	continue;
 
+      if (strchr (p, '/') == NULL)
+	{
+	  add_blacklist_ext (p);
+	  continue;
+	}
+
       if (strpbrk (p, "*?[{") == NULL)
 	{
 	  ret = add_to_blacklist (p, deref, onefs);
@@ -1175,7 +1247,7 @@ blacklist_from_config (const char *config)
 	{
 	  glob_t g;
 
-	  if (!glob (p, GLOB_BRACE, NULL, &g))
+	  if (!glob (p, GLOB_BRACE | GLOB_PERIOD, NULL, &g))
 	    {
 	      size_t n;
 

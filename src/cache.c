@@ -350,7 +350,7 @@ prelink_load_cache (void)
       ents[i]->flags = cache->entry[i].flags;
 
       if (ents[i]->flags == PCF_UNPRELINKABLE)
-        ents[i]->type = (quick || print_cache) ? ET_UNPRELINKABLE : ET_NONE;
+	ents[i]->type = (quick || print_cache) ? ET_UNPRELINKABLE : ET_NONE;
 
       /* If mtime is equal to ctime, assume the filesystem does not store
 	 ctime.  */
