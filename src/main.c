@@ -30,6 +30,7 @@
 #define PRELINK_CACHE "/etc/prelink.cache"
 
 int all;
+int force;
 int verbose;
 int print_cache;
 int reloc_only;
@@ -52,6 +53,7 @@ static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
   {"cache-file",	'C', "CACHE", 0, "Use CACHE as cache file" },
   {"config-file",	'f', "CONF", 0, "Use CONF as configuration file" },
+  {"force",		'F', 0, 0,  "Force prelinking" },
   {"no-update",		'n', 0, 0,  "Don't update prelink cache" },
   {"print-cache",	'p', 0,	0,  "Print prelink cache" },
   {"reloc-only",	'r', 0, 0,  "Relocate only, don't prelink" },
@@ -70,6 +72,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
     {
     case 'a':
       all = 1;
+      break;
+    case 'F':
+      force = 1;
       break;
     case 'p':
       print_cache = 1;
@@ -121,7 +126,9 @@ main (int argc, char *argv[])
   if (all)
     {
       prelink_init_cache ();
-      gather_config (prelink_conf);
+      if (gather_config (prelink_conf))
+        return EXIT_FAILURE;
+      layout_libs ();
       return 0;
     }
 

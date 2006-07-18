@@ -451,16 +451,18 @@ prelink_dso (struct prelink_info *info)
   if (data->d_size != dso->shdr[liblist].sh_size)
     {
       GElf_Addr adjust = data->d_size - dso->shdr[liblist].sh_size;
+      GElf_Addr newoffset;
 
       oldoffset = dso->shdr[liblist].sh_offset;
-      if (oldoffset & (data->d_align - 1))
+      newoffset = oldoffset;
+      if (newoffset & (data->d_align - 1))
 	{
-	  oldoffset = (oldoffset + data->d_align - 1) & ~(data->d_align - 1);
-	  adjust += oldoffset - dso->shdr[liblist].sh_offset;
+	  newoffset = (newoffset + data->d_align - 1) & ~(data->d_align - 1);
+	  adjust += newoffset - dso->shdr[liblist].sh_offset;
 	}
       if (adjust_dso_nonalloc (dso, oldoffset, adjust))
 	goto error_out;
-      dso->shdr[liblist].sh_offset = oldoffset;
+      dso->shdr[liblist].sh_offset = newoffset;
       dso->shdr[liblist].sh_size = data->d_size;
     }
 

@@ -27,6 +27,7 @@
 #include <unistd.h>
 
 #include "prelink.h"
+#include "reloc.h"
 
 static int gather_lib (struct prelink_entry *ent);
 
@@ -89,12 +90,12 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 
   i = 0;
   argv[i++] = dynamic_linker;
-  argv[i++] = ent->filename;
   if (ld_library_path)
     {
       argv[i++] = "--library-path";
       argv[i++] = ld_library_path;
     }
+  argv[i++] = ent->filename;
   argv[i] = NULL;
   envp[0] = "LD_TRACE_LOADED_OBJECTS=1";
   envp[1] = NULL;
@@ -193,7 +194,8 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
     {
       for (i = 0; i < ndepends; ++i)
 	if (liblist[i].l_time_stamp != ent->depends[i]->timestamp
-	    || liblist[i].l_checksum != ent->depends[i]->checksum)
+	    || liblist[i].l_checksum != ent->depends[i]->checksum
+	    || ! ent->depends[i]->done)
 	  break;
 
       if (i == ndepends)
@@ -233,10 +235,52 @@ gather_lib (struct prelink_entry *ent)
   ent->checksum = dso->info_DT_CHECKSUM;
   ent->base = dso->base;
   ent->end = dso->end;
+  if (dso->arch->need_rel_to_rela != NULL
+      && ent->timestamp == 0)
+    {
+      /* If the library has not been prelinked yet and we need
+	 to convert REL to RELA, then make room for it.  */
+      struct reloc_info rinfo;
+      GElf_Addr adjust = 0;
+      int sec = dso->ehdr.e_shnum;
+
+      if (find_reloc_sections (dso, &rinfo))
+	{
+	  close_dso (dso);
+	  return 1;
+	}
+
+      assert (sizeof (Elf32_Rel) * 3 == sizeof (Elf32_Rela) * 2);
+      assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
+      if (rinfo.rel_to_rela)
+	{
+	  sec = rinfo.first;
+	  adjust = (dso->shdr[rinfo.last].sh_addr
+		    + dso->shdr[rinfo.last].sh_size
+		    - dso->shdr[rinfo.first].sh_addr) / 2;
+	}
+      if (rinfo.rel_to_rela_plt)
+	{
+	  if (rinfo.plt < sec)
+	    sec = rinfo.plt;
+	  adjust += dso->shdr[rinfo.plt].sh_size / 2;
+	}
+      if (adjust)
+        {
+	  for (; sec < dso->ehdr.e_shnum; ++sec)
+	    if (dso->shdr[sec].sh_flags
+		& (SHF_ALLOC | SHF_WRITE | SHF_EXECINSTR))
+	      {
+		if (adjust & (dso->shdr[sec].sh_addralign - 1))
+		  adjust = (adjust + dso->shdr[sec].sh_addralign - 1)
+			   & ~(dso->shdr[sec].sh_addralign - 1);
+	      }
+	  ent->end += adjust;
+        }
+    }
+
   if (gather_deps (dso, ent))
     return 1;
-
-  dso = NULL;
 
   if (ent->done && (! ent->timestamp || ! ent->checksum))
     ent->done = 0;
@@ -297,6 +341,9 @@ gather_exec (DSO *dso, const struct stat64 *st)
 
   if (gather_deps (dso, ent))
     return 0;
+
+  for (i = 0; i < ent->ndepends; ++i)
+    ++ent->depends[i]->refs;
 
   ent->type = ET_EXEC;
   return 0;

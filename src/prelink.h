@@ -174,7 +174,7 @@ struct prelink_entry
   GElf_Addr base, end;
   dev_t dev;
   ino64_t ino;
-  int type, done, ndepends;
+  int type, done, ndepends, refs, tmp;
   struct prelink_entry **depends;
   struct prelink_entry *next;
 };
@@ -247,6 +247,8 @@ int gather_config (const char *config);
 
 FILE *execve_open (const char *path, char *const argv[], char *const envp[]);
 int execve_close (FILE *f);
+
+int layout_libs (void);
 
 struct prelink_entry *prelinked;
 const char *dynamic_linker;

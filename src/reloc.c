@@ -79,6 +79,7 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
 	}
       rinfo->plt = first;
       if (dso->shdr[first].sh_type == SHT_REL
+	  && dso->arch->need_rel_to_rela != NULL
 	  && dso->arch->need_rel_to_rela (dso, first, first))
 	rinfo->rel_to_rela_plt = 1;
     }
@@ -141,7 +142,9 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
     rinfo->gnureloc = 1;
   rinfo->first = first;
   rinfo->last = last;
-  if (! rela && dso->arch->need_rel_to_rela (dso, first, last))
+  if (! rela
+      && dso->arch->need_rel_to_rela != NULL
+      && dso->arch->need_rel_to_rela (dso, first, last))
     rinfo->rel_to_rela = 1;
   return 0;
 }

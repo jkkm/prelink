@@ -24,12 +24,13 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
-#include "hashtab.h"
-#include "prelink.h"
+#include "prelinktab.h"
 
 struct prelink_entry *prelinked;
 
 htab_t prelink_devino_htab, prelink_filename_htab;
+
+int prelink_entry_count;
 
 static hashval_t
 devino_hash (const void *p)
@@ -137,6 +138,7 @@ prelink_find_entry (const char *filename, dev_t dev, ino64_t ino, int insert)
   ent->ino = ino;
   *filename_slot = ent;
   *devino_slot = ent;
+  ++prelink_entry_count;
   return ent;
 
 error_out:
