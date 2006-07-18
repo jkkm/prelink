@@ -23,7 +23,11 @@ AC_ARG_ENABLE(64-bit,
 esac],[want64=true])dnl
 
 AC_CHECK_HEADER(libelf.h,,[
-  if test -f /usr/include/libelf/libelf.h; then
+  if test -f /usr/include/elfutils/libelf.h; then
+    CPPFLAGS="$CPPFLAGS -I /usr/include/elfutils"
+  elif test -f /usr/local/include/elfutils/libelf.h; then
+    CPPFLAGS="$CPPFLAGS -I /usr/local/include/elfutils"
+  elif test -f /usr/include/libelf/libelf.h; then
     CPPFLAGS="$CPPFLAGS -I /usr/include/libelf"
   elif test -f /usr/local/include/libelf/libelf.h; then
     CPPFLAGS="$CPPFLAGS -I /usr/local/include/libelf"

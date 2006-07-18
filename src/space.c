@@ -108,6 +108,7 @@ print_sections (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr)
 	    case SHF_INFO_LINK:		*q++ = 'I'; break;
 	    case SHF_LINK_ORDER:	*q++ = 'L'; break;
 	    case SHF_OS_NONCONFORMING:	*q++ = 'O'; break;
+	    case SHF_TLS:		*q++ = 'T'; break;
 	    default:
 	      if (flag & SHF_MASKOS)
 		*q++ = 'o', shf &= ~SHF_MASKOS;

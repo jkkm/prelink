@@ -148,9 +148,10 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
       write_le32 (dso, rel->r_offset, value);
       break;
     /* XXX DTPMOD32 and TPOFF32 is impossible to predict unless prelink
-       sets the rules.  Also for TPOFF32 there is REL->RELA problem.  */
+       sets the rules.  Also for TPOFF{32,} there is REL->RELA problem.  */
     case R_386_TLS_DTPMOD32:
     case R_386_TLS_TPOFF32:
+    case R_386_TLS_TPOFF:
       break;
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -195,10 +196,11 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_386_TLS_DTPOFF32:
       write_le32 (dso, rela->r_offset, value + rela->r_addend);
       break;
-    /* XXX DTPMOD32 and TPOFF32 is impossible to predict unless prelink
+    /* XXX DTPMOD32 and TPOFF{32,} is impossible to predict unless prelink
        sets the rules.  */
     case R_386_TLS_DTPMOD32:
     case R_386_TLS_TPOFF32:
+    case R_386_TLS_TPOFF:
       break;
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -330,6 +332,7 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
     case R_386_TLS_DTPMOD32:
     case R_386_TLS_DTPOFF32:
     case R_386_TLS_TPOFF32:
+    case R_386_TLS_TPOFF:
       if (conflict->reloc_class != RTYPE_CLASS_TLS || conflict->lookup.tls == NULL)
 	{
 	  error (0, 0, "%s: R_386_TLS not resolving to STT_TLS symbol",
@@ -348,6 +351,8 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
 	case R_386_TLS_TPOFF32:
 	  ret->r_addend = -(value - conflict->lookup.tls->offset);
 	  break;
+	case R_386_TLS_TPOFF:
+	  ret->r_addend = value - conflict->lookup.tls->offset;
 	}
       break;
     case R_386_COPY:
@@ -403,6 +408,7 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_386_TLS_DTPMOD32:
     case R_386_TLS_DTPOFF32:
     case R_386_TLS_TPOFF32:
+    case R_386_TLS_TPOFF:
       if (conflict->reloc_class != RTYPE_CLASS_TLS || conflict->lookup.tls == NULL)
 	{
 	  error (0, 0, "%s: R_386_TLS not resolving to STT_TLS symbol",
@@ -420,6 +426,9 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 	  break;
 	case R_386_TLS_TPOFF32:
 	  ret->r_addend = -(value - ret->r_addend - conflict->lookup.tls->offset);
+	  break;
+	case R_386_TLS_TPOFF:
+	  ret->r_addend = value - ret->r_addend - conflict->lookup.tls->offset;
 	  break;
 	}
       break;
@@ -445,6 +454,7 @@ i386_rel_to_rela (DSO *dso, GElf_Rel *rel, GElf_Rela *rela)
     case R_386_32:
     case R_386_PC32:
     case R_386_TLS_TPOFF32:
+    case R_386_TLS_TPOFF:
       rela->r_addend = (Elf32_Sword) read_ule32 (dso, rel->r_offset);
       break;
     case R_386_COPY:
@@ -616,6 +626,7 @@ i386_undo_prelink_rel (DSO *dso, GElf_Rel *rel, GElf_Addr reladdr)
       write_le32 (dso, rel->r_offset, 0);
       break;
     case R_386_TLS_TPOFF32:
+    case R_386_TLS_TPOFF:
       break;
     default:
       error (0, 0, "%s: Unknown i386 relocation type %d", dso->filename,
@@ -640,6 +651,7 @@ i386_rela_to_rel (DSO *dso, GElf_Rela *rela, GElf_Rel *rel)
     case R_386_32:
     case R_386_PC32:
     case R_386_TLS_TPOFF32:
+    case R_386_TLS_TPOFF:
       write_le32 (dso, rela->r_offset, rela->r_addend);
       break;
     case R_386_COPY:

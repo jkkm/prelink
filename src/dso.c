@@ -978,7 +978,8 @@ addr_to_sec (DSO *dso, GElf_Addr addr)
   shdr = &dso->shdr[dso->lastscn];
   for (i = -1; i < dso->ehdr.e_shnum; shdr = &dso->shdr[++i])
     if (RELOCATE_SCN (shdr->sh_flags)
-	&& shdr->sh_addr <= addr && shdr->sh_addr + shdr->sh_size > addr)
+	&& shdr->sh_addr <= addr && shdr->sh_addr + shdr->sh_size > addr
+	&& (shdr->sh_type != SHT_NOBITS || (shdr->sh_flags & SHF_TLS) == 0))
       {
 	if (i != -1)
 	  dso->lastscn = i;
