@@ -46,7 +46,7 @@ resolve_ldso (struct prelink_info *info, GElf_Word r_sym,
       /* As the dynamic linker is relocated first,
 	 l_addr will be 0.  */
       info->resolveent = info->ent;
-      info->resolvetls = NULL; /* FIXME */
+      info->resolvetls = NULL;
       return 0 + info->symtab[r_sym].st_value;
     }
 }

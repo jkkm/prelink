@@ -437,13 +437,19 @@ prelink_undo (DSO *dso)
 	      if (dso->shdr[i].sh_name == shdr[j].sh_name
 		  && dso->shdr[i].sh_flags == shdr[j].sh_flags
 		  && dso->shdr[i].sh_addralign == shdr[j].sh_addralign
-		  && dso->shdr[i].sh_entsize == shdr[j].sh_entsize
+		  && (is_plt || dso->shdr[i].sh_entsize == shdr[j].sh_entsize)
 		  && move->new_to_old[j] == -1)
 		{
 		  if (is_plt)
 		    {
+		      if (dso->shdr[i].sh_size != shdr[j].sh_size)
+			continue;
 		      if (shdr[j].sh_type == SHT_NOBITS
-			  && dso->shdr[i].sh_size == shdr[j].sh_size)
+			  && dso->shdr[i].sh_entsize == shdr[j].sh_entsize)
+			break;
+		      /* On Alpha prelink fixes bogus sh_entsize of .plt
+			 sections.  */
+		      if (shdr[j].sh_type == SHT_PROGBITS)
 			break;
 		    }
 		  else

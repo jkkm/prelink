@@ -148,11 +148,21 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
     case R_386_TLS_DTPOFF32:
       write_le32 (dso, rel->r_offset, value);
       break;
-    /* XXX DTPMOD32 and TPOFF32 is impossible to predict unless prelink
+    /* DTPMOD32 and TPOFF{32,} is impossible to predict unless prelink
        sets the rules.  Also for TPOFF{32,} there is REL->RELA problem.  */
     case R_386_TLS_DTPMOD32:
+      if (dso->ehdr.e_type == ET_EXEC)
+	{
+	  error (0, 0, "%s: R_386_TLS_DTPMOD32 reloc in executable?",
+		 dso->filename);
+	  return 1;
+	}
+      break;
     case R_386_TLS_TPOFF32:
     case R_386_TLS_TPOFF:
+      if (dso->ehdr.e_type == ET_EXEC)
+	error (0, 0, "%s: R_386_TLS_TPOFF relocs should not be present in prelinked ET_EXEC REL sections",
+	       dso->filename);
       break;
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -197,11 +207,25 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_386_TLS_DTPOFF32:
       write_le32 (dso, rela->r_offset, value + rela->r_addend);
       break;
-    /* XXX DTPMOD32 and TPOFF{32,} is impossible to predict unless prelink
+    /* DTPMOD32 and TPOFF{32,} is impossible to predict unless prelink
        sets the rules.  */
     case R_386_TLS_DTPMOD32:
+      if (dso->ehdr.e_type == ET_EXEC)
+	{
+	  error (0, 0, "%s: R_386_TLS_DTPMOD32 reloc in executable?",
+		 dso->filename);
+	  return 1;
+	}
+      break;
     case R_386_TLS_TPOFF32:
+      if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
+	write_le32 (dso, rela->r_offset,
+		    -(value + rela->r_addend - info->resolvetls->offset));
+      break;
     case R_386_TLS_TPOFF:
+      if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
+	write_le32 (dso, rela->r_offset,
+		    value + rela->r_addend - info->resolvetls->offset);
       break;
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -303,6 +327,7 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
 {
   GElf_Addr value;
   struct prelink_conflict *conflict;
+  struct prelink_tls *tls;
   GElf_Rela *ret;
 
   if (GELF_R_TYPE (rel->r_info) == R_386_RELATIVE
@@ -312,8 +337,32 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
   conflict = prelink_conflict (info, GELF_R_SYM (rel->r_info),
 			       GELF_R_TYPE (rel->r_info));
   if (conflict == NULL)
-    return 0;
-  value = conflict_lookup_value (conflict);
+    {
+      if (info->curtls == NULL)
+	return 0;
+      switch (GELF_R_TYPE (rel->r_info))
+	{
+	/* Even local DTPMOD and TPOFF relocs need conflicts.  */
+	case R_386_TLS_DTPMOD32:
+	case R_386_TLS_TPOFF32:
+	case R_386_TLS_TPOFF:
+	  break;
+	default:
+	  return 0;
+	}
+      value = 0;
+    }
+  else
+    {
+      /* DTPOFF32 wants to see only real conflicts, not lookups
+	 with reloc_class RTYPE_CLASS_TLS.  */
+      if (GELF_R_TYPE (rel->r_info) == R_386_TLS_DTPOFF32
+	  && conflict->lookup.tls == conflict->conflict.tls
+	  && conflict->lookupval == conflict->conflictval)
+	return 0;
+
+      value = conflict_lookup_value (conflict);
+    }
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -334,26 +383,31 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
     case R_386_TLS_DTPOFF32:
     case R_386_TLS_TPOFF32:
     case R_386_TLS_TPOFF:
-      if (conflict->reloc_class != RTYPE_CLASS_TLS || conflict->lookup.tls == NULL)
+      if (conflict != NULL
+	  && (conflict->reloc_class != RTYPE_CLASS_TLS
+	      || conflict->lookup.tls == NULL))
 	{
 	  error (0, 0, "%s: R_386_TLS not resolving to STT_TLS symbol",
 		 dso->filename);
 	  return 1;
 	}
+      tls = conflict ? conflict->lookup.tls : info->curtls;
       ret->r_info = GELF_R_INFO (0, R_386_32);
       switch (GELF_R_TYPE (rel->r_info))
 	{
 	case R_386_TLS_DTPMOD32:
-	  ret->r_addend = conflict->lookup.tls->modid;
+	  ret->r_addend = tls->modid;
 	  break;
 	case R_386_TLS_DTPOFF32:
 	  ret->r_addend = value;
 	  break;
 	case R_386_TLS_TPOFF32:
-	  ret->r_addend = -(value - conflict->lookup.tls->offset);
+	  ret->r_addend = -(value + read_ule32 (dso, rel->r_offset)
+			    - tls->offset);
 	  break;
 	case R_386_TLS_TPOFF:
-	  ret->r_addend = value - conflict->lookup.tls->offset;
+	  ret->r_addend = value + read_ule32 (dso, rel->r_offset)
+			  - tls->offset;
 	}
       break;
     case R_386_COPY:
@@ -373,6 +427,7 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 {
   GElf_Addr value;
   struct prelink_conflict *conflict;
+  struct prelink_tls *tls;
   GElf_Rela *ret;
 
   if (GELF_R_TYPE (rela->r_info) == R_386_RELATIVE
@@ -382,8 +437,32 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   conflict = prelink_conflict (info, GELF_R_SYM (rela->r_info),
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
-    return 0;
-  value = conflict_lookup_value (conflict);
+    {
+      if (info->curtls == NULL)
+	return 0;
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	/* Even local DTPMOD and TPOFF relocs need conflicts.  */
+	case R_386_TLS_DTPMOD32:
+	case R_386_TLS_TPOFF32:
+	case R_386_TLS_TPOFF:
+	  break;
+	default:
+	  return 0;
+	}
+      value = 0;
+    }
+  else
+    {
+      /* DTPOFF32 wants to see only real conflicts, not lookups
+	 with reloc_class RTYPE_CLASS_TLS.  */
+      if (GELF_R_TYPE (rela->r_info) == R_386_TLS_DTPOFF32
+	  && conflict->lookup.tls == conflict->conflict.tls
+	  && conflict->lookupval == conflict->conflictval)
+	return 0;
+
+      value = conflict_lookup_value (conflict);
+    }
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -410,26 +489,29 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_386_TLS_DTPOFF32:
     case R_386_TLS_TPOFF32:
     case R_386_TLS_TPOFF:
-      if (conflict->reloc_class != RTYPE_CLASS_TLS || conflict->lookup.tls == NULL)
+      if (conflict != NULL
+	  && (conflict->reloc_class != RTYPE_CLASS_TLS
+	      || conflict->lookup.tls == NULL))
 	{
 	  error (0, 0, "%s: R_386_TLS not resolving to STT_TLS symbol",
 		 dso->filename);
 	  return 1;
 	}
+      tls = conflict ? conflict->lookup.tls : info->curtls;
       ret->r_info = GELF_R_INFO (0, R_386_32);
       switch (GELF_R_TYPE (rela->r_info))
 	{
 	case R_386_TLS_DTPMOD32:
-	  ret->r_addend = conflict->lookup.tls->modid;
+	  ret->r_addend = tls->modid;
 	  break;
 	case R_386_TLS_DTPOFF32:
 	  ret->r_addend += value;
 	  break;
 	case R_386_TLS_TPOFF32:
-	  ret->r_addend = -(value - ret->r_addend - conflict->lookup.tls->offset);
+	  ret->r_addend = -(value + rela->r_addend - tls->offset);
 	  break;
 	case R_386_TLS_TPOFF:
-	  ret->r_addend = value - ret->r_addend - conflict->lookup.tls->offset;
+	  ret->r_addend = value + rela->r_addend - tls->offset;
 	  break;
 	}
       break;
@@ -497,6 +579,14 @@ i386_need_rel_to_rela (DSO *dso, int first, int last)
 		/* FALLTHROUGH */
 	      case R_386_PC32:
 		return 1;
+	      case R_386_TLS_TPOFF32:
+	      case R_386_TLS_TPOFF:
+		/* In shared libraries TPOFF is changed always into
+		   conflicts, for executables we need to preserve
+		   original addend.  */
+		if (dso->ehdr.e_type == ET_EXEC)
+		  return 1;
+		break;
 	      }
         }
     }
@@ -679,6 +769,11 @@ i386_reloc_class (int reloc_type)
     {
     case R_386_COPY: return RTYPE_CLASS_COPY;
     case R_386_JMP_SLOT: return RTYPE_CLASS_PLT;
+    case R_386_TLS_DTPMOD32:
+    case R_386_TLS_DTPOFF32:
+    case R_386_TLS_TPOFF32:
+    case R_386_TLS_TPOFF:
+      return RTYPE_CLASS_TLS;
     default: return RTYPE_CLASS_VALID;
     }
 }

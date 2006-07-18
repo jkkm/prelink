@@ -252,81 +252,140 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 
 	  while (*symname == ' ' || *symname == '\t') ++symname;
 
-	  if (symstart != deps[0].start)
-	    continue;
-
-	  /* Only interested in relocations from the current object.  */
-	  if (symoff < info->symtab_start || symoff >= info->symtab_end)
+	  ent = NULL;
+	  tls = NULL;
+	  if (symstart == deps[0].start
+	      || (reloc_class == RTYPE_CLASS_TLS && info->conflicts))
 	    {
-	      error (0, 0, "%s: Symbol `%s' offset 0x%08llx does not point into .dynsym section",
-		     info->ent->filename, symname, symoff);
-	      goto error_out;
-	    }
-	  for (i = 0, ent = NULL, tls = NULL; i < ndeps; i++)
-	    if (deps[i].start == valstart[0])
-	      {
-		if (reloc_class == RTYPE_CLASS_TLS)
-		  tls = info->tls + i;
-		else
+	      for (i = 0; i < ndeps; i++)
+		if (deps[i].start == valstart[0])
 		  {
-		    ent = deps[i].ent;
-		    /* If the library the symbol is bound to is already prelinked,
-		       adjust the value so that it is relative to library
-		       base.  */
-		    value[0] -= deps[i].start - deps[i].l_addr;
+		    if (reloc_class == RTYPE_CLASS_TLS)
+		      tls = info->tls + i;
+		    else
+		      {
+			ent = deps[i].ent;
+			/* If the library the symbol is bound to is already
+			   prelinked, adjust the value so that it is relative
+			   to library base.  */
+			value[0] -= deps[i].start - deps[i].l_addr;
+		      }
+		    break;
 		  }
-		break;
-	      }
 
-	  if (ent == NULL && tls == NULL && valstart[0])
-	    {
-	      error (0, 0, "Could not find base 0x%08llx in the list of bases `%s'",
-		     valstart[0], buffer);
-	      goto error_out;
-	    }
-
-	  if (ent == info->ent)
-	    value[0] = adjust_old_to_new (info->dso, value[0]);
-
-	  s = &info->symbols[(symoff - info->symtab_start)
-			      / info->symtab_entsize];
-	  if (s->reloc_class)
-	    {
-	      while (s->reloc_class != reloc_class && s->next != NULL)
-		s = s->next;
-	      if (s->reloc_class == reloc_class)
+	      if (ent == NULL && tls == NULL && valstart[0])
 		{
-		  if ((reloc_class != RTYPE_CLASS_TLS && s->u.ent != ent)
-		      || (reloc_class == RTYPE_CLASS_TLS && s->u.tls != tls)
-		      || s->value != value[0])
-		    {
-		      error (0, 0, "%s: Symbol `%s' with the same reloc type resolves to different values each time",
-			     info->ent->filename, symname);
-		      goto error_out;
-		    }
-		  s = NULL;
-		}
-	      else
-		{
-		  s->next = (struct prelink_symbol *)
-			    malloc (sizeof (struct prelink_symbol));
-		  if (s->next == NULL)
-		    {
-		      error (0, ENOMEM, "Cannot build symbol lookup map");
-		      goto error_out;
-		    }
-		  s = s->next;
+		  error (0, 0, "Could not find base 0x%08llx in the list of bases `%s'",
+			 valstart[0], buffer);
+		  goto error_out;
 		}
 	    }
-	  if (s)
+
+	  if (symstart == deps[0].start)
 	    {
-	      if (reloc_class == RTYPE_CLASS_TLS)
-		s->u.tls = tls;
-	      else
-		s->u.ent = ent;
-	      s->value = value[0];
-	      s->reloc_class = reloc_class;
-	      s->next = NULL;
+	      /* Only interested in relocations from the current object.  */
+	      if (symoff < info->symtab_start || symoff >= info->symtab_end)
+		{
+		  error (0, 0, "%s: Symbol `%s' offset 0x%08llx does not point into .dynsym section",
+			 info->ent->filename, symname, symoff);
+		  goto error_out;
+		}
+
+	      if (ent == info->ent && reloc_class != RTYPE_CLASS_TLS)
+		value[0] = adjust_old_to_new (info->dso, value[0]);
+
+	      s = &info->symbols[(symoff - info->symtab_start)
+				  / info->symtab_entsize];
+	      if (s->reloc_class)
+		{
+		  while (s->reloc_class != reloc_class && s->next != NULL)
+		    s = s->next;
+		  if (s->reloc_class == reloc_class)
+		    {
+		      if ((reloc_class != RTYPE_CLASS_TLS && s->u.ent != ent)
+			  || (reloc_class == RTYPE_CLASS_TLS
+			      && s->u.tls != tls)
+			  || s->value != value[0])
+			{
+			  error (0, 0, "%s: Symbol `%s' with the same reloc type resolves to different values each time",
+				 info->ent->filename, symname);
+			  goto error_out;
+			}
+		      s = NULL;
+		    }
+		  else
+		    {
+		      s->next = (struct prelink_symbol *)
+				malloc (sizeof (struct prelink_symbol));
+		      if (s->next == NULL)
+			{
+			  error (0, ENOMEM, "Cannot build symbol lookup map");
+			  goto error_out;
+			}
+		      s = s->next;
+		    }
+		}
+	      if (s)
+		{
+		  if (reloc_class == RTYPE_CLASS_TLS)
+		    s->u.tls = tls;
+		  else
+		    s->u.ent = ent;
+		  s->value = value[0];
+		  s->reloc_class = reloc_class;
+		  s->next = NULL;
+		}
+	    }
+	  else if (reloc_class == RTYPE_CLASS_TLS && info->conflicts)
+	    {
+	      struct prelink_conflict *conflict;
+	      int symowner;
+
+	      for (symowner = 1; symowner < ndeps; symowner++)
+		if (deps[symowner].start == symstart)
+		  break;
+	      if (symowner == ndeps)
+		{
+		  error (0, 0, "Could not find base 0x%08llx in the list of bases `%s'",
+			 symstart, buffer);
+		  goto error_out;
+		}
+		
+	      for (conflict = info->conflicts[symowner]; conflict;
+		   conflict = conflict->next)
+		if (conflict->symoff == symoff
+		    && conflict->reloc_class == reloc_class)
+		  {
+		    if (conflict->lookup.tls != tls
+			|| conflict->conflict.tls != tls
+			|| conflict->lookupval != value[0]
+			|| conflict->conflictval != value[0])
+		      {
+			error (0, 0, "%s: Symbol `%s' with the same reloc type resolves to different values each time",
+			       info->ent->filename, symname);
+			goto error_out;
+		      }
+		    break;
+		  }
+	      if (conflict == NULL)
+		{
+		  conflict = malloc (sizeof (struct prelink_conflict));
+		  if (conflict == NULL)
+		    {
+		      error (0, ENOMEM, "Cannot build list of conflicts");
+		      goto error_out;
+		    }
+
+		  conflict->next = info->conflicts[symowner];
+		  info->conflicts[symowner] = conflict;
+		  conflict->lookup.tls = tls;
+		  conflict->conflict.tls = tls;
+		  conflict->lookupval = value[0];
+		  conflict->conflictval = value[0];
+		  conflict->symoff = symoff;
+		  conflict->reloc_class = reloc_class;
+		  conflict->used = 0;
+		}
 	    }
 	}
       else if (strncmp (buffer, "conflict ", sizeof ("conflict ") - 1) == 0)

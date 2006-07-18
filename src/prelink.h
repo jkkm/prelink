@@ -327,7 +327,7 @@ struct prelink_info
   struct prelink_symbol *symbols;
   struct prelink_conflict **conflicts;
   struct prelink_conflict *curconflicts;
-  struct prelink_tls *tls;
+  struct prelink_tls *tls, *curtls;
   const char **sonames;
   char *dynbss, *sdynbss;
   GElf_Addr dynbss_base, sdynbss_base;

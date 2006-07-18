@@ -465,7 +465,7 @@ prelink_build_conflicts (struct prelink_info *info)
 
   for (i = 1; i < ndeps; ++i)
     {
-      if (info->conflicts[i])
+      if (info->conflicts[i] || info->tls[i].modid)
 	{
 	  
 	  int j, sec, first_conflict;
@@ -473,6 +473,7 @@ prelink_build_conflicts (struct prelink_info *info)
 
 	  dso = info->dsos[i];
 	  info->curconflicts = info->conflicts[i];
+	  info->curtls = info->tls[i].modid ? info->tls + i : NULL;
 	  first_conflict = info->conflict_rela_size;
 	  sec = addr_to_sec (dso, dso->info[DT_SYMTAB]);
 	  /* DT_SYMTAB should be found and should point to
