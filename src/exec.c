@@ -86,6 +86,7 @@ readonly_is_movable (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int k)
     case SHT_GNU_verdef:
     case SHT_GNU_verneed:
     case SHT_GNU_versym:
+    case SHT_GNU_LIBLIST:
       return 1;
     default:
       if (strcmp (strptr (dso, ehdr->e_shstrndx,
@@ -377,9 +378,10 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 			 & ~(add->sh_addralign - 1);
 	      start = (start + shdr[j].sh_addralign - 1)
 		      & ~(shdr[j].sh_addralign - 1);
-	      if (j + 1 < last)
+	      endaddr = -1;
+	      if (j + 1 < ehdr->e_shnum)
 		endaddr = shdr[j + 1].sh_addr;
-	      else
+	      if (phdr[i].p_vaddr + phdr[i].p_filesz < endaddr)
 		endaddr = phdr[i].p_vaddr + phdr[i].p_filesz;
 
 	      switch (shdr[j].sh_type)
@@ -390,6 +392,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		case SHT_GNU_verdef:
 		case SHT_GNU_verneed:
 		case SHT_GNU_versym:
+		case SHT_GNU_LIBLIST:
 		  if (endaddr >= start
 		      && endaddr - start < minsize)
 		    {
@@ -496,7 +499,11 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
   phdr[j].p_vaddr &= ~(phdr[j].p_align - 1);
   phdr[j].p_vaddr += (phdr[j].p_offset & (phdr[j].p_align - 1));
   phdr[j].p_paddr = phdr[j].p_vaddr;
-  phdr[j].p_flags = PF_R;
+  /* Although the content of the segment is read-only, unless it ends on
+     a page boundary, we must make it writeable. This is because the rest of
+     the last page in the segment will be used as sbrk area which is assumed
+     to be writeable.  */
+  phdr[j].p_flags = (PF_R | PF_W);
   phdr[j].p_filesz = add->sh_size;
   phdr[j].p_memsz = add->sh_size;
   for (i = 1; i < ehdr->e_shnum; ++i)
