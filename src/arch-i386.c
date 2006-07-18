@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -27,6 +27,7 @@
 #include <stdlib.h>
 
 #include "prelink.h"
+#include "layout.h"
 
 static int
 i386_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
@@ -778,6 +779,248 @@ i386_reloc_class (int reloc_type)
     }
 }
 
+/* Library memory regions if --exec-shield in order of precedence:
+   0x00101000 + (rand % 0x00cff000) .. 0x00e00000 bottom to top
+   0x00101000 .. 0x00101000 + (rand % 0x00cff000) bottom to top
+   0x02000000 + (rand % 0x06000000) .. 0x08000000 bottom to top
+   0x02000000 .. 0x02000000 + (rand % 0x06000000) bottom to top
+   0x41000000 + (rand % 0x0f000000) .. 0x50000000 bottom to top
+   0x41000000 .. 0x41000000 + (rand % 0x0f000000) bottom to top  */
+
+#define REG0S	0x00101000
+#define REG0E	0x00e00000
+#define REG1S	0x02000000
+#define REG1E	0x08000000
+#define REG2S	0x41000000
+#define REG2E	0x50000000
+
+struct i386_layout_data
+{
+  struct prelink_entry e[6];
+  Elf32_Addr addrs[12];
+};
+
+static inline void
+list_append (struct prelink_entry *x, struct prelink_entry *e)
+{
+  x->prev->next = e;
+  e->prev = x->prev;
+  e->next = NULL;
+  x->prev = e;
+}
+
+static inline void
+list_merge (struct prelink_entry *x, struct prelink_entry *e)
+{
+  struct prelink_entry *end = e->prev;
+  x->prev->next = e;
+  e->prev = x->prev;
+  x->prev = end;
+}
+
+static int
+i386_layout_libs_init (struct layout_libs *l)
+{
+  if (exec_shield)
+    {
+      int i;
+      struct prelink_entry *e;
+
+      l->mmap_base = REG0S;
+      l->mmap_end = REG2E;
+      /* Don't allow this to be overridden.  */
+      mmap_reg_start = ~(GElf_Addr) 0;
+      mmap_reg_end = ~(GElf_Addr) 0;
+      for (i = 0; i < l->nlibs; ++i)
+	{
+	  e = l->libs[i];
+	  if (e->done == 0)
+	    continue;
+	  if (e->base < REG0S
+	      || (e->base < REG1S && e->layend > REG0E)
+	      || (e->base < REG2S && e->layend > REG1E)
+	      || e->layend > REG2E)
+	    e->done = 0;
+	}
+    }
+  else
+    {
+      l->mmap_base = REG2S;
+      l->mmap_end = REG2E;
+    }
+  return 0;
+}
+
+static void
+i386_find_free_addr (struct layout_libs *l, Elf32_Addr *ret,
+		     Elf32_Addr beg, Elf32_Addr end, Elf32_Addr start)
+{
+  struct prelink_entry *e;
+  Elf32_Addr low, hi;
+
+  ret[0] = beg;
+  ret[3] = end;
+  for (e = l->list; e != NULL; e = e->next)
+    if (e->base >= start)
+      break;
+  if (e == l->list)
+    {
+      ret[1] = ret[2] = start;
+      return;
+    }
+
+  if (e == NULL)
+    e = l->list;
+  low = start;
+  for (e = e->prev; ; e = e->prev)
+    {
+      if (e->base < beg)
+	break;
+      if (e->layend > low)
+	low = e->base;
+      if (e == l->list)
+	break;
+    }
+
+  if (low == start)
+    {
+      ret[1] = ret[2] = start;
+      return;
+    }
+
+  hi = start;
+  for (; e; e = e->next)
+    {
+      if (e->base >= end)
+	break;
+      if (e->base >= hi)
+	break;
+      if (e->layend > hi)
+	hi = e->layend;
+    }
+
+  assert (low >= beg && hi <= end);
+
+  if (hi - start > start - low)
+    start = low;
+  else
+    start = hi;
+
+  ret[1] = ret[2] = start;
+}
+
+static int
+i386_layout_libs_pre (struct layout_libs *l)
+{
+  Elf32_Addr mmap_start, virt;
+  struct prelink_entry *e, *next;
+  struct i386_layout_data *pld;
+  int i;
+
+  if (!exec_shield)
+    {
+      l->mmap_fin = l->mmap_end;
+      l->fake = NULL;
+      l->fakecnt = 0;
+      return 0;
+    }
+
+  pld = calloc (sizeof (*pld), 1);
+  if (pld == NULL)
+    error (EXIT_FAILURE, ENOMEM, "Cannot lay libraries out");
+
+  l->arch_data = pld;
+
+  mmap_start = l->mmap_start - REG0S;
+  i386_find_free_addr (l, pld->addrs + 0, REG0S, REG0E,
+		       REG0S + mmap_start % (REG0E - REG0S));
+  i386_find_free_addr (l, pld->addrs + 4, REG1S, REG1E,
+		       REG1S + mmap_start % (REG1E - REG1S));
+  i386_find_free_addr (l, pld->addrs + 8, REG2S, REG2E,
+		       REG2S + mmap_start % (REG2E - REG2S));
+
+  pld->e[0].u.tmp = -1;
+  pld->e[0].base = 0;
+  pld->e[0].end = pld->e[0].base;
+  pld->e[0].layend = pld->e[0].end;
+  pld->e[0].prev = &pld->e[0];
+  i = 0;
+  virt = 0;
+  next = NULL;
+  for (e = l->list; e != NULL; e = next)
+    {
+      next = e->next;
+      while (i < 5 && e->base > pld->addrs[2 * i + 1])
+	{
+	  ++i;
+	  pld->e[i].u.tmp = -1;
+	  virt += pld->addrs[2 * i - 1] - pld->addrs[2 * i - 2];
+	  pld->e[i].base = virt;
+	  pld->e[i].end = pld->e[i].base;
+	  pld->e[i].layend = pld->e[i].end;
+	  pld->e[i].prev = &pld->e[i];
+	}
+      e->base += virt - pld->addrs[2 * i];
+      e->end += virt - pld->addrs[2 * i];
+      e->layend += virt - pld->addrs[2 * i];
+      list_append (&pld->e[i], e);
+    }
+  while (i < 5)
+    {
+      ++i;
+      pld->e[i].u.tmp = -1;
+      virt += pld->addrs[2 * i - 1] - pld->addrs[2 * i - 2];
+      pld->e[i].base = virt;
+      pld->e[i].end = pld->e[i].base;
+      pld->e[i].layend = pld->e[i].end;
+      pld->e[i].prev = &pld->e[i];
+    }
+  l->list = &pld->e[1];
+  list_merge (&pld->e[1], &pld->e[0]);
+  list_merge (&pld->e[1], &pld->e[3]);
+  list_merge (&pld->e[1], &pld->e[2]);
+  list_merge (&pld->e[1], &pld->e[5]);
+  list_merge (&pld->e[1], &pld->e[4]);
+
+  l->mmap_start = 0;
+  l->mmap_fin = virt + pld->addrs[2 * i + 1] - pld->addrs[2 * i];
+  l->mmap_end = l->mmap_fin;
+  l->fakecnt = 6;
+  l->fake = pld->e;
+
+  return 0;
+}
+
+static int
+i386_layout_libs_post (struct layout_libs *l)
+{
+  struct prelink_entry *e;
+  struct i386_layout_data *pld = (struct i386_layout_data *) l->arch_data;
+  Elf32_Addr adj = 0;
+  int i;
+
+  if (!exec_shield)
+    return 0;
+
+  for (i = 0, e = l->list; e != NULL; e = e->next)
+    {
+      if (e == &pld->e[i ^ 1])
+	{
+	  adj = pld->addrs[2 * (i ^ 1)] - e->base;
+	  ++i;
+	}
+      else
+	{
+	  e->base += adj;
+	  e->end += adj;
+	  e->layend += adj;
+	}
+    }
+
+  free (l->arch_data);
+  return 0;
+}
+
 PL_ARCH = {
   .class = ELFCLASS32,
   .machine = EM_386,
@@ -805,13 +1048,16 @@ PL_ARCH = {
   .arch_prelink = i386_arch_prelink,
   .arch_undo_prelink = i386_arch_undo_prelink,
   .undo_prelink_rel = i386_undo_prelink_rel,
+  .layout_libs_init = i386_layout_libs_init,
+  .layout_libs_pre = i386_layout_libs_pre,
+  .layout_libs_post = i386_layout_libs_post,
   /* Although TASK_UNMAPPED_BASE is 0x40000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc
      does not take some library's VA slot.
      Also, if this guard area isn't too small, typically
      even dlopened libraries will get the slots they desire.  */
-  .mmap_base = 0x41000000,
-  .mmap_end =  0x50000000,
+  .mmap_base = REG2S,
+  .mmap_end =  REG2E,
   .max_page_size = 0x1000,
   .page_size = 0x1000
 };

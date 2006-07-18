@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -199,9 +199,24 @@ layout_libs (void)
       l.libs = plibs;
       l.binlibs = pbinlibs;
       htab_traverse (prelink_filename_htab, find_libs, &l);
+      max_page_size = plarch->max_page_size;
 
-      mmap_base = plarch->mmap_base;
-      mmap_end = plarch->mmap_end;
+      /* Make sure there is some room between libraries.  */
+      for (i = 0; i < l.nlibs; ++i)
+	l.libs[i]->layend = (l.libs[i]->end + 8192 + max_page_size - 1)
+			    & ~(max_page_size - 1);
+
+      if (plarch->layout_libs_init)
+	{
+	  plarch->layout_libs_init (&l);
+	  mmap_base = l.mmap_base;
+	  mmap_end = l.mmap_end;
+	}
+      else
+	{
+	  mmap_base = plarch->mmap_base;
+	  mmap_end = plarch->mmap_end;
+	}
       if (mmap_reg_start != ~(GElf_Addr) 0)
 	mmap_base = mmap_reg_start;
       if (mmap_reg_end != ~(GElf_Addr) 0)
@@ -209,7 +224,6 @@ layout_libs (void)
       if (mmap_base >= mmap_end)
 	error (EXIT_FAILURE, 0,
 	       "--mmap-region-start cannot be bigger than --mmap-region-end");
-      max_page_size = plarch->max_page_size;
       class = plarch->class;
       /* The code below relies on having a VA slot as big as <mmap_base,mmap_end)
 	 above mmap_end for -R.  */
@@ -220,11 +234,6 @@ layout_libs (void)
 
       deps = (struct prelink_entry **)
 	     alloca (l.nlibs * sizeof (struct prelink_entry *));
-
-      /* Make sure there is some room between libraries.  */
-      for (i = 0; i < l.nlibs; ++i)
-	l.libs[i]->layend = (l.libs[i]->end + 8192 + max_page_size - 1)
-			    & ~(max_page_size - 1);
 
       /* Now see which already prelinked libraries have to be
 	 re-prelinked to avoid overlaps.  */

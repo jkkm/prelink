@@ -24,7 +24,7 @@ struct layout_libs
     struct prelink_entry **binlibs;
     struct prelink_entry *list;
     struct prelink_entry *fake;
-    GElf_Addr mmap_start, mmap_fin, mmap_end;
+    GElf_Addr mmap_base, mmap_start, mmap_fin, mmap_end;
     void *arch_data;
     int flags;
     int nlibs;

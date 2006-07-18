@@ -148,6 +148,7 @@ struct PLArch
   int (*arch_undo_prelink) (DSO *dso);
   int (*undo_prelink_rel) (DSO *dso, GElf_Rel *rel, GElf_Addr reladdr);
   int (*undo_prelink_rela) (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr);
+  int (*layout_libs_init) (struct layout_libs *l);
   int (*layout_libs_pre) (struct layout_libs *l);
   int (*layout_libs_post) (struct layout_libs *l);
   GElf_Addr mmap_base, mmap_end;
@@ -407,6 +408,7 @@ extern int verbose;
 extern int dry_run;
 extern int libs_only;
 extern int enable_cxx_optimizations;
+extern int exec_shield;
 extern int undo;
 extern int verify;
 extern GElf_Addr mmap_reg_start, mmap_reg_end;
