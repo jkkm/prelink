@@ -279,6 +279,34 @@ fdopen_dso (int fd, const char *name)
       goto error_out;
     }
 
+  if (ehdr.e_shnum == 0)
+    {
+      GElf_Phdr phdr;
+
+      /* Check for UPX compressed executables.  */
+      if (ehdr.e_type == ET_EXEC
+	  && ehdr.e_phnum > 0
+	  && (gelf_getphdr (elf, 0, &phdr), phdr.p_type == PT_LOAD)
+	  && phdr.p_filesz >= 256
+	  && phdr.p_filesz <= 4096
+	  && phdr.p_offset == 0
+	  && ehdr.e_phoff + ehdr.e_phnum * ehdr.e_phentsize < phdr.p_filesz)
+	{
+	  char *buf = alloca (phdr.p_filesz);
+	  size_t start = ehdr.e_phoff + ehdr.e_phnum * ehdr.e_phentsize;
+
+	  if (pread (fd, buf, phdr.p_filesz, 0) == phdr.p_filesz
+	      && memmem (buf + start, phdr.p_filesz - start,
+			 "UPX!", 4) != NULL)
+	    {
+	      error (0, 0, "\"%s\" is UPX compressed executable", name);
+	      goto error_out;
+	    }
+	}
+      error (0, 0, "\"%s\" has no section headers", name);
+      goto error_out;
+    }
+
   /* Allocate DSO structure. Leave place for additional 20 new section
      headers.  */
   dso = (DSO *)
