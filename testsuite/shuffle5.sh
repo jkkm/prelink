@@ -12,8 +12,8 @@ $CCLINK -o shuffle5 $srcdir/reloc1.c -Wl,--rpath-link,. shuffle5lib2.so \
 $CCLINK -o shuffle5 $srcdir/reloc1.c -Wl,--rpath-link,. shuffle5lib2.so \
   -Wl,-T,shuffle5.lds
 savelibs
-echo $PRELINK -vm ./shuffle5 > shuffle5.log
-$PRELINK -vm ./shuffle5 >> shuffle5.log 2>&1 || exit 1
+echo $PRELINK ${PRELINK_OPTS--vm} ./shuffle5 > shuffle5.log
+$PRELINK ${PRELINK_OPTS--vm} ./shuffle5 >> shuffle5.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` shuffle5.log && exit 2
 LD_LIBRARY_PATH=. ./shuffle5 || exit 3
 readelf -a ./shuffle5 >> shuffle5.log 2>&1 || exit 4

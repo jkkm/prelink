@@ -932,7 +932,6 @@ i386_layout_libs_pre (struct layout_libs *l)
   l->arch_data = pld;
 
   mmap_start = l->mmap_start - REG0S;
-printf ("l->mmap_start = %lx\n", l->mmap_start);
   /* Unless not randomizing, try not to make the first region
      too small, because otherwise it is likely libc.so as first
      big library would often end up at REG0S.  */
@@ -953,7 +952,9 @@ printf ("l->mmap_start = %lx\n", l->mmap_start);
   for (e = l->list; e != NULL; e = next)
     {
       next = e->next;
-      while (i < 5 && e->base > pld->addrs[2 * i + 1])
+      while (i < 5
+	     && (e->base >= pld->addrs[2 * i + 1]
+		 || pld->addrs[2 * i] == pld->addrs[2 * i + 1]))
 	{
 	  ++i;
 	  pld->e[i].u.tmp = -1;
@@ -969,9 +970,9 @@ printf ("l->mmap_start = %lx\n", l->mmap_start);
 	  pld->e[i].layend = pld->e[i].end;
 	  pld->e[i].prev = &pld->e[i];
 	}
-      e->base += virt - pld->addrs[2 * i];
-      e->end += virt - pld->addrs[2 * i];
-      e->layend += virt - pld->addrs[2 * i];
+      e->base += (Elf32_Sword) (virt - pld->addrs[2 * i]);
+      e->end += (Elf32_Sword) (virt - pld->addrs[2 * i]);
+      e->layend += (Elf32_Sword) (virt - pld->addrs[2 * i]);
       list_append (&pld->e[i], e);
     }
   while (i < 5)
@@ -998,6 +999,7 @@ printf ("l->mmap_start = %lx\n", l->mmap_start);
   list_merge (&pld->e[1], &pld->e[4]);
 
   l->mmap_start = 0;
+  l->mmap_base = 0;
   l->mmap_fin = virt + pld->addrs[2 * i + 1] - pld->addrs[2 * i];
   l->mmap_end = l->mmap_fin;
   l->fakecnt = 6;

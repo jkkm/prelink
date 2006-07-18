@@ -18,8 +18,8 @@ BINS="tls3"
 LIBS="tls3lib1.so tls3lib2.so"
 $CCLINK -o tls3 $srcdir/tls1.c -Wl,--rpath-link,. tls3lib2.so
 savelibs
-echo $PRELINK -vm ./tls3 > tls3.log
-$PRELINK -vm ./tls3 >> tls3.log 2>&1 || exit 1
+echo $PRELINK ${PRELINK_OPTS--vm} ./tls3 > tls3.log
+$PRELINK ${PRELINK_OPTS--vm} ./tls3 >> tls3.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` tls3.log && exit 2
 LD_LIBRARY_PATH=. ./tls3 || exit 3
 readelf -a ./tls3 >> tls3.log 2>&1 || exit 4

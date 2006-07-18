@@ -24,6 +24,7 @@
 #include <error.h>
 #include <argp.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "prelink.h"
 
@@ -46,6 +47,7 @@ int one_file_system;
 int enable_cxx_optimizations = 1;
 int exec_shield;
 int undo, verify;
+long long seed;
 GElf_Addr mmap_reg_start = ~(GElf_Addr) 0;
 GElf_Addr mmap_reg_end = ~(GElf_Addr) 0;
 const char *dynamic_linker;
@@ -66,6 +68,8 @@ static char argp_doc[] = "prelink -- program to relocate and prelink ELF shared 
 #define OPT_MMAP_REG_START	0x84
 #define OPT_MMAP_REG_END	0x85
 #define OPT_EXEC_SHIELD		0x86
+#define OPT_NO_EXEC_SHIELD	0x87
+#define OPT_SEED		0x88
 
 static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
@@ -86,12 +90,14 @@ static struct argp_option options[] = {
   {"dynamic-linker",	OPT_DYNAMIC_LINKER, "DYNAMIC_LINKER",
 			        0,  "Special dynamic linker path" },
   {"exec-shield",	OPT_EXEC_SHIELD, 0, 0, "Lay out libraries for exec-shield on IA-32" },
+  {"no-exec-shield",	OPT_NO_EXEC_SHIELD, 0, 0, "Don't lay out libraries for exec-shield on IA-32" },
   {"ld-library-path",	OPT_LD_LIBRARY_PATH, "PATHLIST",
 			        0,  "What LD_LIBRARY_PATH should be used" },
   {"libs-only",		OPT_LIBS_ONLY, 0, 0, "Prelink only libraries, no binaries" },
   {"disable-c++-optimizations", OPT_CXX_DISABLE, 0, OPTION_HIDDEN, "" },
   {"mmap-region-start",	OPT_MMAP_REG_START, "BASE_ADDRESS", OPTION_HIDDEN, "" },
   {"mmap-region-end",	OPT_MMAP_REG_END, "BASE_ADDRESS", OPTION_HIDDEN, "" },
+  {"seed",		OPT_SEED, "SEED", OPTION_HIDDEN, "" },
   { 0 }
 };
 
@@ -115,7 +121,13 @@ parse_opt (int key, char *arg, struct argp_state *state)
       ++verbose;
       break;
     case 'R':
-      random_base = 1;
+      random_base |= 1;
+      break;
+    case OPT_SEED:
+      random_base |= 2;
+      seed = strtoull (arg, &endarg, 0);
+      if (endarg != strchr (arg, '\0'))
+	error (EXIT_FAILURE, 0, "--seed option requires numberic argument");
       break;
     case 'r':
       reloc_only = 1;
@@ -175,6 +187,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case OPT_EXEC_SHIELD:
       exec_shield = 1;
       break;
+    case OPT_NO_EXEC_SHIELD:
+      exec_shield = 0;
+      break;
     default:
       return ARGP_ERR_UNKNOWN;
     }
@@ -189,6 +204,10 @@ main (int argc, char *argv[])
   int remaining, failures = 0;
 
   setlocale (LC_ALL, "");
+
+  /* Set the default for exec_shield.  */
+  if (! access ("/proc/sys/kernel/exec-shield", F_OK))
+    exec_shield = 1;
 
   argp_parse (&argp, argc, argv, 0, &remaining, 0);
 

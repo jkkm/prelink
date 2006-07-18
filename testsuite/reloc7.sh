@@ -8,8 +8,8 @@ BINS="reloc7"
 LIBS="reloc7lib1.so reloc7lib2.so"
 $CCLINK -o reloc7 -Wl,-z,nocombreloc $srcdir/reloc7.c -Wl,--rpath-link,. reloc7lib2.so
 savelibs
-echo $PRELINK -vm ./reloc7 > reloc7.log
-$PRELINK -vm ./reloc7 >> reloc7.log 2>&1 || exit 1
+echo $PRELINK ${PRELINK_OPTS--vm} ./reloc7 > reloc7.log
+$PRELINK ${PRELINK_OPTS--vm} ./reloc7 >> reloc7.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` reloc7.log && exit 2
 LD_LIBRARY_PATH=. ./reloc7 >> reloc7.log || exit 3
 readelf -a ./reloc7 >> reloc7.log 2>&1 || exit 4

@@ -118,6 +118,50 @@ refs_cmp (const void *A, const void *B)
 }
 
 static int
+refs_rnd_cmp (const void *A, const void *B)
+{
+  struct prelink_entry *a = * (struct prelink_entry **) A;
+  struct prelink_entry *b = * (struct prelink_entry **) B;
+  int i, refs;
+
+  /* Dynamic linkers first.  */
+  if (! a->ndepends && b->ndepends)
+    return -1;
+  if (a->ndepends && ! b->ndepends)
+    return 1;
+  /* Most widely used libraries first with some randomization.  */
+  refs = a->refs < b->refs ? a->refs : b->refs;
+  if (refs < 8)
+    i = 1;
+  else if (refs < 32)
+    i = 2;
+  else if (refs < 128)
+    i = 4;
+  else
+    i = 8;
+  if (a->refs > b->refs && a->refs - b->refs >= i)
+    return -1;
+  if (a->refs < b->refs && b->refs - a->refs >= i)
+    return 1;
+  if (a->u.tmp < b->u.tmp)
+    return -1;
+  if (a->u.tmp > b->u.tmp)
+    return 1;
+  /* Largest libraries first.  */
+  if (a->layend - a->base > b->layend - b->base)
+    return -1;
+  if (a->layend - a->base < b->layend - b->base)
+    return 1;
+  if (a->refs)
+    {
+      i = strcmp (a->soname, b->soname);
+      if (i)
+	return i;
+    }
+  return strcmp (a->filename, b->filename);
+}
+
+static int
 addr_cmp (const void *A, const void *B)
 {
   struct prelink_entry *a = * (struct prelink_entry **) A;
@@ -286,16 +330,18 @@ layout_libs (void)
 	  while (j < l.nlibs && l.libs[j]->done) ++j;
 	}
 
-      if (verbose && l.nlibs > j)
-	printf ("Laying out %d libraries in virtual address space %0*llx-%0*llx\n",
-	        l.nlibs - j, class == ELFCLASS32 ? 8 : 16, (long long) mmap_base,
-	        class == ELFCLASS32 ? 8 : 16, (long long) mmap_end);
-
-      qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), refs_cmp);
       mmap_start = mmap_base;
       mmap_fin = mmap_end;
       done = 1;
-      if (random_base)
+      if (random_base & 2)
+	{
+	  mmap_start = seed;
+	  if (mmap_start < mmap_base || mmap_start >= mmap_end)
+	    mmap_start = mmap_base;
+
+	  mmap_start = (mmap_start + max_page_size - 1) & ~(max_page_size - 1);
+	}
+      else if (random_base)
 	{
 	  int fd = open ("/dev/urandom", O_RDONLY);
 
@@ -322,14 +368,35 @@ layout_libs (void)
 
 	  mmap_start = (mmap_start + max_page_size - 1) & ~(max_page_size - 1);
 	}
+      if (random_base)
+	{
+	  srandom (mmap_start >> 12);
+	  for (i = 0; i < l.nlibs; ++i)
+	    l.libs[i]->u.tmp = random ();
+	  qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), refs_rnd_cmp);
+	}
+      else
+	qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), refs_cmp);
+
+      if (verbose && l.nlibs > j)
+	{
+	  printf ("Laying out %d libraries in virtual address space %0*llx-%0*llx\n",
+		  l.nlibs - j, class == ELFCLASS32 ? 8 : 16, (long long) mmap_base,
+		  class == ELFCLASS32 ? 8 : 16, (long long) mmap_end);
+	  if (mmap_start != mmap_base)
+	    printf ("Random base 0x%0*llx\n", class == ELFCLASS32 ? 8 : 16,
+		    (long long) mmap_start);
+	}
 
       if (layout_libs_pre)
 	{
 	  l.list = list;
+	  l.mmap_base = mmap_base;
 	  l.mmap_start = mmap_start;
 	  l.mmap_end = mmap_end;
 	  layout_libs_pre (&l);
 	  list = l.list;
+	  mmap_base = l.mmap_base;
 	  mmap_start = l.mmap_start;
 	  mmap_fin = l.mmap_fin;
 	  mmap_end = l.mmap_end;

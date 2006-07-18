@@ -14,8 +14,8 @@ BINS="tls4"
 LIBS="tls4lib1.so tls4lib2.so"
 $CCLINK -o tls4 $srcdir/tls4.c -Wl,--rpath-link,. tls4lib2.so
 savelibs
-echo $PRELINK -vm ./tls4 > tls4.log
-$PRELINK -vm ./tls4 >> tls4.log 2>&1 || exit 1
+echo $PRELINK ${PRELINK_OPTS--vm} ./tls4 > tls4.log
+$PRELINK ${PRELINK_OPTS--vm} ./tls4 >> tls4.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` tls4.log && exit 2
 LD_LIBRARY_PATH=. ./tls4 || exit 3
 readelf -a ./tls4 >> tls4.log 2>&1 || exit 4

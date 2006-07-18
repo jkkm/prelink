@@ -12,8 +12,8 @@ while [ $i -lt 74 ]; do
 done
 $CXXLINK -o layout1 $srcdir/layout.C layout1lib*.so
 savelibs
-echo $PRELINK -vR ./layout1 > layout1.log
-$PRELINK -vR ./layout1 >> layout1.log 2>&1 || exit 1
+echo $PRELINK ${PRELINK_OPTS--vR} ./layout1 > layout1.log
+$PRELINK ${PRELINK_OPTS--vR} ./layout1 >> layout1.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` layout1.log && exit 2
 LD_LIBRARY_PATH=. ./layout1 || exit 3
 readelf -a ./layout1 >> layout1.log 2>&1 || exit 4

@@ -25,3 +25,21 @@ CLEANFILES = *.so *.so.* *.nop syslib.list prelink.cache prelink.conf \
 	*.orig *.new core* *.\#prelink\#* tlstest
 
 .NOTPARALLEL:
+
+check-cycle:
+	@optlist=.; \
+	if [ "`uname -m | sed s/i.86/i.86/`" = i.86 ]; then \
+	  optlist="--no-exec-shield --exec-shield"; \
+	fi; \
+	for opts2 in $$optlist; do \
+	  for opts in -v -vm -vR -vmR; do \
+	    PRELINK_OPTS="$$opts"; \
+	    [ $$opts2 != . ] && PRELINK_OPTS="$$opts $$opts2"; \
+	    echo "Checking with $$PRELINK_OPTS"; \
+	    PRELINK_OPTS="$$PRELINK_OPTS" $(MAKE) $(AM_MAKEFLAGS) check || exit; \
+	    $(MAKE) $(AM_MAKEFLAGS) clean || exit; \
+	  done; \
+	done
+
+check-harder:
+	@CHECK_ME_HARDER=1 $(MAKE) $(AM_MAKEFLAGS) check || exit

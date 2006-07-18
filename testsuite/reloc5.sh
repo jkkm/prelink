@@ -10,8 +10,8 @@ BINS="reloc5"
 $CCLINK -o reloc5 reloc5.tmp.c -Wl,--rpath-link,. reloc4lib3.so
 savelibs
 rm -f reloc5*.tmp reloc5*.tmp.c
-echo $PRELINK -vm ./reloc5 > reloc5.log
-$PRELINK -vm ./reloc5 >> reloc5.log 2>&1 || exit 1
+echo $PRELINK ${PRELINK_OPTS--vm} ./reloc5 > reloc5.log
+$PRELINK ${PRELINK_OPTS--vm} ./reloc5 >> reloc5.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` reloc5.log && exit 2
 LD_LIBRARY_PATH=. ./reloc5 || exit 3
 readelf -a ./reloc5 >> reloc5.log 2>&1 || exit 4

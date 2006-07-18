@@ -20,8 +20,8 @@ LIBS="reloc4lib1.so reloc4lib2.so reloc4lib3.so"
 $CCLINK -o reloc4 reloc4.tmp.c -Wl,--rpath-link,. reloc4lib3.so
 savelibs
 rm -f reloc4*.tmp reloc4*.tmp.c
-echo $PRELINK -vm ./reloc4 > reloc4.log
-$PRELINK -vm ./reloc4 >> reloc4.log 2>&1 || exit 1
+echo $PRELINK ${PRELINK_OPTS--vm} ./reloc4 > reloc4.log
+$PRELINK ${PRELINK_OPTS--vm} ./reloc4 >> reloc4.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` reloc4.log && exit 2
 LD_LIBRARY_PATH=. ./reloc4 || exit 3
 readelf -a ./reloc4 >> reloc4.log 2>&1 || exit 4

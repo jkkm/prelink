@@ -411,6 +411,7 @@ extern int enable_cxx_optimizations;
 extern int exec_shield;
 extern int undo;
 extern int verify;
+extern long long seed;
 extern GElf_Addr mmap_reg_start, mmap_reg_end;
 
 #endif /* PRELINK_H */

@@ -9,8 +9,8 @@ BINS="reloc11"
 LIBS="reloc11lib1.so reloc11lib2.so reloc11lib3.so"
 $CCLINK -o reloc11 $srcdir/reloc11.c -Wl,--rpath-link,. reloc11lib1.so reloc11lib3.so
 savelibs
-echo $PRELINK -vm ./reloc11 > reloc11.log
-$PRELINK -vm ./reloc11 >> reloc11.log 2>&1 || exit 1
+echo $PRELINK ${PRELINK_OPTS--vm} ./reloc11 > reloc11.log
+$PRELINK ${PRELINK_OPTS--vm} ./reloc11 >> reloc11.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` reloc11.log && exit 2
 LD_LIBRARY_PATH=. ./reloc11 || exit 3
 readelf -a ./reloc11 >> reloc11.log 2>&1 || exit 4
