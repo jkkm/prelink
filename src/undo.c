@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,6 @@ prelink_undo (DSO *dso)
 {
   GElf_Shdr *shdr;
   int undo, shnum, i, j, k;
-  int reldyn_first = 0, reldyn_last = 0;
   int rel_to_rela = 0, rel_to_rela_plt = 0;
   Elf_Data src, dst, *d;
   Elf_Scn *scn;
@@ -161,51 +160,10 @@ prelink_undo (DSO *dso)
 
 	if (! strcmp (name, ".rel.dyn") || ! strcmp (name, ".rela.dyn"))
 	  {
-	    for (j = 1; j < move->new_shnum; ++j)
-	      if (move->new_to_old[j] == -1
-		  && (shdr[j].sh_type == SHT_REL
-		      || shdr[j].sh_type == SHT_RELA)
-		  && dso->shdr[i].sh_addralign == shdr[j].sh_addralign
-		  && dso->shdr[i].sh_flags == shdr[j].sh_flags)
-		break;
-	    if (j < move->new_shnum)
-	      {
-		GElf_Addr size;
-
-	        for (k = j + 1; k < move->new_shnum; ++k)
-		  {
-		    const char *name2;
-
-		    if (move->new_to_old[k] != -1
-			&& shdr[j].sh_type != shdr[k].sh_type
-			&& shdr[j].sh_addralign != shdr[k].sh_addralign
-			&& shdr[j].sh_flags != shdr[k].sh_flags)
-		      break;
-
-		    name2 = strptr (dso, dso->ehdr.e_shstrndx,
-				    shdr[k].sh_name);
-		    if (! strcmp (name2, ".rel.plt")
-			|| ! strcmp (name2, ".rela.plt"))
-		      break;
-		  }
-		size = shdr[k - 1].sh_addr - shdr[j].sh_addr;
-		size += shdr[k - 1].sh_size;
-		assert (sizeof (Elf32_Rel) * 3 == sizeof (Elf32_Rela) * 2);
-		assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
-		if (dso->shdr[i].sh_size == size
-		    || (dso->shdr[i].sh_type == SHT_RELA
-			&& shdr[j].sh_type == SHT_REL
-			&& dso->shdr[i].sh_size * 2 == size * 3))
-		  {
-		    if (dso->shdr[i].sh_size > size)
-		      rel_to_rela = 1;
-		    move->old_to_new[i] = j;
-		    move->new_to_old[j] = i;
-		    reldyn_first = j;
-		    reldyn_last = k - 1;
-		    continue;
-		  }
-	      }
+	    error (0, 0, "%s: Cannot undo objects not linked with -z combreloc",
+		   dso->filename);
+	    free (move);
+	    return 1;
 	  }
 
 	error (0, 0, "%s: Section %s not created by prelink created after prelinking",
@@ -215,8 +173,7 @@ prelink_undo (DSO *dso)
       }
 
   for (i = 1; i < move->new_shnum; ++i)
-    if (move->new_to_old[i] == -1
-	&& (i <= reldyn_first || i > reldyn_last))
+    if (move->new_to_old[i] == -1)
       {
 	const char *name = strptr (dso, dso->ehdr.e_shstrndx, shdr[i].sh_name);
 
@@ -232,11 +189,33 @@ prelink_undo (DSO *dso)
       return 1;
     }
 
-  p = strptr (dso, dso->ehdr.e_shstrndx, shdr[reldyn_first].sh_name);
-  if (reldyn_last > reldyn_first
-      || (strcmp (p, ".rel.dyn") && strcmp (p, ".rela.dyn")))
+#if 0
+  if (dso->arch->arch_undo_prelink && dso->arch->arch_undo_prelink (dso))
+    goto error_out;
+
+  for (i = 1; i < dso->ehdr.e_shnum; i++)
     {
+      if (! (dso->shdr[i].sh_flags & SHF_ALLOC))
+        continue;
+      if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+                            dso->shdr[i].sh_name),
+                    ".gnu.conflict"))
+        continue;
+      switch (dso->shdr[i].sh_type)
+        {
+        case SHT_REL:
+          if (undo_prelink_rel (dso, i))
+            goto error_out;
+          break;
+        case SHT_RELA:
+          if (undo_prelink_rela (dso, i))
+            goto error_out;
+          break;
+        }
     }
+
+  /* Clear .dynamic entries added by prelink.  */  
+#endif
 
   free (move);      
   return 0;
