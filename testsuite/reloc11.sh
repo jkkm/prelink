@@ -3,9 +3,11 @@
 rm -f reloc1 reloc11lib*.so reloc11.log
 rm -f prelink.cache
 $CC -shared -O2 -nostdlib -fpic -o reloc11lib1.so $srcdir/reloc10lib4.c
+$CC -shared -O2 -nostdlib -fpic -o reloc11lib2.so $srcdir/reloc11lib2.c
+$CC -shared -O2 -nostdlib -fpic -o reloc11lib3.so $srcdir/reloc11lib3.c reloc11lib2.so
 BINS="reloc11"
-LIBS="reloc11lib1.so"
-$CCLINK -o reloc11 $srcdir/reloc11.c -Wl,--rpath-link,. reloc11lib1.so
+LIBS="reloc11lib1.so reloc11lib2.so reloc11lib3.so"
+$CCLINK -o reloc11 $srcdir/reloc11.c -Wl,--rpath-link,. reloc11lib1.so reloc11lib3.so
 savelibs
 echo $PRELINK -vm ./reloc11 > reloc11.log
 $PRELINK -vm ./reloc11 >> reloc11.log 2>&1 || exit 1

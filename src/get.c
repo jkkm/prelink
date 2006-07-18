@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -180,7 +180,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       goto error_out;
     }
 
-  if (r == NULL)
+  if (r == NULL && !ndeps)
     {
       error (0, 0, "%s: %s did not print any lookup lines", info->ent->filename,
 	     dynamic_linker ?: dso->arch->dynamic_linker);

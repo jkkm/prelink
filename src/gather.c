@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -233,7 +233,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	&& gather_lib (ent->depends[i]))
       goto error_out;
 
-  if (! undo && liblist && nliblist == ndepends)
+  if (! undo && (!nliblist || liblist) && nliblist == ndepends)
     {
       for (i = 0; i < ndepends; ++i)
 	if (liblist[i].l_time_stamp != ent->depends[i]->timestamp
