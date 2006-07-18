@@ -734,5 +734,6 @@ PL_ARCH = {
      and can use the region above REG2S if libs don't fit.  */
   .mmap_base = REG1S,
   .mmap_end =  REG2E,
-  .page_size = 0x10000
+  .max_page_size = 0x10000,
+  .page_size = 0x1000
 };

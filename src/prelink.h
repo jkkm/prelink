@@ -130,7 +130,13 @@ struct PLArch
   int (*arch_prelink) (DSO *dso);
   int (*layout_libs_pre) (struct layout_libs *l);
   int (*layout_libs_post) (struct layout_libs *l);
-  GElf_Addr mmap_base, mmap_end, page_size;
+  GElf_Addr mmap_base, mmap_end;
+  /* max_page_size is the ELF page size (ELF_MAXPAGESIZE in bfd),
+     page_size is PAGE_SIZE the architecture typically has,
+     or if there are more typical sizes, the smallest one.
+     It doesn't need to be the absolutely smallest supported one,
+     prelink only optimizes for such page_size.  */
+  GElf_Addr max_page_size, page_size;
 };
 
 struct section_move

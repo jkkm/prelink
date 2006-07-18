@@ -495,6 +495,10 @@ prelink_dso (struct prelink_info *info)
 	libstr = i;
       else if (! strcmp (name, ".plt") && dso->shdr[i].sh_type == SHT_NOBITS)
 	nobits_plt = i;
+#if 0
+      else if (dso->arch->create_opd && ! strcmp (name, ".opd"))
+	opd = i;
+#endif
     }
 
   if (nobits_plt)

@@ -159,7 +159,7 @@ layout_libs (void)
       struct PLArch *plarch;
       extern struct PLArch __start_pl_arch[], __stop_pl_arch[];
       int i, j, k, m, done, class;
-      GElf_Addr mmap_start, mmap_base, mmap_end, mmap_fin, page_size;
+      GElf_Addr mmap_start, mmap_base, mmap_end, mmap_fin, max_page_size;
       GElf_Addr base, size;
       struct prelink_entry *list, *e, *fake;
       struct prelink_entry fakeent;
@@ -186,7 +186,7 @@ layout_libs (void)
 
       mmap_base = plarch->mmap_base;
       mmap_end = plarch->mmap_end;
-      page_size = plarch->page_size;
+      max_page_size = plarch->max_page_size;
       class = plarch->class;
       /* The code below relies on having a VA slot as big as <mmap_base,mmap_end)
 	 above mmap_end for -R.  */
@@ -198,7 +198,8 @@ layout_libs (void)
       /* Make sure there is some room between libraries.  */
       for (i = 0; i < l.nlibs; ++i)
 	if (l.libs[i]->type == ET_DYN)
-	  l.libs[i]->end = (l.libs[i]->end + 8192 + page_size - 1) & ~(page_size - 1);
+	  l.libs[i]->end = (l.libs[i]->end + 8192 + max_page_size - 1)
+			   & ~(max_page_size - 1);
 
       /* Put the already prelinked libs into double linked list.  */
       qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), addr_cmp);
@@ -259,7 +260,7 @@ layout_libs (void)
 	      mmap_start += mmap_base;
 	    }
 
-	  mmap_start = (mmap_start + page_size - 1) & ~(page_size - 1);
+	  mmap_start = (mmap_start + max_page_size - 1) & ~(max_page_size - 1);
 	}
 
       if (layout_libs_pre)
@@ -283,7 +284,8 @@ layout_libs (void)
 	      if (e->base >= mmap_start)
 	        break;
 	      if (e->end > mmap_start)
-	        mmap_start = (e->end + page_size - 1) & ~(page_size - 1);
+	        mmap_start = (e->end + max_page_size - 1)
+			     & ~(max_page_size - 1);
 	      e->base += mmap_end - mmap_base;
 	      e->end += mmap_end - mmap_base;
 	      e->done |= 0x80;

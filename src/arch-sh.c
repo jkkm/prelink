@@ -349,5 +349,6 @@ PL_ARCH = {
      even dlopened libraries will get the slots they desire.  */
   .mmap_base = 0x30000000,
   .mmap_end =  0x40000000,
-  .page_size = 0x2000
+  .max_page_size = 0x2000,
+  .page_size = 0x1000
 };

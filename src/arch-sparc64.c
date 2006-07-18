@@ -590,5 +590,6 @@ PL_ARCH = {
      jumping to shared library functions is much harder (there is
      '\0' byte in the address before the bytes that matter).  */
   .mmap_end =  0xfffff80100000000LL,
-  .page_size = 0x100000
+  .max_page_size = 0x100000,
+  .page_size = 0x2000
 };

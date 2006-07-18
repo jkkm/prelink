@@ -320,7 +320,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
   if (phdr[i].p_filesz
       && p_filesz <= phdr[i].p_memsz
       && !(((phdr[i].p_vaddr + phdr[i].p_memsz - 1)
-	    ^ (phdr[i].p_vaddr + p_filesz - 1)) & ~(GElf_Addr) 4095))
+	    ^ (phdr[i].p_vaddr + p_filesz - 1)) & ~(dso->arch->page_size - 1)))
     {
       for (j = 1; j < ehdr->e_shnum; ++j)
 	{
@@ -352,7 +352,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 
   addr = (add->sh_size + add->sh_addralign - 1 + phdr[i].p_align - 1)
 	 & ~(phdr[i].p_align - 1);
-  if (phdr[i].p_align <= 4096
+  if (phdr[i].p_align <= dso->arch->page_size
       && phdr[i].p_flags == (PF_R | PF_X)
       && phdr[i].p_filesz == phdr[i].p_memsz
       && phdr[i].p_vaddr - addr

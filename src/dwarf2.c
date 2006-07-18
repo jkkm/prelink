@@ -156,6 +156,9 @@ static struct
 #define DEBUG_PUBNAMES	4
 #define DEBUG_MACINFO	5
 #define DEBUG_LOC	6
+#define DEBUG_STR	7
+#define DEBUG_FRAME	8
+#define DEBUG_RANGES	9
     { ".debug_info", NULL, 0, 0 },
     { ".debug_abbrev", NULL, 0, 0 },
     { ".debug_line", NULL, 0, 0 },
@@ -163,6 +166,9 @@ static struct
     { ".debug_pubnames", NULL, 0, 0 },
     { ".debug_macinfo", NULL, 0, 0 },
     { ".debug_loc", NULL, 0, 0 },
+    { ".debug_str", NULL, 0, 0 },
+    { ".debug_frame", NULL, 0, 0 },
+    { ".debug_ranges", NULL, 0, 0 },
     { NULL, NULL, 0 }
   };
 
@@ -175,8 +181,14 @@ struct abbrev_attr
 struct abbrev_tag
   {
     unsigned int entry;
+    unsigned int tag;
     int nattr;
     struct abbrev_attr attr[0];
+  };
+
+struct cu_data
+  {
+    GElf_Addr cur_entry_pc;
   };
 
 static hashval_t
@@ -243,7 +255,7 @@ no_memory:
 	  return NULL;
 	}
       *slot = t;
-      read_uleb128 (ptr); /* skip the tag.  */
+      t->tag = read_uleb128 (ptr);
       ++ptr; /* skip children flag.  */
       while ((attr = read_uleb128 (ptr)) != 0)
         {
@@ -377,6 +389,7 @@ adjust_location_list (DSO *dso, unsigned char *ptr, size_t len,
 
 static unsigned char *
 adjust_attributes (DSO *dso, unsigned char *ptr, struct abbrev_tag *t,
+		   struct cu_data *cu,
 		   GElf_Addr start, GElf_Addr adjust)
 {
   int i;
@@ -393,6 +406,15 @@ adjust_attributes (DSO *dso, unsigned char *ptr, struct abbrev_tag *t,
 	    {
 	    case DW_FORM_addr:
 	      addr = read_ptr (ptr);
+	      if (t->tag == DW_TAG_compile_unit
+		  || t->tag == DW_TAG_partial_unit)
+		{
+		  if (t->attr[i].attr == DW_AT_entry_pc
+		      || t->attr[i].attr == DW_AT_low_pc)
+		    cu->cur_entry_pc = addr;
+		  if (addr == 0)
+		    break;
+		}
 	      if (addr >= start && addr_to_sec (dso, addr) != -1)
 		write_ptr (ptr - ptr_size, addr + adjust);
 	      break;
@@ -497,6 +519,12 @@ adjust_dwarf2_line (DSO *dso, GElf_Addr start, GElf_Addr adjust)
     {
       endcu = ptr + 4;
       endcu += read_32 (ptr);
+      if (endcu == ptr + 0xffffffff)
+	{
+	  error (0, 0, "%s: 64-bit DWARF not supported", dso->filename);
+	  return 1;
+	}
+
       if (endcu > endsec)
 	{
 	  error (0, 0, "%s: .debug_line CU does not fit into section",
@@ -576,6 +604,12 @@ adjust_dwarf2_aranges (DSO *dso, GElf_Addr start, GElf_Addr adjust)
     {
       endcu = ptr + 4;
       endcu += read_32 (ptr);
+      if (endcu == ptr + 0xffffffff)
+	{
+	  error (0, 0, "%s: 64-bit DWARF not supported", dso->filename);
+	  return 1;
+	}
+
       if (endcu > endsec)
 	{
 	  error (0, 0, "%s: .debug_line CU does not fit into section",
@@ -625,6 +659,8 @@ adjust_dwarf2_loc (DSO *dso, GElf_Addr start, GElf_Addr adjust)
   GElf_Addr low, high;
   size_t len;
 
+  error (0, 0, "%s: .debug_loc adjusting unfinished", dso->filename);
+  return 1;
   while (ptr < endsec)
     {
       low = read_ptr (ptr);
@@ -632,6 +668,8 @@ adjust_dwarf2_loc (DSO *dso, GElf_Addr start, GElf_Addr adjust)
       if (low == 0 && high == 0)
         continue;
 
+      /* FIXME: Handle low == ~0 and propagate here DW_AT_entry_pc
+	 DW_AT_low_pc setting of referring CU too.  */
       len = read_16 (ptr);
       assert (ptr + len <= endsec);
 
@@ -646,12 +684,158 @@ adjust_dwarf2_loc (DSO *dso, GElf_Addr start, GElf_Addr adjust)
   return 0;
 }
 
+static int
+adjust_dwarf2_frame (DSO *dso, GElf_Addr start, GElf_Addr adjust)
+{
+  unsigned char *ptr = debug_sections[DEBUG_FRAME].data;
+  unsigned char *endsec = ptr + debug_sections[DEBUG_FRAME].size;
+  unsigned char *endie;
+  GElf_Addr addr, len;
+  uint32_t value;
+
+  while (ptr < endsec)
+    {
+      endie = ptr + 4;
+      endie += read_32 (ptr);
+      if (endie == ptr + 0xffffffff)
+	{
+	  error (0, 0, "%s: 64-bit DWARF not supported", dso->filename);
+	  return 1;
+	}
+
+      if (endie > endsec)
+	{
+	  error (0, 0, "%s: .debug_frame CIE/FDE does not fit into section",
+		 dso->filename);
+	  return 1;
+	}
+
+      value = read_32 (ptr);
+      if (value == 0xffffffff)
+	{
+	  /* CIE.  */
+	  ptr++;  /* Skip version.  */
+	  if (*ptr != '\0')
+	    {
+	      error (0, 0, "%s: .debug_frame unhandled augmentation \"%s\"",
+		     dso->filename, ptr);
+	      return 1;
+	    }
+	  ptr++;  /* Skip augmentation.  */
+	  read_uleb128 (ptr);  /* Skip code_alignment factor.  */
+	  read_uleb128 (ptr);  /* Skip data_alignment factor.  */
+	  read_uleb128 (ptr);  /* Skip return_address_register.  */
+	}
+      else
+	{
+	  addr = read_ptr (ptr);
+	  if (addr >= start && addr_to_sec (dso, addr) != -1)
+	    write_ptr (ptr - ptr_size, addr + adjust);
+	  read_ptr (ptr);  /* Skip address range.  */
+	}
+
+      while (ptr < endie)
+	{
+	  unsigned char insn = *ptr++;
+
+	  if ((insn & 0xc0) == DW_CFA_advance_loc
+	      || (insn & 0xc0) == DW_CFA_restore)
+	    continue;
+	  else if ((insn & 0xc0) == DW_CFA_offset)
+	    {
+	      read_uleb128 (ptr);
+	      continue;
+	    }
+	  switch (insn)
+	    {
+	    case DW_CFA_nop:
+	    case DW_CFA_remember_state:
+	    case DW_CFA_restore_state:
+	    case DW_CFA_GNU_window_save:
+	      break;
+	    case DW_CFA_offset_extended:
+	    case DW_CFA_register:
+	    case DW_CFA_def_cfa:
+	    case DW_CFA_offset_extended_sf:
+	    case DW_CFA_def_cfa_sf:
+	    case DW_CFA_GNU_negative_offset_extended:
+	      read_uleb128 (ptr);
+	      /* FALLTHROUGH */
+	    case DW_CFA_restore_extended:
+	    case DW_CFA_undefined:
+	    case DW_CFA_same_value:
+	    case DW_CFA_def_cfa_register:
+	    case DW_CFA_def_cfa_offset:
+	    case DW_CFA_def_cfa_offset_sf:
+	    case DW_CFA_GNU_args_size:
+	      read_uleb128 (ptr);
+	      break;
+	    case DW_CFA_set_loc:
+	      addr = read_ptr (ptr);
+	      if (addr >= start && addr_to_sec (dso, addr) != -1)
+		write_ptr (ptr - ptr_size, addr + adjust);
+	      break;
+	    case DW_CFA_advance_loc1:
+	      ptr++;
+	      break;
+	    case DW_CFA_advance_loc2:
+	      ptr += 2;
+	      break;
+	    case DW_CFA_advance_loc4:
+	      ptr += 4;
+	      break;
+	    case DW_CFA_expression:
+	      read_uleb128 (ptr);
+	      /* FALLTHROUGH */
+	    case DW_CFA_def_cfa_expression:
+	      len = read_uleb128 (ptr);
+	      if (adjust_location_list (dso, ptr, len, start, adjust))
+		return 1;
+	      ptr += len;
+	      break;
+	    default:
+	      error (0, 0, "%s: Unhandled DW_CFA_%02x operation",
+		     dso->filename, insn);
+	      return 1;
+	    }
+	}
+    }
+
+  elf_flagscn (dso->scn[debug_sections[DEBUG_FRAME].sec], ELF_C_SET,
+	       ELF_F_DIRTY);
+  return 0;
+}
+
+static int
+adjust_dwarf2_ranges (DSO *dso, GElf_Addr start, GElf_Addr adjust)
+{
+  unsigned char *ptr = debug_sections[DEBUG_RANGES].data;
+  unsigned char *endsec = ptr + debug_sections[DEBUG_RANGES].size;
+  GElf_Addr low, high;
+
+  while (ptr < endsec)
+    {
+      low = read_ptr (ptr);
+      high = read_ptr (ptr);
+      if (low == 0 && high == 0)
+        continue;
+
+      /* FIXME: Handle low == ~0 and propagate here DW_AT_entry_pc
+	 DW_AT_low_pc setting of referring CU too.  */
+    }
+
+  elf_flagscn (dso->scn[debug_sections[DEBUG_RANGES].sec], ELF_C_SET,
+	       ELF_F_DIRTY);
+  return 0;
+}
+
 int
 adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 {
   Elf_Data *data;
   Elf_Scn *scn;
   int i, j;
+  struct cu_data cu;
 
   for (i = 0; debug_sections[i].name; ++i)
     {
@@ -661,6 +845,7 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
     }
   ptr_size = 0;
 
+  memset (&cu, 0, sizeof(cu));
   for (i = 1; i < dso->ehdr.e_shnum; ++i)
     if (! (dso->shdr[i].sh_flags & (SHF_ALLOC | SHF_WRITE | SHF_EXECINSTR))
 	&& dso->shdr[i].sh_size)
@@ -744,6 +929,12 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 
 	  endcu = ptr + 4;
 	  endcu += read_32 (ptr);
+	  if (endcu == ptr + 0xffffffff)
+	    {
+	      error (0, 0, "%s: 64-bit DWARF not supported", dso->filename);
+	      return 1;
+	    }
+
 	  if (endcu > endsec)
 	    {
 	      error (0, 0, "%s: .debug_info too small", dso->filename);
@@ -815,7 +1006,7 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 		  return 1;
 	        }
 
-	      ptr = adjust_attributes (dso, ptr, t, start, adjust);
+	      ptr = adjust_attributes (dso, ptr, t, &cu, start, adjust);
 	      if (ptr == NULL)
 		{
 		  htab_delete (abbrev);
@@ -843,9 +1034,18 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
       && adjust_dwarf2_loc (dso, start, adjust))
     return 1;
 
+  if (debug_sections[DEBUG_FRAME].data != NULL
+      && adjust_dwarf2_frame (dso, start, adjust))
+    return 1;
+
+  if (debug_sections[DEBUG_RANGES].data != NULL
+      && adjust_dwarf2_ranges (dso, start, adjust))
+    return 1;
+
   /* .debug_abbrev requires no adjustement.  */
   /* .debug_pubnames requires no adjustement.  */
   /* .debug_macinfo requires no adjustement.  */
+  /* .debug_str requires no adjustement.  */
 
   elf_flagscn (dso->scn[n], ELF_C_SET, ELF_F_DIRTY);
   return 0;

@@ -514,5 +514,8 @@ PL_ARCH = {
      even dlopened libraries will get the slots they desire.  */
   .mmap_base = 0x2000000010000000,
   .mmap_end =  0x4000000000000000,
-  .page_size = 0x10000
+  .max_page_size = 0x10000,
+  /* The kernel can be configured for 4K, 8K, 16K and 64K,
+     but most kernels have at least 8K.  */
+  .page_size = 0x02000
 };

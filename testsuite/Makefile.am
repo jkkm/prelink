@@ -8,7 +8,6 @@ AM_CFLAGS = -Wall
 TESTS = movelibs.sh \
 	reloc1.sh reloc2.sh reloc3.sh reloc4.sh reloc5.sh reloc6.sh \
 	shuffle1.sh shuffle2.sh shuffle3.sh shuffle4.sh shuffle5.sh \
-	filter1.sh filter2.sh \
 	layout1.sh layout2.sh
 TESTS_ENVIRONMENT = \
 	PRELINK="../src/prelink -c ./prelink.conf -C ./prelink.cache --ld-library-path=. --dynamic-linker=`echo ./ld*.so.*`" \

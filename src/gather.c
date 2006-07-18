@@ -40,7 +40,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   int i, seen = 0;
   FILE *f;
   const char *argv[5];
-  const char *envp[3];
+  const char *envp[4];
   char *line = NULL, *p, *q = NULL;
   const char **depends = NULL;
   size_t ndepends = 0, ndepends_alloced = 0;
