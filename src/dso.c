@@ -1533,7 +1533,7 @@ close_dso (DSO *dso)
 }
 
 int
-write_dso (DSO *dso)
+prepare_write_dso (DSO *dso)
 {
   int i;
 
@@ -1551,6 +1551,14 @@ write_dso (DSO *dso)
 	  || dso->shdr[i].sh_type == SHT_DYNSYM)
 	set_stt_section_values (dso, i);
     }
+  return 0;
+}
+
+int
+write_dso (DSO *dso)
+{
+  if (prepare_write_dso (dso))
+    return 1;
 
   if (! dso->permissive && ELF_F_PERMISSIVE)
     elf_flagelf (dso->elf, ELF_C_CLR, ELF_F_PERMISSIVE);

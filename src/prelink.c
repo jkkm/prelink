@@ -796,6 +796,11 @@ prelink_set_checksum (DSO *dso)
       && set_dynamic (dso, DT_GNU_PRELINKED, 0, 1))
     return 1;
 
+  /* Ensure any pending .mdebug/.dynsym/.dynstr etc. modifications
+     write_dso would do happen before checksumming.  */
+  if (prepare_write_dso (dso))
+    return 1;
+
   cvt = ! ((__BYTE_ORDER == __LITTLE_ENDIAN
 	    && dso->ehdr.e_ident[EI_DATA] == ELFDATA2LSB)
 	   || (__BYTE_ORDER == __BIG_ENDIAN

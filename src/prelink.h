@@ -184,6 +184,7 @@ int adjust_mdebug (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
 int finalize_mdebug (DSO *dso);
 int relocate_dso (DSO *dso, GElf_Addr base);
 int update_dso (DSO *dso);
+int prepare_write_dso (DSO *dso);
 int write_dso (DSO *dso);
 int close_dso (DSO *dso);
 GElf_Addr adjust_old_to_new (DSO *dso, GElf_Addr addr);

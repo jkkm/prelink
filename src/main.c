@@ -49,6 +49,7 @@ int exec_shield;
 int undo, verify;
 enum verify_method_t verify_method;
 int quick;
+int compute_checksum;
 long long seed;
 GElf_Addr mmap_reg_start = ~(GElf_Addr) 0;
 GElf_Addr mmap_reg_end = ~(GElf_Addr) 0;
@@ -74,6 +75,7 @@ static char argp_doc[] = "prelink -- program to relocate and prelink ELF shared 
 #define OPT_SEED		0x88
 #define OPT_MD5			0x89
 #define OPT_SHA			0x8a
+#define OPT_COMPUTE_CHECKSUM	0x8b
 
 static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
@@ -105,6 +107,7 @@ static struct argp_option options[] = {
   {"mmap-region-start",	OPT_MMAP_REG_START, "BASE_ADDRESS", OPTION_HIDDEN, "" },
   {"mmap-region-end",	OPT_MMAP_REG_END, "BASE_ADDRESS", OPTION_HIDDEN, "" },
   {"seed",		OPT_SEED, "SEED", OPTION_HIDDEN, "" },
+  {"compute-checksum",	OPT_COMPUTE_CHECKSUM, 0, OPTION_HIDDEN, "" },
   { 0 }
 };
 
@@ -206,6 +209,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case OPT_NO_EXEC_SHIELD:
       exec_shield = 0;
       break;
+    case OPT_COMPUTE_CHECKSUM:
+      compute_checksum = 1;
+      break;
     default:
       return ARGP_ERR_UNKNOWN;
     }
@@ -255,6 +261,20 @@ main (int argc, char *argv[])
   if (remaining == argc && ! all)
     error (EXIT_FAILURE, 0, "no files given and --all not used");
 
+  if (compute_checksum)
+    {
+      while (remaining < argc)
+	{
+	  DSO *dso = open_dso (argv[remaining++]);
+
+	  if (dso == NULL || reopen_dso (dso, NULL) || prelink_set_checksum (dso))
+	    error (0, 0, "could not recompute checksum of %s", dso->filename);
+	  close_dso (dso);
+	  error (0, 0, "%08x %s\n", (unsigned int) dso->info_DT_CHECKSUM, dso->filename);
+	}
+      exit (0);
+    }
+
   if (verify)
     {
       if (remaining + 1 != argc)
@@ -296,6 +316,7 @@ main (int argc, char *argv[])
 	    }
 
 	  if (dynamic_info_is_set (dso, DT_CHECKSUM_BIT)
+	      && dso_is_rdwr (dso)
 	      && prelink_set_checksum (dso))
 	    {
 	      ++failures;
