@@ -1,5 +1,5 @@
 --- libc/elf/Makefile.jj	Wed Sep 12 09:56:33 2001
-+++ libc/elf/Makefile	Mon Sep 17 00:25:58 2001
++++ libc/elf/Makefile	Thu Sep 20 14:04:27 2001
 @@ -29,7 +29,7 @@ routines	= $(dl-routines) dl-open dl-clo
  # profiled libraries.
  dl-routines	= $(addprefix dl-,load cache lookup object reloc deps \
@@ -9,6 +9,47 @@
  all-dl-routines = $(dl-routines) $(sysdep-dl-routines)
  # But they are absent from the shared libc, because that code is in ld.so.
  elide-routines.os = $(all-dl-routines) dl-support enbl-secure \
+@@ -148,30 +148,16 @@ $(objpfx)dl-allobjs.os: $(all-rtld-routi
+ $(objpfx)librtld.os: $(objpfx)dl-allobjs.os $(common-objpfx)libc_pic.a
+ 	$(reloc-link) '-Wl,-(' $^ -lgcc '-Wl,-)'
+ 
+-# Do we need a linker script?
+-rtld-ldscript-in := $(firstword $(wildcard $(+sysdep_dirs:%=%/rtld-ldscript.in)))
+-
+-ifneq (,$(rtld-ldscript-in))
+-rtld-ldscript = $(objpfx)rtld-ldscript
+-generated += rtld-ldscript
+-
+-LDFLAGS-rtld = -T $(rtld-ldscript)
+-before-compile += $(rtld-ldscript)
+-
+-rtld-parms = $(wildcard $(+sysdep_dirs:%=%/rtld-parms))
+-include $(rtld-parms)
+-
+-$(rtld-ldscript): $(rtld-ldscript-in) $(rtld-parms)
+-	sed -e 's#@@rtld-oformat@@#$(rtld-oformat)#' \
+-	    -e 's#@@rtld-arch@@#$(rtld-arch)#' \
+-	    -e 's#@@rtld-entry@@#$(rtld-entry)#' \
+-	    -e 's#@@rtld-base@@#$(rtld-base)#' $< >$@
+-endif
+-
+-$(objpfx)ld.so: $(objpfx)librtld.os $(rtld-ldscript) $(ld-map)
+-	$(LINK.o) -nostdlib -nostartfiles -shared -o $@ $(LDFLAGS-rtld) \
+-		  $(filter-out $(rtld-ldscript) $(map-file),$^)		\
+-		  $(load-map-file) -Wl,-soname=$(rtld-installed-name)
++$(objpfx)ld.so: $(objpfx)librtld.os $(ld-map)
++	$(LINK.o) -nostdlib -nostartfiles -shared			\
++		  $(LDFLAGS-rtld) -Wl,--verbose 2>&1 |			\
++		  sed -e '/^=========/,/^=========/!d;/^=========/d'	\
++		      -e 's/\. = 0 + SIZEOF_HEADERS;/& _begin = . - SIZEOF_HEADERS;/' \
++		  > $@.lds;						\
++	$(LINK.o) -nostdlib -nostartfiles -shared -o $@ $(LDFLAGS-rtld)	\
++		  $(filter-out $(map-file),$^) $(load-map-file)		\
++		  -Wl,-soname=$(rtld-installed-name) -T $@.lds;		\
++	#rm -f $@.lds
+ 
+ # interp.c exists just to get this string into the libraries.
+ CFLAGS-interp.c = -D'RUNTIME_LINKER="$(slibdir)/$(rtld-installed-name)"'
 --- libc/elf/elf.h.jj	Wed Sep 12 09:56:44 2001
 +++ libc/elf/elf.h	Mon Sep 17 00:25:58 2001
 @@ -316,6 +316,7 @@ typedef struct
@@ -275,8 +316,8 @@
  	    /* A direct or transitive dependency is also on the list
  	       of relocation dependencies.  Remove the latter.  */
 --- libc/elf/dl-conflict.c.jj	Mon Sep 17 00:25:58 2001
-+++ libc/elf/dl-conflict.c	Mon Sep 17 00:25:58 2001
-@@ -0,0 +1,55 @@
++++ libc/elf/dl-conflict.c	Thu Sep 20 14:16:43 2001
+@@ -0,0 +1,66 @@
 +/* Resolve conflicts against already prelinked libraries.
 +   Copyright (C) 2001 Free Software Foundation, Inc.
 +   This file is part of the GNU C Library.
@@ -323,6 +364,17 @@
 +    /* This macro is used as a callback from the ELF_DYNAMIC_RELOCATE code.  */
 +#define RESOLVE_MAP(ref, version, flags) (*ref = NULL, 0)
 +#define RESOLVE(ref, version, flags) (*ref = NULL, 0)
++#define RESOLVE_CONFLICT_FIND_MAP(map, r_offset)		\
++do								\
++  {								\
++    while (resolve_conflict_map->l_map_end < (r_offset)		\
++	   || resolve_conflict_map->l_map_start > (r_offset))	\
++      resolve_conflict_map					\
++	= resolve_conflict_map->l_next;				\
++    (map) = resolve_conflict_map;				\
++  } while (0)
++
++    struct link_map *resolve_conflict_map = _dl_loaded;
 +
 +#include "dynamic-link.h"
 +
@@ -333,8 +385,19 @@
 +  }
 +}
 --- libc/elf/do-rel.h.jj	Mon Aug 27 10:48:24 2001
-+++ libc/elf/do-rel.h	Mon Sep 17 00:25:58 2001
-@@ -48,7 +48,7 @@ elf_dynamic_do_rel (struct link_map *map
++++ libc/elf/do-rel.h	Fri Sep 21 20:12:22 2001
+@@ -33,6 +33,10 @@
+ #ifndef VERSYMIDX
+ # define VERSYMIDX(sym)	(DT_NUM + DT_THISPROCNUM + DT_VERSIONTAGIDX (sym))
+ #endif
++#ifndef VALIDX
++# define VALIDX(tag) (DT_NUM + DT_THISPROCNUM + DT_VERSIONTAGNUM \
++		      + DT_EXTRANUM + DT_VALTAGIDX (tag))
++#endif
+ 
+ /* Perform the relocations in MAP on the running program image as specified
+    by RELTAG, SZTAG.  If LAZY is nonzero, this is the first pass on PLT
+@@ -48,7 +52,7 @@ elf_dynamic_do_rel (struct link_map *map
    const ElfW(Rel) *end = (const void *) (reladdr + relsize);
    ElfW(Addr) l_addr = map->l_addr;
  
@@ -343,6 +406,19 @@
    /* We never bind lazily during ld.so bootstrap.  Unfortunately gcc is
       not clever enough to see through all the function calls to realize
       that.  */
+@@ -81,8 +85,11 @@ elf_dynamic_do_rel (struct link_map *map
+ 	/* Rela platforms get the offset from r_addend and this must
+ 	   be copied in the relocation address.  Therefore we can skip
+ 	   the relative relocations only if this is for rel
+-	   relocations.  */
++	   relocations...  */
+ 	if (l_addr != 0)
++# else
++	/* ...or we know the object has been prelinked.  */
++	if (l_addr != 0 || ! map->l_info[VALIDX(DT_GNU_PRELINKED)])
+ # endif
+ #endif
+ 	  for (; relative < r; ++relative)
 --- libc/elf/dl-lookup.c.jj	Wed Sep 12 09:59:28 2001
 +++ libc/elf/dl-lookup.c	Mon Sep 17 00:25:58 2001
 @@ -194,6 +194,12 @@ _dl_do_lookup_versioned (const char *und
@@ -822,7 +898,7 @@
      if ((map)->l_info[DT_PLTREL]					      \
  	&& (!test_rel || (map)->l_info[DT_PLTREL]->d_un.d_val == DT_##RELOC)) \
 --- libc/elf/rtld.c.jj	Wed Sep 12 09:56:44 2001
-+++ libc/elf/rtld.c	Mon Sep 17 00:25:58 2001
++++ libc/elf/rtld.c	Fri Sep 21 23:43:37 2001
 @@ -67,6 +67,8 @@ struct r_search_path *_dl_search_paths;
  const char *_dl_profile;
  const char *_dl_profile_output;
@@ -832,13 +908,15 @@
  int _dl_lazy = 1;
  /* XXX I know about at least one case where we depend on the old weak
     behavior (it has to do with librt).  Until we get DSO groups implemented
-@@ -145,6 +147,13 @@ RTLD_START
+@@ -145,6 +147,15 @@ RTLD_START
  # error "sysdeps/MACHINE/dl-machine.h fails to define RTLD_START"
  #endif
  
 +#ifndef VALIDX
 +# define VALIDX(tag) (DT_NUM + DT_THISPROCNUM + DT_VERSIONTAGNUM \
 +		      + DT_EXTRANUM + DT_VALTAGIDX (tag))
++#endif
++#ifndef ADDRIDX
 +# define ADDRIDX(tag) (DT_NUM + DT_THISPROCNUM + DT_VERSIONTAGNUM \
 +		       + DT_EXTRANUM + DT_VALNUM + DT_ADDRTAGIDX (tag))
 +#endif
@@ -846,7 +924,7 @@
  static ElfW(Addr)
  _dl_start (void *arg)
  {
-@@ -183,10 +192,14 @@ _dl_start (void *arg)
+@@ -183,10 +194,14 @@ _dl_start (void *arg)
    ELF_MACHINE_BEFORE_RTLD_RELOC (bootstrap_map.l_info);
  #endif
  
@@ -864,7 +942,28 @@
    /* Please note that we don't allow profiling of this object and
       therefore need not test whether we have to allocate the array
       for the relocation results (as done in dl-reloc.c).  */
-@@ -383,6 +396,7 @@ dl_main (const ElfW(Phdr) *phdr,
+@@ -218,6 +233,7 @@ _dl_start_final (void *arg, struct link_
+      way to do this so we use this trick.  gcc never inlines functions
+      which use `alloca'.  */
+   ElfW(Addr) *start_addr = alloca (sizeof (ElfW(Addr)));
++  extern char _begin[], _end[];
+ 
+   if (HP_TIMING_AVAIL)
+     {
+@@ -237,10 +253,8 @@ _dl_start_final (void *arg, struct link_
+ 	  sizeof _dl_rtld_map.l_info);
+   _dl_setup_hash (&_dl_rtld_map);
+   _dl_rtld_map.l_mach = bootstrap_map_p->l_mach;
+-
+-/* Don't bother trying to work out how ld.so is mapped in memory.  */
+-  _dl_rtld_map.l_map_start = ~0;
+-  _dl_rtld_map.l_map_end = ~0;
++  _dl_rtld_map.l_map_start = (ElfW(Addr)) _begin;
++  _dl_rtld_map.l_map_end = (ElfW(Addr)) _end;
+ 
+   /* Call the OS-dependent function to set up life so we can do things like
+      file access.  It will call `dl_main' (below) to do all the real work
+@@ -383,6 +397,7 @@ dl_main (const ElfW(Phdr) *phdr,
    char *file;
    int has_interp = 0;
    unsigned int i;
@@ -872,26 +971,9 @@
    int rtld_is_main = 0;
  #ifndef HP_TIMING_NONAVAIL
    hp_timing_t start;
-@@ -884,14 +898,81 @@ of this helper program; chances are you 
-       else
+@@ -885,13 +900,42 @@ of this helper program; chances are you 
  	{
  	  struct link_map *l;
-+	  ElfW(Addr) l_addr;
-+
-+	  /* Try to figure dynamic linker's real map start (which may be
-+	     different than _dl_rtld_map.l_addr).
-+	     Assuming no target has page size less than 1024 bytes
-+	     and .hash being the first real section.  */
-+	  if (_dl_rtld_map.l_info[DT_HASH]
-+	      && (l_addr = _dl_rtld_map.l_addr
-+			   + (_dl_rtld_map.l_info[DT_HASH]->d_un.d_ptr
-+			      & ~(ElfW(Addr))1023)),
-+		 memcmp ((char *) l_addr, ELFMAG, SELFMAG) == 0)
-+	    {
-+	      ElfW(Ehdr) *ehdr = (ElfW(Ehdr) *) l_addr;
-+	      ElfW(Phdr) *ph, *phdr =
-+		(ElfW(Phdr) *)(l_addr + ehdr->e_phoff);
-+	      ElfW(Half) phnum = ehdr->e_phnum;
  
 -	  for (l = _dl_loaded->l_next; l; l = l->l_next)
 -	    if (l->l_faked)
@@ -900,28 +982,6 @@
 -	    else
 -	      _dl_printf ("\t%s => %s (0x%0*Zx)\n", l->l_libname->name,
 -			  l->l_name, (int) sizeof l->l_addr * 2, l->l_addr);
-+	      if (((ElfW(Addr)) &phdr[phnum]) - l_addr
-+		  <= (_dl_rtld_map.l_info[DT_HASH]->d_un.d_ptr & 1023))
-+		{
-+		  _dl_rtld_map.l_map_end = 0;
-+		  for (ph = phdr; ph < &phdr[phnum]; ++ph)
-+		    if (ph->p_type == PT_LOAD)
-+		      {
-+			ElfW(Addr) mapstart, allocend;
-+			mapstart = _dl_rtld_map.l_addr
-+				   + (ph->p_vaddr & ~(ph->p_align - 1));
-+			allocend = _dl_rtld_map.l_addr
-+				   + ph->p_vaddr + ph->p_memsz;
-+			if (_dl_rtld_map.l_map_start > mapstart)
-+			  _dl_rtld_map.l_map_start = mapstart;
-+			if (_dl_rtld_map.l_map_end < allocend)
-+			  _dl_rtld_map.l_map_end = allocend;
-+		      }
-+		  if (_dl_rtld_map.l_map_end == 0)
-+		    _dl_rtld_map.l_map_end = ~0;
-+		}
-+	    }
-+
 +	  if (_dl_debug_mask & DL_DEBUG_PRELINK)
 +	    {
 +	      struct r_scope_elem *scope = &_dl_loaded->l_searchlist;
@@ -961,7 +1021,7 @@
  	}
  
        if (__builtin_expect (mode, trace) != trace)
-@@ -936,6 +1017,10 @@ of this helper program; chances are you 
+@@ -936,6 +980,10 @@ of this helper program; chances are you 
  		    }
  		  l = l->l_prev;
  		} while (l);
@@ -972,7 +1032,7 @@
  	    }
  
  #define VERNEEDTAG (DT_NUM + DT_THISPROCNUM + DT_VERSIONTAGIDX (DT_VERNEED))
-@@ -1014,6 +1099,84 @@ of this helper program; chances are you 
+@@ -1014,6 +1062,84 @@ of this helper program; chances are you 
        _exit (0);
      }
  
@@ -1057,7 +1117,7 @@
    {
      /* Now we have all the objects loaded.  Relocate them all except for
         the dynamic linker itself.  We do this in reverse order so that copy
-@@ -1094,7 +1257,7 @@ of this helper program; chances are you 
+@@ -1094,7 +1220,7 @@ of this helper program; chances are you 
    _dl_main_searchlist = &_dl_loaded->l_searchlist;
    _dl_global_scope[0] = &_dl_loaded->l_searchlist;
  
@@ -1066,7 +1126,7 @@
       we need it in the memory handling later.  */
    _dl_initial_searchlist = *_dl_main_searchlist;
  
-@@ -1410,6 +1573,17 @@ process_envvars (enum mode *modep)
+@@ -1410,6 +1536,17 @@ process_envvars (enum mode *modep)
  	    }
  	  break;
  
@@ -1124,6 +1184,92 @@
      const ElfW(Phdr) *l_phdr;	/* Pointer to program header table in core.  */
      ElfW(Addr) l_entry;		/* Entry point location.  */
      ElfW(Half) l_phnum;		/* Number of program header entries.  */
+--- libc/sysdeps/alpha/dl-machine.h.jj	Sat Sep  1 10:41:52 2001
++++ libc/sysdeps/alpha/dl-machine.h	Fri Sep 21 02:02:18 2001
+@@ -70,16 +70,20 @@ elf_machine_load_address (void)
+   Elf64_Addr dot;
+   long int zero_disp;
+ 
+-  asm("br %0, 1f\n\t"
+-      ".weak __load_address_undefined\n\t"
+-      "br $0, __load_address_undefined\n"
+-      "1:"
++  asm("br %0, 1f\n"
++      "0:\n\t"
++      "br $0, 2f\n"
++      "1:\n\t"
++      ".data\n"
++      "2:\n\t"
++      ".quad 0b\n\t"
++      ".previous"
+       : "=r"(dot));
+ 
+   zero_disp = *(int *)dot;
+   zero_disp = (zero_disp << 43) >> 41;
+ 
+-  return dot + 4 + zero_disp;
++  return dot - *(Elf64_Addr *)(dot + 4 + zero_disp);
+ }
+ 
+ /* Set up the loaded object described by L so its unrelocated PLT
+@@ -118,8 +122,30 @@ elf_machine_runtime_setup (struct link_m
+       *(Elf64_Addr *)(plt + 24) = (Elf64_Addr) l;
+ 
+       /* If the first instruction of the plt entry is not
+-	 "br $28, plt0", we cannot do lazy relocation.  */
+-      lazy = (*(unsigned int *)(plt + 32) == 0xc39ffff7);
++	 "br $28, plt0", we have to reinitialize .plt for lazy relocation.  */
++      if (*(unsigned int *)(plt + 32) != 0xc39ffff7)
++	{
++	  unsigned int val = 0xc39ffff7;
++	  unsigned int *slot, *end;
++	  const Elf64_Rela *rela = D_PTR (l, l_info[DT_JMPREL]);
++	  Elf64_Addr l_addr = l->l_addr;
++
++	  /* br t12,.+4; ldq t12,12(t12); nop; jmp t12,(t12),.+4 */
++	  *(unsigned long *)plt = 0xa77b000cc3600000;
++	  *(unsigned long *)(plt + 8) = 0x6b7b000047ff041f;
++	  slot = (unsigned int *)(plt + 32);
++	  end = (unsigned int *)(plt + 32
++				 + l->l_info[DT_PLTRELSZ]->d_un.d_val / 2);
++	  while (slot < end)
++	    {
++	      /* br at,.plt+0 */
++	      *slot = val;
++	      *(Elf64_Addr *) rela->r_offset = (Elf64_Addr) slot - l_addr;
++	      val -= 3;
++	      slot += 3;
++	      ++rela;
++	    }
++	}
+     }
+ 
+   return lazy;
+@@ -516,8 +542,23 @@ elf_machine_rela (struct link_map *map,
+ 
+       if (r_type == R_ALPHA_GLOB_DAT)
+ 	*reloc_addr = sym_value;
+-      else if (r_type  == R_ALPHA_JMP_SLOT)
++#ifdef RESOLVE_CONFLICT_FIND_MAP
++      /* In .gnu.conflict section, R_ALPHA_JMP_SLOT relocations have
++	 R_ALPHA_JMP_SLOT in lower 8 bits and the remaining 24 bits
++	 are .rela.plt index.  */
++      else if ((r_type & 0xff) == R_ALPHA_JMP_SLOT)
++	{
++	  /* elf_machine_fixup_plt needs the map reloc_addr points into,
++	     while in _dl_resolve_conflicts map is _dl_loaded.  */
++	  RESOLVE_CONFLICT_FIND_MAP (map, reloc_addr);
++	  reloc = ((const Elf64_Rela *) D_PTR (map, l_info[DT_JMPREL]))
++		  + (r_type >> 8);
++	  elf_machine_fixup_plt (map, 0, reloc, reloc_addr, sym_value);
++	}
++#else
++      else if (r_type == R_ALPHA_JMP_SLOT)
+ 	elf_machine_fixup_plt (map, 0, reloc, reloc_addr, sym_value);
++#endif
+ #ifndef RTLD_BOOTSTRAP
+       else if (r_type == R_ALPHA_REFQUAD)
+ 	{
 --- libc/sysdeps/generic/ldsodefs.h.jj	Wed Sep 12 09:56:56 2001
 +++ libc/sysdeps/generic/ldsodefs.h	Mon Sep 17 00:25:58 2001
 @@ -193,6 +193,8 @@ extern const char *_dl_profile;
@@ -1291,3 +1437,102 @@
 +#endif
 +
  #endif /* RESOLVE */
+--- libc/sysdeps/sparc/sparc32/dl-machine.h.jj	Wed Sep 12 09:57:12 2001
++++ libc/sysdeps/sparc/sparc32/dl-machine.h	Sat Sep 22 00:58:26 2001
+@@ -23,6 +23,10 @@
+ #include <sys/param.h>
+ #include <ldsodefs.h>
+ 
++#ifndef VALIDX
++# define VALIDX(tag) (DT_NUM + DT_THISPROCNUM + DT_VERSIONTAGNUM \
++		      + DT_EXTRANUM + DT_VALTAGIDX (tag))
++#endif
+ 
+ /* Some SPARC opcodes we need to use for self-modifying code.  */
+ #define OPCODE_NOP	0x01000000 /* nop */
+@@ -30,6 +34,7 @@
+ #define OPCODE_SETHI_G1	0x03000000 /* sethi ?, %g1; add value>>10 */
+ #define OPCODE_JMP_G1	0x81c06000 /* jmp %g1+?; add lo 10 bits of value */
+ #define OPCODE_SAVE_SP	0x9de3bfa8 /* save %sp, -(16+6)*4, %sp */
++#define OPCODE_BA	0x30800000 /* b,a ?; add PC-rel word address */
+ 
+ /* Protect some broken versions of gcc from misinterpreting weak addresses.  */
+ #define WEAKADDR(x)	({ __typeof(x) *_px = &x;			\
+@@ -139,6 +144,37 @@ elf_machine_runtime_setup (struct link_m
+       plt[1] = OPCODE_CALL | ((rfunc - (Elf32_Addr) &plt[1]) >> 2);
+       plt[2] = OPCODE_NOP;	/* Fill call delay slot.  */
+       plt[3] = (Elf32_Addr) l;
++      if (__builtin_expect (l->l_info[VALIDX(DT_GNU_PRELINKED)], 0)
++	  || __builtin_expect (l->l_info [VALIDX (DT_GNU_LIBLISTSZ)], 0))
++	{
++	  /* Need to reinitialize .plt to undo prelinking.  */
++	  unsigned long *hwcap;
++	  int do_flush;
++	  Elf32_Rela *rela = (Elf32_Rela *) D_PTR (l, l_info[DT_JMPREL]);
++	  Elf32_Rela *relaend
++	    = (Elf32_Rela *) ((char *) rela
++			      + l->l_info[DT_PLTRELSZ]->d_un.d_val);
++	  weak_extern (_dl_hwcap);
++	  hwcap = WEAKADDR(_dl_hwcap);
++	  do_flush = (!hwcap || (*hwcap & HWCAP_SPARC_FLUSH));
++
++	  /* prelink must ensure there are no R_SPARC_NONE relocs left
++	     in .rela.plt.  */
++	  while (rela < relaend)
++	    {
++	      *(unsigned int *) rela->r_offset
++		= OPCODE_SETHI_G1 | (rela->r_offset - (Elf32_Addr) plt);
++	      *(unsigned int *) (rela->r_offset + 4)
++		= OPCODE_BA | ((((Elf32_Addr) plt
++				 - rela->r_offset - 4) >> 2) & 0x3fffff);
++	      if (do_flush)
++		{
++		  __asm __volatile ("flush %0" : : "r"(rela->r_offset));
++		  __asm __volatile ("flush %0+4" : : "r"(rela->r_offset));
++		}
++	      ++rela;
++	    }
++	}
+     }
+ 
+   return lazy;
+@@ -366,10 +402,11 @@ elf_machine_rela (struct link_map *map, 
+   else
+ #endif
+     {
+-#ifndef RTLD_BOOTSTRAP
++#if !defined RTLD_BOOTSTRAP && !defined RESOLVE_CONFLICT_FIND_MAP
+       const Elf32_Sym *const refsym = sym;
+ #endif
+       Elf32_Addr value;
++#ifndef RESOLVE_CONFLICT_FIND_MAP
+       if (sym->st_shndx != SHN_UNDEF &&
+ 	  ELF32_ST_BIND (sym->st_info) == STB_LOCAL)
+ 	value = map->l_addr;
+@@ -379,11 +416,14 @@ elf_machine_rela (struct link_map *map, 
+ 	  if (sym)
+ 	    value += sym->st_value;
+ 	}
++#else
++      value = 0;
++#endif
+       value += reloc->r_addend;	/* Assume copy relocs have zero addend.  */
+ 
+       switch (r_type)
+ 	{
+-#ifndef RTLD_BOOTSTRAP
++#if !defined RTLD_BOOTSTRAP && !defined RESOLVE_CONFLICT_FIND_MAP
+ 	case R_SPARC_COPY:
+ 	  if (sym == NULL)
+ 	    /* This can happen in trace mode if an object could not be
+@@ -410,7 +450,9 @@ elf_machine_rela (struct link_map *map, 
+ 	  *reloc_addr = value;
+ 	  break;
+ 	case R_SPARC_JMP_SLOT:
+-	  elf_machine_fixup_plt(map, 0, reloc, reloc_addr, value);
++	  /* At this point we don't need to bother with thread safety,
++	     so we can optimize the first instruction of .plt out.  */
++	  elf_machine_fixup_plt(map, 0, reloc, reloc_addr - 1, value);
+ 	  break;
+ #ifndef RTLD_BOOTSTRAP
+ 	case R_SPARC_8:

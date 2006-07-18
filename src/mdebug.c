@@ -474,6 +474,8 @@ start_mdebug (DSO *dso, int n, struct mdebug *mdebug)
   assert (data != NULL && data->d_buf != NULL);
   assert (elf_getdata (scn, data) == NULL);
   assert (data->d_off == 0 && data->d_size == dso->shdr[n].sh_size);
+  if (dso->mdebug_orig_offset == 0)
+    dso->mdebug_orig_offset = dso->shdr[n].sh_offset;
 #if __BYTE_ORDER == __BIG_ENDIAN
   if (dso->ehdr.e_ident[EI_DATA] == ELFDATA2MSB)
 #elif __BYTE_ORDER == __LITTLE_ENDIAN
@@ -585,7 +587,7 @@ do {									\
 	regions[i].offset -= dso->mdebug_orig_offset;
       regions[i].size *= regions[i].entsize;
       if (regions[i].offset >= dso->shdr[n].sh_size
-	  || regions[i].offset + regions[i].size >= dso->shdr[n].sh_size)
+	  || regions[i].offset + regions[i].size > dso->shdr[n].sh_size)
 	{
 	  error (0, 0, "%s: File offsets in .mdebug header point outside of .mdebug section",
 		 dso->filename);
@@ -602,11 +604,11 @@ do {									\
       mdebug.adjust_sym (&mdebug, symptr, start, adjust);
 
   /* Adjust file descriptor's addresses.  */
-  if (regions[9].offset)
-    for (symptr = mdebug.buf + regions[9].offset,
-	 endptr = symptr + regions[9].size;
+  if (regions[8].offset)
+    for (symptr = mdebug.buf + regions[8].offset,
+	 endptr = symptr + regions[8].size;
 	 symptr < endptr;
-	 symptr += regions[9].entsize)
+	 symptr += regions[8].entsize)
       {
 	GElf_Addr addr;
 
@@ -618,12 +620,12 @@ do {									\
       }
 
   /* Adjust extended symbols.  */
-  if (regions[11].offset)
-    for (symptr = mdebug.buf + regions[11].offset
+  if (regions[10].offset)
+    for (symptr = mdebug.buf + regions[10].offset
 		  + OFFSETOF (mdebug_ext, asym),
-	 endptr = symptr + regions[11].size;
+	 endptr = symptr + regions[10].size;
 	 symptr < endptr;
-	 symptr += regions[11].entsize)
+	 symptr += regions[10].entsize)
       mdebug.adjust_sym (&mdebug, symptr, start, adjust);
 
   return 0;
