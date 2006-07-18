@@ -651,62 +651,95 @@ ppc64_need_rel_to_rela (DSO *dso, int first, int last)
 static int
 ppc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 {
+  Elf64_Addr value = rela->r_addend;
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_PPC64_NONE:
+      return 0;
+    case R_PPC64_JMP_SLOT:
+      /* .plt section will become SHT_NOBITS.  */
       return 0;
     case R_PPC64_RELATIVE:
     case R_PPC64_GLOB_DAT:
     case R_PPC64_ADDR64:
     case R_PPC64_UADDR64:
-    case R_PPC64_REL64:
-    case R_PPC64_DTPMOD64:
     case R_PPC64_DTPREL64:
     case R_PPC64_TPREL64:
+      write_be64 (dso, rela->r_offset, value);
+      break;
+    case R_PPC64_DTPMOD64:
       write_be64 (dso, rela->r_offset, 0);
       break;
     case R_PPC64_ADDR32:
     case R_PPC64_UADDR32:
-    case R_PPC64_REL32:
-      write_be32 (dso, rela->r_offset, 0);
+      write_be32 (dso, rela->r_offset, value);
       break;
-    case R_PPC64_JMP_SLOT:
-      /* .plt section will become SHT_NOBITS.  */
-      return 0;
+      /* FALLTHROUGH  */
+    case R_PPC64_ADDR16_HA:
+    case R_PPC64_DTPREL16_HA:
+    case R_PPC64_TPREL16_HA:
+      value += 0x8000;
+      /* FALLTHROUGH  */
+    case R_PPC64_ADDR16_HI:
+    case R_PPC64_DTPREL16_HI:
+    case R_PPC64_TPREL16_HI:
+      value = value >> 16;
+      /* FALLTHROUGH  */
     case R_PPC64_ADDR16:
     case R_PPC64_UADDR16:
     case R_PPC64_ADDR16_LO:
-    case R_PPC64_ADDR16_HI:
-    case R_PPC64_ADDR16_HA:
-    case R_PPC64_ADDR16_HIGHER:
-    case R_PPC64_ADDR16_HIGHERA:
-    case R_PPC64_ADDR16_HIGHEST:
-    case R_PPC64_ADDR16_HIGHESTA:
-    case R_PPC64_ADDR16_LO_DS:
-    case R_PPC64_ADDR16_DS:
     case R_PPC64_DTPREL16:
     case R_PPC64_TPREL16:
     case R_PPC64_DTPREL16_LO:
     case R_PPC64_TPREL16_LO:
-    case R_PPC64_DTPREL16_HI:
-    case R_PPC64_TPREL16_HI:
-    case R_PPC64_DTPREL16_HA:
-    case R_PPC64_TPREL16_HA:
-      write_be16 (dso, rela->r_offset, 0);
+      write_be16 (dso, rela->r_offset, value);
+      break;
+    case R_PPC64_ADDR16_HIGHERA:
+      value += 0x8000;
+      /* FALLTHROUGH  */
+    case R_PPC64_ADDR16_HIGHER:
+      write_be16 (dso, rela->r_offset, value >> 32);
+      break;
+    case R_PPC64_ADDR16_HIGHESTA:
+      value += 0x8000;
+      /* FALLTHROUGH  */
+    case R_PPC64_ADDR16_HIGHEST:
+      write_be16 (dso, rela->r_offset, value >> 48);
+      break;
+    case R_PPC64_ADDR16_LO_DS:
+    case R_PPC64_ADDR16_DS:
+      write_be16 (dso, rela->r_offset,
+		  (value & 0xfffc) | (read_ube16 (dso, rela->r_offset) & 3));
       break;
     case R_PPC64_ADDR24:
-    case R_PPC64_REL24:
       write_be32 (dso, rela->r_offset,
-		  read_ube32 (dso, rela->r_offset) & 0xfc000003);
+		  (value & 0x03fffffc)
+		  | (read_ube32 (dso, rela->r_offset) & 0xfc000003));
       break;
     case R_PPC64_ADDR14:
       write_be32 (dso, rela->r_offset,
-		  read_ube32 (dso, rela->r_offset) & 0xffff0003);
+		  (value & 0xfffc)
+		  | (read_ube32 (dso, rela->r_offset) & 0xffff0003));
       break;
     case R_PPC64_ADDR14_BRTAKEN:
     case R_PPC64_ADDR14_BRNTAKEN:
       write_be32 (dso, rela->r_offset,
-		  read_ube32 (dso, rela->r_offset) & 0xffdf0003);
+		  (value & 0xfffc)
+		  | (read_ube32 (dso, rela->r_offset) & 0xffdf0003)
+		     | (((GELF_R_TYPE (rela->r_info)
+			  == R_PPC64_ADDR14_BRTAKEN)
+			 ^ (value >> 10)) & 0x00200000));
+      break;
+    case R_PPC64_REL24:
+      write_be32 (dso, rela->r_offset,
+		  ((value - rela->r_offset) & 0x03fffffc)
+		  | (read_ube32 (dso, rela->r_offset) & 0xfc000003));
+      break;
+    case R_PPC64_REL32:
+      write_be32 (dso, rela->r_offset, value - rela->r_offset);
+      break;
+    case R_PPC64_REL64:
+      write_be64 (dso, rela->r_offset, value - rela->r_offset);
       break;
     case R_PPC64_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -721,6 +754,7 @@ ppc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     }
   return 0;
 }
+
 static int
 ppc64_reloc_size (int reloc_type)
 {
