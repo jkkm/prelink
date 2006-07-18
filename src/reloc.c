@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -34,14 +34,15 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
 
   memset (rinfo, 0, sizeof (*rinfo));
 
-  if (dso->info[DT_REL] && dso->info[DT_RELA])
+  if (dynamic_info_is_set (dso, DT_REL)
+      && dynamic_info_is_set (dso, DT_RELA))
     {
       error (0, 0, "%s: Cannot prelink object with both DT_REL and DT_RELA tags",
 	     dso->filename);
       return 1;
     }
 
-  rela = dso->info[DT_RELA] != 0;
+  rela = dynamic_info_is_set (dso, DT_RELA);
 
   if (rela)
     {
@@ -92,32 +93,40 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
       pltend = end;
     }
 
-  if (! rela && dso->info[DT_REL] == 0)
+  if (start == 0 && end == 0)
     {
       /* No non-PLT relocations.  */
       return 0;
     }
 
-  first = addr_to_sec (dso, start);
-  last = addr_to_sec (dso, end - 1);
-
-  if (first == -1
-      || last == -1
-      || dso->shdr[first].sh_addr != start
-      || dso->shdr[last].sh_addr + dso->shdr[last].sh_size != end)
+  if (start == end)
     {
-      error (0, 0, "%s: DT_REL%s tags don't surround whole relocation sections",
-	     dso->filename, rela ? "A" : "");
-      return 1;
+      first = 0;
+      last = 0;
     }
+  else
+    {
+      first = addr_to_sec (dso, start);
+      last = addr_to_sec (dso, end - 1);
 
-  for (i = first; i <= last; i++)
-    if (dso->shdr[i].sh_type != (rela ? SHT_RELA : SHT_REL))
-      {
-	error (0, 0, "%s: DT_REL%s tags don't surround relocation sections of expected type",
-	       dso->filename, rela ? "A" : "");
-	return 1;
-      }
+      if (first == -1
+	  || last == -1
+	  || dso->shdr[first].sh_addr != start
+	  || dso->shdr[last].sh_addr + dso->shdr[last].sh_size != end)
+	{
+	  error (0, 0, "%s: DT_REL%s tags don't surround whole relocation sections",
+		 dso->filename, rela ? "A" : "");
+	  return 1;
+	}
+
+      for (i = first; i <= last; i++)
+	if (dso->shdr[i].sh_type != (rela ? SHT_RELA : SHT_REL))
+	  {
+	    error (0, 0, "%s: DT_REL%s tags don't surround relocation sections of expected type",
+		   dso->filename, rela ? "A" : "");
+	    return 1;
+	  }
+    }
 
   if (pltstart != end && pltend != end)
     {
@@ -142,6 +151,7 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
   rinfo->first = first;
   rinfo->last = last;
   if (! rela
+      && first
       && dso->arch->need_rel_to_rela != NULL
       && dso->arch->need_rel_to_rela (dso, first, last))
     rinfo->rel_to_rela = 1;
@@ -380,6 +390,14 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 	{
 	  info[DT_PLTREL]->d_un.d_val = DT_REL;
 	  info[DT_PLTRELSZ]->d_un.d_val = dso->shdr[plt].sh_size;
+	}
+
+      if (!rel && !overlap)
+	{
+	  int dt_REL = rinfo->reldyn_rela ? DT_RELA : DT_REL;
+
+	  if (info[dt_REL] && info[dt_REL]->d_un.d_ptr)
+	    info[dt_REL]->d_un.d_ptr = info[DT_JMPREL]->d_un.d_ptr;
 	}
     }
 

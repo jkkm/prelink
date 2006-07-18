@@ -982,6 +982,16 @@ adjust_dynamic (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 	  if (dso->arch->adjust_dyn (dso, n, &dyn, start, adjust) == 0)
 	    switch (dyn.d_tag)
 	      {
+	      case DT_REL:
+	      case DT_RELA:
+		/* On some arches DT_REL* may be 0 indicating no relocations
+		   (if DT_REL*SZ is also 0).  Don't adjust it in that case.  */
+		if (dyn.d_un.d_ptr && dyn.d_un.d_ptr >= start)
+		  {
+		    dyn.d_un.d_ptr += adjust;
+		    gelfx_update_dyn (dso->elf, data, ndx, &dyn);
+		  }
+		break;
 	      default:
 		if (dyn.d_tag < DT_VALRNGLO || dyn.d_tag > DT_VALRNGHI)
 		  break;
@@ -992,8 +1002,6 @@ adjust_dynamic (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 	      case DT_STRTAB:
 	      case DT_SYMTAB:
 	      case DT_JMPREL:
-	      case DT_REL:
-	      case DT_RELA:
 	      case DT_INIT_ARRAY:
 	      case DT_FINI_ARRAY:
 	      case DT_PREINIT_ARRAY:

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -355,7 +355,7 @@ sh_arch_undo_prelink (DSO *dso)
 	return 0;
       data = read_une32 (dso, dso->info[DT_PLTGOT] + 4);
       if (data == dso->shdr[i].sh_addr + 36)
-	write_le32 (dso, dso->info[DT_PLTGOT] + 4, 0);
+	write_ne32 (dso, dso->info[DT_PLTGOT] + 4, 0);
     }
 
   return 0;
@@ -374,7 +374,7 @@ sh_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
       if (rela->r_addend)
 	write_le32 (dso, rela->r_offset, 0);
       break;
-    case R_390_JMP_SLOT:
+    case R_SH_JMP_SLOT:
       sec = addr_to_sec (dso, rela->r_offset);
       if (sec == -1
 	  || strcmp (strptr (dso, dso->ehdr.e_shstrndx,
@@ -398,7 +398,7 @@ sh_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_SH_GLOB_DAT:
     case R_SH_DIR32:
     case R_SH_REL32:
-      write_le32 (dso, rela->r_offset, 0);
+      write_ne32 (dso, rela->r_offset, 0);
       break;
     case R_SH_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
