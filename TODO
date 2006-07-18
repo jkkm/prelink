@@ -1,6 +1,8 @@
-- limit LD_TRACE_PRELINKING to one library/binary only
-- compute and add real DT_CHECKSUM and DT_GNU_TIMESTAMP
-- emit .gnu.liblist into shared libraries as well (but without SHF_ALLOC)
 - undo mode
-- better cache handling
+- make sure there are no memory leaks
+- take a list of library directories from config file, prelink all libs
+  in those directories at once, then all binaries in given paths
+  (keep the prelink one library or one binary mode under some option)
 - more ports
+- more testing
+- cache _dl_lookup_symbol requests now that .gnu.reloc is properly sorted

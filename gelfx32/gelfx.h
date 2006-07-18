@@ -56,7 +56,7 @@ gelf_getclass (Elf *elf)
   return e_ident [EI_CLASS] == ELFCLASS32 ? ELFCLASS32 : ELFCLASSNONE;
 }
 
-#define gelf_fsize(e,t,c,v) elf32_fsize(e,t,c,v)
+#define gelf_fsize(e,t,c,v) elf32_fsize(t,c,v)
 
 extern inline GElf_Ehdr *gelf_getehdr (Elf *elf, GElf_Ehdr *dst)
 {
@@ -215,7 +215,7 @@ gelf_update_rela (Elf_Data *data, int ndx, GElf_Rela *src)
 
 #define gelfx_getshdr(elf,scn,shdr) gelf_getshdr(scn,shdr)
 #define gelfx_update_shdr(elf,scn,shdr) gelf_update_shdr(scn,shdr)
-#define gelfx_getsym(elf,data,x) gelf_getsym(data,x)
+#define gelfx_getsym(elf,data,ndx,x) gelf_getsym(data,ndx,x)
 #define gelfx_update_sym(elf,data,ndx,x) gelf_update_sym(data,ndx,x)
 #define gelfx_getdyn(elf,data,ndx,x) gelf_getdyn(data,ndx,x)
 #define gelfx_update_dyn(elf,data,ndx,x) gelf_update_dyn(data,ndx,x)

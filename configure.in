@@ -1,0 +1,56 @@
+dnl Process this file with autoconf to produce a configure script. -*-m4-*-
+AC_INIT(src/prelink.c)
+AM_CONFIG_HEADER(config.h)
+AC_PREREQ(2.13)			dnl Minimum Autoconf version required.
+AC_CANONICAL_HOST
+
+AM_INIT_AUTOMAKE([prelink], [0.0])
+
+ALL_LINGUAS=
+
+AC_PROG_CC
+AC_PROG_CPP
+AC_PROG_GCC_TRADITIONAL
+AM_PROG_LIBTOOL
+
+AC_ARG_ENABLE(64-bit,
+[  --disable-64-bit        only support 32-bit ELF],
+[case "${enableval}" in
+  yes)  want64=true  ;;
+  no)   want64=false ;;
+  *)    AC_MSG_ERROR(bad value ${enableval} for 64-bit option) ;;
+esac],[want64=true])dnl
+
+AC_CHECK_HEADER(libelf.h,,[AC_MSG_ERROR(libelf.h not found)])
+LIBGELF=""
+if test "$want64"x = falsex; then
+  GELFINCLUDE='-I$(top_srcdir)/gelfx32'
+else
+  GELFINCLUDE='-I$(top_srcdir)/gelfx'
+  AC_CHECK_HEADER(gelf.h,,[
+    GELFINCLUDE="$GELFINCLUDE "'-I$(top_srcdir)/gelf'
+    LIBGELF='../gelf/libgelf.la'
+  ])
+fi
+AC_CHECK_LIB(elf,elf_begin)
+AC_SUBST(GELFINCLUDE)
+AC_SUBST(LIBGELF)
+
+dnl Now check what kind of libelf we will link against
+AC_CHECK_FUNC(gelf_getvernaux,[newbu=true],[newbu=false])
+
+dnl This test must come as early as possible after the compiler configuration
+dnl tests, because the choice of the file model can (in principle) affect
+dnl whether functions and headers are available, whether they work, etc.
+if test "$newbu" = truex; then
+  # Don't use LFS for libelf-0.x
+  AC_SYS_LARGEFILE
+fi
+
+AC_OUTPUT([Makefile
+	   src/Makefile
+	   gelfx/Makefile
+	   gelfx32/Makefile
+	   gelf/Makefile
+	   m4/Makefile
+	   patches/Makefile])
