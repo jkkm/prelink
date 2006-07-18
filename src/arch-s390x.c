@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -158,6 +158,24 @@ s390x_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_390_8:
       write_8 (dso, rela->r_offset, value);
       break;
+    case R_390_DTPOFF:
+      write_be64 (dso, rela->r_offset, value + rela->r_addend);
+      break;
+    /* DTPMOD and TPOFF is impossible to predict in shared libraries
+       unless prelink sets the rules.  */
+    case R_390_DTPMOD:
+      if (dso->ehdr.e_type == ET_EXEC)
+	{
+	  error (0, 0, "%s: R_390_DTPMOD reloc in executable?",
+		 dso->filename);
+	  return 1;
+	}
+      break;
+    case R_390_TPOFF:
+      if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
+	write_be64 (dso, rela->r_offset,
+		    value + rela->r_addend - info->resolvetls->offset);
+      break;
     case R_390_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
 	/* COPY relocs are handled specially in generic code.  */
@@ -271,6 +289,7 @@ s390x_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 {
   GElf_Addr value;
   struct prelink_conflict *conflict;
+  struct prelink_tls *tls;
   GElf_Rela *ret;
   int r_type;
 
@@ -281,8 +300,31 @@ s390x_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   conflict = prelink_conflict (info, GELF_R_SYM (rela->r_info),
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
-    return 0;
-  value = conflict_lookup_value (conflict);
+    {
+      if (info->curtls == NULL)
+	return 0;
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	/* Even local DTPMOD and TPOFF relocs need conflicts.  */
+	case R_390_DTPMOD:
+	case R_390_TPOFF:
+	  break;
+	default:
+	  return 0;
+	}
+      value = 0;
+    }
+  else
+    {
+      /* DTPOFF wants to see only real conflicts, not lookups
+	 with reloc_class RTYPE_CLASS_TLS.  */
+      if (GELF_R_TYPE (rela->r_info) == R_390_DTPOFF
+	  && conflict->lookup.tls == conflict->conflict.tls
+	  && conflict->lookupval == conflict->conflictval)
+	return 0;
+
+      value = conflict_lookup_value (conflict);
+    }
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -328,6 +370,33 @@ s390x_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_390_COPY:
       error (0, 0, "R_390_COPY should not be present in shared libraries");
       return 1;
+    case R_390_DTPMOD:
+    case R_390_DTPOFF:
+    case R_390_TPOFF:
+      if (conflict != NULL
+	  && (conflict->reloc_class != RTYPE_CLASS_TLS
+	      || conflict->lookup.tls == NULL))
+	{
+	  error (0, 0, "%s: TLS reloc not resolving to STT_TLS symbol",
+		 dso->filename);
+	  return 1;
+	}
+      tls = conflict ? conflict->lookup.tls : info->curtls;
+      ret->r_info = GELF_R_INFO (0, R_390_64);
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	case R_390_DTPMOD:
+	  ret->r_addend = tls->modid;
+	  break;
+	case R_390_DTPOFF:
+	  ret->r_addend += value;
+	  break;
+	case R_390_TPOFF:
+	  ret->r_addend = value + rela->r_addend - tls->offset;
+	  break;
+	}
+      break;
+
     default:
       error (0, 0, "%s: Unknown S390 relocation type %d", dso->filename,
 	     (int) GELF_R_TYPE (rela->r_info));
@@ -446,6 +515,9 @@ s390x_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_390_GLOB_DAT:
     case R_390_64:
     case R_390_PC64:
+    case R_390_DTPMOD:
+    case R_390_DTPOFF:
+    case R_390_TPOFF:
       write_be64 (dso, rela->r_offset, 0);
       break;
     case R_390_32:
@@ -510,6 +582,10 @@ s390x_reloc_class (int reloc_type)
     {
     case R_390_COPY: return RTYPE_CLASS_COPY;
     case R_390_JMP_SLOT: return RTYPE_CLASS_PLT;
+    case R_390_DTPMOD:
+    case R_390_DTPOFF:
+    case R_390_TPOFF:
+      return RTYPE_CLASS_TLS;
     default: return RTYPE_CLASS_VALID;
     }
 }
