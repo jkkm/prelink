@@ -967,9 +967,23 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 
   for (i = 1; i < dso->ehdr.e_shnum; i++)
     {
+      const char *name;
+
       switch (dso->shdr[i].sh_type)
 	{
 	case SHT_PROGBITS:
+	  name = strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[i].sh_name);
+	  if (strcmp (name, ".stab") == 0
+	      && adjust_stabs (dso, i, start, adjust))
+	    return 1;
+	  if (strcmp (name, ".debug_info") == 0)
+	    {
+	      /* FIXME */
+	      error (0, 0, "%s: Relocation of Dwarf and Dwarf-2 not supported yet",
+		     dso->filename);
+	      return 1;
+	    }
+	  break;
 	case SHT_HASH:
 	case SHT_NOBITS:
 	case SHT_STRTAB:

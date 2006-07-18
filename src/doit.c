@@ -20,7 +20,6 @@
 #include <error.h>
 #include <fcntl.h>
 #include <string.h>
-#include <stdlib.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -50,8 +49,10 @@ prelink_ent (struct prelink_entry *ent)
 {
   int i;
   DSO *dso;
-  char *filename;
   struct stat64 st;
+  struct prelink_link *hardlink;
+  char *move = NULL;
+  size_t movelen = 0;
 
   for (i = 0; i < ent->ndepends; ++i)
     if (ent->depends[i]->done == 1 && prelink_ent (ent->depends[i]))
@@ -67,23 +68,15 @@ prelink_ent (struct prelink_entry *ent)
 	return 0;
       }
 
-  filename = canonicalize_file_name (ent->filename);
-  if (filename == NULL)
-    {
-      error (0, errno, "Could not canonicalize filename %s", ent->filename);
-      ent->done = 0;
-      return 0;
-    }
-
   if (verbose)
     {
       if (dry_run)
-        printf ("Would prelink %s\n", filename);
+        printf ("Would prelink %s\n", ent->canon_filename);
       else
-	printf ("Prelinking %s\n", filename);
+	printf ("Prelinking %s\n", ent->canon_filename);
     }
 
-  dso = open_dso (filename);
+  dso = open_dso (ent->canon_filename);
   if (dso == NULL)
     goto error_out;
 
@@ -118,12 +111,79 @@ prelink_ent (struct prelink_entry *ent)
       goto error_out;
     }
   ent->done = 2;
-  free (filename);
+
+  /* Redo hardlinks.  */
+  for (hardlink = ent->hardlink; hardlink; hardlink = hardlink->next)
+    {
+      size_t len;
+
+      if (lstat64 (hardlink->canon_filename, &st) < 0)
+        {
+          error (0, 0, "Could not stat %s (former hardlink to %s)",
+		 hardlink->canon_filename, ent->canon_filename);
+	  continue;
+        }
+
+      if (st.st_dev != ent->dev || st.st_ino != ent->ino)
+        {
+          error (0, 0, "%s is no longer hardlink to %s",
+		 hardlink->canon_filename, ent->canon_filename);
+	  continue;
+        }
+
+      len = strlen (hardlink->canon_filename);
+      if (len + sizeof (".#prelink#") > movelen)
+        {
+	  movelen = len + sizeof (".#prelink#");
+          move = realloc (move, movelen);
+          if (move == NULL)
+            {
+	      error (0, ENOMEM, "Could not hardlink %s to %s",
+		     hardlink->canon_filename, ent->canon_filename);
+	      movelen = 0;
+	      continue;
+            }
+        }
+
+      memcpy (mempcpy (move, hardlink->canon_filename, len), ".#prelink#",
+	      sizeof (".#prelink#"));
+      if (rename (hardlink->canon_filename, move) < 0)
+        {
+          error (0, errno, "Could not hardlink %s to %s",
+		 hardlink->canon_filename, ent->canon_filename);
+	  continue;
+        }
+
+      if (link (ent->canon_filename, hardlink->canon_filename) < 0)
+        {
+          error (0, errno, "Could not hardlink %s to %s",
+		 hardlink->canon_filename, ent->canon_filename);
+
+	  if (rename (move, hardlink->canon_filename) < 0)
+	    {
+	      error (0, errno, "Could not rename %s back to %s",
+		     move, hardlink->canon_filename);
+	    }
+	  continue;
+        }
+
+      if (unlink (move) < 0)
+        {
+          error (0, errno, "Could not unlink %s", move);
+          continue;
+        }
+    }
+  free (move);
+
+  if (stat64 (ent->canon_filename, &st) >= 0)
+    {
+      ent->dev = st.st_dev;
+      ent->ino = st.st_ino;
+    }
   return 0;
 
 error_out:
   ent->done = 0;
-  free (filename);
   if (dso)
     close_dso (dso);
   return 0;

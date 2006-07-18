@@ -377,9 +377,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    }
 	}
       else
-	for (moveend = 1; moveend < ehdr->e_shnum; moveend++)
-	  if (shdr[moveend].sh_addr == adjust->basemove_end)
-	    break;
+        moveend = adjust->moveend;
       if (moveend < ehdr->e_shnum && moveend > 1
 	  && (shdr[moveend].sh_flags & (SHF_ALLOC | SHF_WRITE)))
 	{
@@ -449,7 +447,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    {
 	      if (j == i)
 		continue;
-	      if (phdr[j].p_vaddr < adjust->basemove_end)
+	      if (phdr[j].p_vaddr
+		  < adjust->basemove_end - adjust->basemove_adjust)
 		{
 		  phdr[j].p_vaddr -= addr;
 		  phdr[j].p_paddr -= addr;
@@ -457,6 +456,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	      else
 		phdr[j].p_offset += addr;
 	    }
+	  for (j = k; j < ehdr->e_shnum; ++j)
+	    shdr[j].sh_offset += addr;
 	  adjust->basemove_adjust += addr;
 	  if (k == moveend && adjust->moveend2 >= k)
 	    ++adjust->moveend2;
@@ -721,7 +722,10 @@ prelink_build_conflicts (struct prelink_info *info)
 	}
       /* emacs apparently has .rel.bss relocations against .data section,
 	 crap.  */
-      if (dso->shdr[bss].sh_type != SHT_NOBITS)
+      if (dso->shdr[bss].sh_type != SHT_NOBITS
+	  && strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			     dso->shdr[bss].sh_name),
+		     ".dynbss") != 0)
 	{
 	  error (0, 0, "%s: COPY relocations don't point into .bss section",
 		 dso->filename);
@@ -764,36 +768,53 @@ prelink_build_conflicts (struct prelink_info *info)
 	      goto error_out;
 	    }
 
-	  if (ndso->shdr[sec].sh_type == SHT_NOBITS)
+	  if (ndso->shdr[sec].sh_type != SHT_NOBITS)
 	    {
-	      /* We already initialized .dynbss with zeros.  */
-	      continue;
-	    }
-	  scn = elf_getscn (ndso->elf, sec);
-	  data = NULL;
-	  off = s->ent->base + s->value - ndso->shdr[sec].sh_addr;
-	  while ((data = elf_rawdata (scn, data)) != NULL)
-	    {
-	      if (data->d_off < off + cr.rela[i].r_addend
-		  && data->d_off + data->d_size > off)
+	      scn = elf_getscn (ndso->elf, sec);
+	      data = NULL;
+	      off = s->ent->base + s->value - ndso->shdr[sec].sh_addr;
+	      while ((data = elf_rawdata (scn, data)) != NULL)
 		{
-		  off_t off2 = off - data->d_off;
-		  size_t len = cr.rela[i].r_addend;
-
-		  if (off2 < 0)
+		  if (data->d_off < off + cr.rela[i].r_addend
+		      && data->d_off + data->d_size > off)
 		    {
-		      len += off2;
-		      off2 = 0;
+		      off_t off2 = off - data->d_off;
+		      size_t len = cr.rela[i].r_addend;
+
+		      if (off2 < 0)
+			{
+			  len += off2;
+			  off2 = 0;
+			}
+		      if (off2 + len > data->d_size)
+			len = data->d_size - off2;
+		      assert (off2 + len <= data->d_size);
+		      assert (len <= cr.rela[i].r_addend);
+		      memcpy (info->dynbss + cr.rela[i].r_offset
+			      - info->dynbss_base + off2 - off,
+			      data->d_buf + off2, len);
 		    }
-		  if (off2 + len > data->d_size)
-		    len = data->d_size - off2;
-		  assert (off2 + len <= data->d_size);
-		  assert (len <= cr.rela[i].r_addend);
-		  memcpy (info->dynbss + cr.rela[i].r_offset
-			  - info->dynbss_base + off2 - off,
-			  data->d_buf + off2, len);
-		}
+	        }
 	    }
+
+	  /* This is tricky. We need to apply any conflicts
+	     against memory area which we've copied to the COPY
+	     reloc offset.  */
+	  for (j = 0; j < info->conflict_rela_size; ++j)
+	    if (info->conflict_rela[j].r_offset >= s->ent->base + s->value
+		&& info->conflict_rela[j].r_offset < s->ent->base + s->value
+		   + cr.rela[i].r_addend)
+	      {
+		char *buf = info->dynbss + cr.rela[i].r_offset
+			    - info->dynbss_base;
+		size_t len = cr.rela[i].r_addend;
+		off_t off = info->conflict_rela[j].r_offset
+			    - (s->ent->base + s->value);
+		                       
+		buf += off;
+		len -= off;
+		dso->arch->copy_rela (info, info->conflict_rela + j, buf, len);
+	      }
 	}
     }
 

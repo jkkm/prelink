@@ -1,15 +1,4 @@
 - undo mode
-- handle hardlinks to executables/binaries
-  (currently, if say /usr/bin/gcc and /usr/bin/gcc3 are hardlinked
-   together, prelink will pick up the first one which it will prelink
-   and will leave /usr/bin/gcc3 as different file (and not prelinked).
-   For hardlinks within the same directory I think prelink could just
-   search that directory and link(2) the files afterwards, for hardlinks
-   not within one directory, it would basically need:
-   - canonicalize_file_name early
-   - if already in cache, but with different canonicalized filename,
-     create a special link-me-after entry in cache
-   - process them afterwards)
 - hack up other modes of operation than -a, allow specifying of
   files/binaries on the command line rather than in config file
 - check all libraries brought in because of dependencies, if they would
@@ -18,7 +7,7 @@
 - security audit:
   - should we only limit prelinking in non-world writeable directories
   - or should it use O_EXCL for creation of *.#prelink# files
-- see what needs to be done in relocate_dso about stabs and dwarf2
+- dwarf2 (and perhaps dwarf) support for adjust_dso
 - more ports
 - hack support for multi-ABI arches
 - more testing

@@ -80,6 +80,8 @@ struct PLArch
   int (*prelink_rela) (struct prelink_info *info, GElf_Rela *rela);
   int (*prelink_conflict_rel) (struct prelink_info *info, GElf_Rel *rel);
   int (*prelink_conflict_rela) (struct prelink_info *info, GElf_Rela *rela);
+  int (*copy_rela) (struct prelink_info *info, GElf_Rela *rela, char *buf,
+		    size_t len);
   int (*rel_to_rela) (DSO *dso, GElf_Rel *rel, GElf_Rela *rela);
   int (*need_rel_to_rela) (DSO *dso, int first, int last);
   int (*arch_prelink) (DSO *dso);
@@ -107,6 +109,7 @@ int addr_to_sec (DSO *dso, GElf_Addr addr);
 int adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust);
 int adjust_dso_nonalloc (DSO *dso, int first, GElf_Addr start,
 			 GElf_Addr adjust);
+int adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
 int relocate_dso (DSO *dso, GElf_Addr base);
 int update_dso (DSO *dso);
 int close_dso (DSO *dso);
@@ -167,10 +170,18 @@ struct prelink_cache
   /* const char strings [len_strings]; */
 };
 
+struct prelink_link
+{
+  struct prelink_link *next;
+  const char *canon_filename;
+};
+
 struct prelink_entry
 {
   const char *filename;
+  const char *canon_filename;
   const char *soname;
+  struct prelink_link *hardlink;
   GElf_Word timestamp;
   GElf_Word checksum;
   GElf_Addr base, end;

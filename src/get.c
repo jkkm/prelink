@@ -41,7 +41,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 {
   char buffer[8192];
   DSO *dso = info->dso;
-  struct prelink_entry *ent;
+  struct prelink_entry *ent, *ent2;
   struct deps
     {
       struct prelink_entry *ent;
@@ -96,13 +96,34 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	  goto error_out;
         }
 
-      if ((! ndeps && strcmp (info->ent->filename, filename))
-	  || (ndeps
-	      && strcmp (info->ent->depends [ndeps - 1]->filename, filename)))
+      ent2 = ndeps ? info->ent->depends [ndeps - 1] : info->ent;
+      if (strcmp (ent2->filename, filename) != 0
+	  && strcmp (ent2->canon_filename, filename) != 0)
 	{
-	  error (0, 0, "%s: %s => %s does not match recorded dependency",
-		 info->ent->filename, soname, filename);
-	  goto error_out;
+	  struct prelink_link *hardlink;
+
+	  for (hardlink = ent2->hardlink; hardlink; hardlink = hardlink->next)
+	    if (strcmp (hardlink->canon_filename, filename) == 0)
+	      break;
+
+	  if (hardlink == NULL)
+	    {
+	      struct stat64 st;
+
+	      if (stat64 (filename, &st) < 0)
+		{
+		  error (0, errno, "%s: Could not stat %s",
+			 info->ent->filename, filename);
+		  goto error_out;
+		}
+
+	      if (st.st_dev != info->ent->dev || st.st_ino != info->ent->ino)
+	        {
+		  error (0, 0, "%s: %s => %s does not match recorded dependency",
+			 info->ent->filename, soname, filename);
+		  goto error_out;
+		}
+	    }
 	}
 
       if (! ndeps)
@@ -324,8 +345,9 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 			sizeof ("undefined symbol: ") - 1) == 0 && ! undef)
 	{
 	  undef = 1;
-	  error (0, 0, "Warning: %s has undefined non-weak symbols",
-		 info->ent->filename);
+	  if (verbose)
+	    error (0, 0, "Warning: %s has undefined non-weak symbols",
+		   info->ent->filename);
 	}
     } while (fgets (buffer, 8192, f) != NULL);
 

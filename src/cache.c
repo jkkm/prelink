@@ -20,6 +20,7 @@
 #include <error.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -122,7 +123,39 @@ prelink_find_entry (const char *filename, dev_t dev, ino64_t ino, int insert)
     goto error_out;
 
   if (*devino_slot != NULL)
-    return (struct prelink_entry *) *devino_slot;
+    {
+      char *canon_filename;
+
+      ent = (struct prelink_entry *) *devino_slot;
+      canon_filename = canonicalize_file_name (filename);
+      if (canon_filename == NULL)
+	{
+	  error (0, 0, "Could not canonicalize filename %s", filename);
+	  return NULL;
+	}
+
+      if (strcmp (canon_filename, ent->canon_filename) != 0)
+        {
+	  struct prelink_link *hardlink;
+
+	  hardlink = (struct prelink_link *)
+		     malloc (sizeof (struct prelink_link));
+	  if (hardlink == NULL)
+	    {
+	      error (0, ENOMEM, "Could not record hardlink %s to %s",
+		     canon_filename, ent->canon_filename);
+	      free (canon_filename);
+	      return NULL;
+	    }
+
+	  hardlink->canon_filename = canon_filename;
+	  hardlink->next = ent->hardlink;
+	  ent->hardlink = hardlink;
+        }
+      else
+        free (canon_filename);
+      return ent;
+    }
 
   if (! insert)
     return NULL;
@@ -134,6 +167,14 @@ prelink_find_entry (const char *filename, dev_t dev, ino64_t ino, int insert)
   ent->filename = strdup (filename);
   if (ent->filename == NULL)
     goto error_out;
+
+  ent->canon_filename = canonicalize_file_name (filename);
+  if (ent->canon_filename == NULL)
+    {
+      error (0, 0, "Could not canonicalize filename %s", filename);
+      return NULL;
+    }
+
   ent->dev = dev;
   ent->ino = ino;
   *filename_slot = ent;

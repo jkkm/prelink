@@ -25,8 +25,6 @@
 #include <argp.h>
 #include <stdlib.h>
 
-#undef DEBUG
-
 #include "prelink.h"
 
 static int
@@ -52,10 +50,11 @@ i386_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 	{
 	  int i;
 
-	  /* FIXME: Check if section name is .plt instead.  */
 	  for (i = 1; i < dso->ehdr.e_shnum; i++)
 	    if (data == dso->shdr[i].sh_addr + 0x16
-		&& dso->shdr[i].sh_type == SHT_PROGBITS)
+		&& dso->shdr[i].sh_type == SHT_PROGBITS
+		&& strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+					dso->shdr[i].sh_name), ".plt") == 0)
 	      {
 		write_le32 (dso, dyn->d_un.d_ptr + 4, data + adjust);
 		break;
@@ -118,26 +117,13 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel)
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
-#ifdef DEBUG
-      if (GELF_R_TYPE (rel->r_info) == R_386_GLOB_DAT)
-	printf ("R_386_GLOB_DAT");
-      else
-	printf ("R_386_JMP_SLOT");
-      printf (" %08x [%08x] -> [%08x]\n", rel->r_offset, read_ule32(dso, rel->r_offset), value);
-#endif
       write_le32 (dso, rel->r_offset, value);
       break;
     case R_386_32:
-#ifdef DEBUG
-      printf ("R_386_32 %08x [%08x] -> [%08x]\n", rel->r_offset, read_ule32(dso, rel->r_offset), read_ule32 (dso, rel->r_offset) + value);
-#endif
       write_le32 (dso, rel->r_offset,
 		  read_ule32 (dso, rel->r_offset) + value);
       break;
     case R_386_PC32:
-#ifdef DEBUG
-      printf ("R_386_PC32 %08x [%08x] -> [%08x]\n", rel->r_offset, read_ule32(dso, rel->r_offset), read_ule32 (dso, rel->r_offset) + value - rel->r_offset);
-#endif
       write_le32 (dso, rel->r_offset,
 		  read_ule32 (dso, rel->r_offset)
 		  + value - rel->r_offset);
@@ -172,25 +158,12 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela)
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
-#ifdef DEBUG
-      if (GELF_R_TYPE (rela->r_info) == R_386_GLOB_DAT)
-	printf ("R_386_GLOB_DAT");
-      else
-	printf ("R_386_JMP_SLOT");
-      printf (" %08x [%08x] -> [%08x]\n", rela->r_offset, read_ule32(dso, rela->r_offset), value + rela->r_addend);
-#endif
       write_le32 (dso, rela->r_offset, value + rela->r_addend);
       break;
     case R_386_32:
-#ifdef DEBUG
-      printf ("R_386_32 %08x [%08x] -> [%08x]\n", rela->r_offset, read_ule32(dso, rela->r_offset), value + rela->r_addend);
-#endif
       write_le32 (dso, rela->r_offset, value + rela->r_addend);
       break;
     case R_386_PC32:
-#ifdef DEBUG
-      printf ("R_386_PC32 %08x [%08x] -> [%08x]\n", rela->r_offset, read_ule32(dso, rela->r_offset), value + rela->r_addend - rela->r_offset);
-#endif
       write_le32 (dso, rela->r_offset, value + rela->r_addend - rela->r_offset);
       break;
     case R_386_COPY:
@@ -200,6 +173,29 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela)
       error (0, 0, "%s: Unknown i386 relocation type %d", dso->filename,
 	     (int) GELF_R_TYPE (rela->r_info));
       return 1;
+    }
+  return 0;
+}
+
+static int
+i386_copy_rela (struct prelink_info *info, GElf_Rela *rela, char *buf,
+		size_t len)
+{
+  Elf32_Addr value;
+  int i;
+
+  switch (GELF_R_TYPE (rela->r_info))    
+    {
+    case R_386_GLOB_DAT:
+    case R_386_JMP_SLOT:
+    case R_386_32:
+    case R_386_PC32:
+      value = rela->r_addend;
+      for (i = 0; i < len && i < sizeof (Elf32_Addr); ++i)
+	*buf++ = value, value >>= 8;
+      break;
+    default:
+      abort ();
     }
   return 0;
 }
@@ -226,34 +222,17 @@ i386_prelink_conflict_rel (struct prelink_info *info, GElf_Rel *rel)
     return 1;
   ret->r_offset = rel->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rel->r_info));
-#ifdef DEBUG
-  printf ("conflict ");
-#endif
   switch (GELF_R_TYPE (rel->r_info))    
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
       ret->r_addend = value;
-#ifdef DEBUG
-      if (GELF_R_TYPE (rel->r_info) == R_386_GLOB_DAT)
-	printf ("R_386_GLOB_DAT");
-      else
-	printf ("R_386_JMP_SLOT");
-      printf (" %08x [%08x] -> [%08x]\n", rel->r_offset, read_ule32(dso, rel->r_offset), value);
-#endif
       break;
     case R_386_32:
     case R_386_PC32:
       oldvalue = read_ule32 (dso, rel->r_offset);
       value += oldvalue - (conflict->conflictent->base + conflict->conflictval);
       ret->r_addend = value;
-#ifdef DEBUG
-      if (GELF_R_TYPE (rel->r_info) == R_386_32)
-	printf ("R_386_32");
-      else
-	printf ("R_386_PC32");
-      printf (" %08x [%08x] -> [%08x]\n", rel->r_offset, oldvalue, value);
-#endif
       break;
     case R_386_COPY:
       error (0, 0, "R_386_COPY should not be present in shared libraries");
@@ -288,33 +267,16 @@ i386_prelink_conflict_rela (struct prelink_info *info, GElf_Rela *rela)
     return 1;
   ret->r_offset = rela->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
-#ifdef DEBUG
-  printf ("conflict ");
-#endif
   switch (GELF_R_TYPE (rela->r_info))    
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
       ret->r_addend = value + rela->r_addend;
-#ifdef DEBUG
-      if (GELF_R_TYPE (rela->r_info) == R_386_GLOB_DAT)
-	printf ("R_386_GLOB_DAT");
-      else
-	printf ("R_386_JMP_SLOT");
-      printf (" %08x [%08x] -> [%08x]\n", rela->r_offset, read_ule32(dso, rela->r_offset), value);
-#endif
       break;
     case R_386_32:
     case R_386_PC32:
       value += rela->r_addend;
       ret->r_addend = value;
-#ifdef DEBUG
-      if (GELF_R_TYPE (rela->r_info) == R_386_32)
-	printf ("R_386_32");
-      else
-	printf ("R_386_PC32");
-      printf (" %08x [%08x] -> [%08x]\n", rela->r_offset, read_ule32(dso, rela->r_offset), value);
-#endif
       break;
     case R_386_COPY:
       error (0, 0, "R_386_COPY should not be present in shared libraries");
@@ -420,6 +382,7 @@ PL_ARCH = {
   .prelink_rela = i386_prelink_rela,
   .prelink_conflict_rel = i386_prelink_conflict_rel,
   .prelink_conflict_rela = i386_prelink_conflict_rela,
+  .copy_rela = i386_copy_rela,
   .rel_to_rela = i386_rel_to_rela,
   .need_rel_to_rela = i386_need_rel_to_rela,
   .arch_prelink = i386_arch_prelink,
