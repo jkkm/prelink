@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -146,34 +146,18 @@ remove_dynamic_prelink_tags (DSO *dso)
 }
 
 int
-prelink_undo (DSO *dso)
+undo_sections (DSO *dso, int undo, struct section_move *move,
+	       struct reloc_info *rinfo, GElf_Ehdr *ehdr,
+	       GElf_Phdr *phdr, GElf_Shdr *shdr)
 {
-  GElf_Ehdr ehdr;
-  GElf_Shdr *shdr, *old_shdr;
-  GElf_Phdr *phdr;
-  int undo, i, j;
   Elf_Data src, dst, *d;
   Elf_Scn *scn;
-  struct section_move *move;
-  struct reloc_info rinfo;
-
-  for (undo = 1; undo < dso->ehdr.e_shnum; ++undo)
-    if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[undo].sh_name),
-		  ".gnu.prelink_undo"))
-      break;
-
-  if (undo == dso->ehdr.e_shnum)
-    {
-      error (0, 0, "%s does not have .gnu.prelink_undo section", dso->filename);
-      return 1;
-    }
+  int i, j;
 
   scn = dso->scn[undo];
   d = elf_getdata (scn, NULL);
   assert (d != NULL && elf_getdata (scn, d) == NULL);
 
-  old_shdr = alloca (sizeof (GElf_Shdr) * dso->ehdr.e_shnum);
-  memcpy (old_shdr, dso->shdr, sizeof (GElf_Shdr) * dso->ehdr.e_shnum);
   src = *d;
   src.d_type = ELF_T_EHDR;
   src.d_align = dso->shdr[undo].sh_addralign;
@@ -206,8 +190,8 @@ prelink_undo (DSO *dso)
     {
       Elf32_Ehdr *ehdr32 = (Elf32_Ehdr *) dst.d_buf;
 
-      memcpy (ehdr.e_ident, ehdr32->e_ident, sizeof (ehdr.e_ident));
-#define COPY(name) ehdr.name = ehdr32->name
+      memcpy (ehdr->e_ident, ehdr32->e_ident, sizeof (ehdr->e_ident));
+#define COPY(name) ehdr->name = ehdr32->name
       COPY (e_type);
       COPY (e_machine);
       COPY (e_version);
@@ -224,21 +208,21 @@ prelink_undo (DSO *dso)
 #undef COPY
     }
 
-  if (memcmp (ehdr.e_ident, dso->ehdr.e_ident, sizeof (ehdr.e_ident))
-      || ehdr.e_type != dso->ehdr.e_type
-      || ehdr.e_machine != dso->ehdr.e_machine
-      || ehdr.e_version != dso->ehdr.e_version
-      || ehdr.e_flags != dso->ehdr.e_flags
-      || ehdr.e_ehsize != dso->ehdr.e_ehsize
-      || ehdr.e_phentsize != dso->ehdr.e_phentsize
-      || ehdr.e_shentsize != dso->ehdr.e_shentsize)
+  if (memcmp (ehdr->e_ident, dso->ehdr.e_ident, sizeof (ehdr->e_ident))
+      || ehdr->e_type != dso->ehdr.e_type
+      || ehdr->e_machine != dso->ehdr.e_machine
+      || ehdr->e_version != dso->ehdr.e_version
+      || ehdr->e_flags != dso->ehdr.e_flags
+      || ehdr->e_ehsize != dso->ehdr.e_ehsize
+      || ehdr->e_phentsize != dso->ehdr.e_phentsize
+      || ehdr->e_shentsize != dso->ehdr.e_shentsize)
     {
       error (0, 0, "%s: ELF headers changed since prelinking",
 	     dso->filename);
       return 1;
     }
 
-  if (ehdr.e_phnum > dso->ehdr.e_phnum)
+  if (ehdr->e_phnum > dso->ehdr.e_phnum)
     {
       error (0, 0, "%s: Number of program headers is less than before prelinking",
 	     dso->filename);
@@ -246,9 +230,9 @@ prelink_undo (DSO *dso)
     }
 
   if (d->d_size != (src.d_size
-		    + gelf_fsize (dso->elf, ELF_T_PHDR, ehdr.e_phnum,
+		    + gelf_fsize (dso->elf, ELF_T_PHDR, ehdr->e_phnum,
 				  EV_CURRENT)
-		    + gelf_fsize (dso->elf, ELF_T_SHDR, ehdr.e_shnum - 1,
+		    + gelf_fsize (dso->elf, ELF_T_SHDR, ehdr->e_shnum - 1,
 				  EV_CURRENT)))
     {
       error (0, 0, "%s: Incorrect size of .gnu.prelink_undo section",
@@ -256,10 +240,9 @@ prelink_undo (DSO *dso)
       return 1;
     }
 
-  phdr = alloca (sizeof (GElf_Phdr) * ehdr.e_phnum);
   src.d_type = ELF_T_PHDR;
   src.d_buf += src.d_size;
-  src.d_size = gelf_fsize (dso->elf, ELF_T_PHDR, ehdr.e_phnum, EV_CURRENT);
+  src.d_size = gelf_fsize (dso->elf, ELF_T_PHDR, ehdr->e_phnum, EV_CURRENT);
   dst = src;
   switch (gelf_getclass (dso->elf))
     {
@@ -281,7 +264,7 @@ prelink_undo (DSO *dso)
     {
       Elf32_Phdr *phdr32 = (Elf32_Phdr *) dst.d_buf;
 
-      for (i = 0; i < ehdr.e_phnum; ++i)
+      for (i = 0; i < ehdr->e_phnum; ++i)
 	{
 #define COPY(name) phdr[i].name = phdr32[i].name
 	  COPY(p_type);
@@ -296,11 +279,10 @@ prelink_undo (DSO *dso)
 	}
     }
 
-  shdr = alloca (sizeof (GElf_Shdr) * ehdr.e_shnum);
   memset (shdr, 0, sizeof (GElf_Shdr));
   src.d_type = ELF_T_SHDR;
   src.d_buf += src.d_size;
-  src.d_size = gelf_fsize (dso->elf, ELF_T_SHDR, ehdr.e_shnum - 1, EV_CURRENT);
+  src.d_size = gelf_fsize (dso->elf, ELF_T_SHDR, ehdr->e_shnum - 1, EV_CURRENT);
   dst = src;
   switch (gelf_getclass (dso->elf))
     {
@@ -324,7 +306,7 @@ prelink_undo (DSO *dso)
     {
       Elf32_Shdr *shdr32 = (Elf32_Shdr *) dst.d_buf;
 
-      for (i = 1; i < ehdr.e_shnum; ++i)
+      for (i = 1; i < ehdr->e_shnum; ++i)
 	{
 #define COPY(name) shdr[i].name = shdr32[i - 1].name
 	  COPY (sh_name);
@@ -341,15 +323,11 @@ prelink_undo (DSO *dso)
 	}
     }
 
-  move = init_section_move (dso);
-  move->new_shnum = ehdr.e_shnum;
+  move->new_shnum = ehdr->e_shnum;
   for (i = 1; i < move->old_shnum; ++i)
     move->old_to_new[i] = -1;
   for (i = 1; i < move->new_shnum; ++i)
     move->new_to_old[i] = -1;
-
-  if (find_reloc_sections (dso, &rinfo))
-    goto error_out;
 
   for (i = 1; i < move->old_shnum; ++i)
     {
@@ -405,7 +383,7 @@ prelink_undo (DSO *dso)
 	      }
 	  }
 
-	if (((i >= rinfo.first && i <= rinfo.last) || i == rinfo.plt)
+	if (((i >= rinfo->first && i <= rinfo->last) || i == rinfo->plt)
 	    && dso->shdr[i].sh_type == SHT_RELA)
 	  {
 	    for (j = 1; j < move->new_shnum; ++j)
@@ -486,7 +464,7 @@ prelink_undo (DSO *dso)
 
 	error (0, 0, "%s: Section %s created after prelinking",
 	       dso->filename, name);
-	goto error_out;
+	return 1;
       }
 
   for (i = 1; i < move->new_shnum; ++i)
@@ -496,8 +474,45 @@ prelink_undo (DSO *dso)
 
 	error (0, 0, "%s: Section %s removed after prelinking", dso->filename,
 	       name);
-	goto error_out;
+	return 1;
       }
+
+  return 0;
+}
+
+int
+prelink_undo (DSO *dso)
+{
+  GElf_Ehdr ehdr;
+  GElf_Shdr shdr[dso->ehdr.e_shnum + 20], old_shdr[dso->ehdr.e_shnum];
+  GElf_Phdr phdr[dso->ehdr.e_phnum];
+  Elf_Scn *scn;
+  Elf_Data *d;
+  int undo, i;
+  struct section_move *move;
+  struct reloc_info rinfo;
+
+  for (undo = 1; undo < dso->ehdr.e_shnum; ++undo)
+    if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[undo].sh_name),
+		  ".gnu.prelink_undo"))
+      break;
+
+  if (undo == dso->ehdr.e_shnum)
+    {
+      error (0, 0, "%s does not have .gnu.prelink_undo section", dso->filename);
+      return 1;
+    }
+
+  memcpy (old_shdr, dso->shdr, sizeof (GElf_Shdr) * dso->ehdr.e_shnum);
+  move = init_section_move (dso);
+  if (move == NULL)
+    return 1;
+
+  if (find_reloc_sections (dso, &rinfo))
+    goto error_out;
+
+  if (undo_sections (dso, undo, move, &rinfo, &ehdr, phdr, shdr))
+    goto error_out;
 
   if (reopen_dso (dso, move))
     goto error_out;

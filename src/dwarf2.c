@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -205,7 +205,7 @@ static int
 abbrev_eq (const void *p, const void *q)
 {
   struct abbrev_tag *t1 = (struct abbrev_tag *)p;
-  struct abbrev_tag *t2 = (struct abbrev_tag *)p;
+  struct abbrev_tag *t2 = (struct abbrev_tag *)q;
 
   return t1->entry == t2->entry;
 }

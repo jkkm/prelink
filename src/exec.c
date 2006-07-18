@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -72,19 +72,20 @@ int
 prelink_exec (struct prelink_info *info)
 {
   int i, j, ndeps = info->ent->ndepends + 1;
-  int dynstrndx, growdynstr = 0;
+  int dynstrndx, dynstrndxnew, growdynstr = 0, shstrndxnew;
   int old_conflict = 0, old_liblist = 0;
   int new_conflict = -1, new_liblist = -1;
   int new_reloc = -1, new_plt = -1, new_dynstr = -1;
   int old_dynbss = -1, old_bss = -1, new_dynbss = -1;
   int old_sdynbss = -1, old_sbss = -1, new_sdynbss = -1;
   int *old, *new;
-  int addcnt, undo = 0;
-  struct reloc_info rinfo;
+  int addcnt, undo, shnum_after_undo;
+  struct reloc_info rinfo, rinfonew;
   DSO *dso = info->dso;
   GElf_Ehdr ehdr;
   GElf_Phdr phdr[dso->ehdr.e_phnum + 1];
   GElf_Shdr old_shdr[dso->ehdr.e_shnum], new_shdr[dso->ehdr.e_shnum + 20];
+  GElf_Shdr shdr_after_undo[dso->ehdr.e_shnum + 20];
   GElf_Shdr *shdr, *add;
   Elf32_Lib *liblist = NULL;
   struct readonly_adjust adjust;
@@ -100,6 +101,41 @@ prelink_exec (struct prelink_info *info)
   if (move == NULL)
     return 1;
 
+  ehdr = dso->ehdr;
+  memcpy (phdr, dso->phdr, dso->ehdr.e_phnum * sizeof (GElf_Phdr));
+  memcpy (old_shdr, dso->shdr, dso->ehdr.e_shnum * sizeof (GElf_Shdr));
+  shdr = new_shdr;
+  memcpy (shdr, dso->shdr, dso->ehdr.e_shnum * sizeof (GElf_Shdr));
+
+  for (undo = 1; undo < dso->ehdr.e_shnum; ++undo)
+    if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[undo].sh_name),
+		  ".gnu.prelink_undo"))
+      break;
+
+  if (undo < dso->ehdr.e_shnum)
+    {
+      Elf_Data *data;
+
+      if (undo_sections (dso, undo, move, &rinfo, &ehdr, phdr, shdr))
+	goto error_out;
+      data = elf_getdata (dso->scn[undo], NULL);
+      assert (data->d_buf != NULL);
+      assert (data->d_off == 0);
+      assert (data->d_size == dso->shdr[undo].sh_size);
+      dso->undo = *data;
+      dso->undo.d_buf = malloc (dso->undo.d_size);
+      if (dso->undo.d_buf == 0)
+	{
+	  error (0, ENOMEM, "%s: Could not create .gnu.prelink_undo section",
+		 dso->filename);
+	  goto error_out;
+	}
+      memcpy (dso->undo.d_buf, data->d_buf, data->d_size);
+    }
+  undo = 0;
+
+  memcpy (shdr_after_undo, shdr, ehdr.e_shnum * sizeof (GElf_Shdr));
+
   for (dynstrndx = 1; dynstrndx < dso->ehdr.e_shnum; ++dynstrndx)
     if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
 			  dso->shdr[dynstrndx].sh_name),
@@ -111,6 +147,10 @@ prelink_exec (struct prelink_info *info)
       error (0, 0, "%s: Could not find .dynstr section", dso->filename);
       goto error_out;
     }
+
+  dynstrndxnew = move->old_to_new[dynstrndx];
+  shstrndxnew = move->old_to_new[dso->ehdr.e_shstrndx];
+  shnum_after_undo = move->new_shnum;
 
   liblist = calloc (ndeps - 1, sizeof (Elf32_Lib));
   if (liblist == NULL)
@@ -125,57 +165,90 @@ prelink_exec (struct prelink_info *info)
       struct prelink_entry *ent = info->ent->depends[i];
 
       liblist[i].l_name = strtabfind (dso, dynstrndx, info->sonames[i + 1]);
+      if (liblist[i].l_name >= shdr[dynstrndxnew].sh_size)
+	liblist[i].l_name = 0;
       if (liblist[i].l_name == 0)
 	growdynstr += strlen (info->sonames[i + 1]) + 1;
       liblist[i].l_time_stamp = ent->timestamp;
       liblist[i].l_checksum = ent->checksum;
     }
 
-  /* Find where to create .gnu.liblist and .gnu.conflict.  */
-  ehdr = dso->ehdr;
-  memcpy (phdr, dso->phdr, dso->ehdr.e_phnum * sizeof (GElf_Phdr));
-  memcpy (old_shdr, dso->shdr, dso->ehdr.e_shnum * sizeof (GElf_Shdr));
-  shdr = new_shdr;
-  shdr[0] = dso->shdr[0];
   if (info->dynbss)
     {
       old_bss = addr_to_sec (dso, info->dynbss_base);
       assert (old_bss != -1);
+      if (move->old_to_new[old_bss] == -1)
+	++old_bss;
+      assert (move->old_to_new[old_bss] != -1);
+      assert (shdr[move->old_to_new[old_bss]].sh_addr <= info->dynbss_base);
+      assert (shdr[move->old_to_new[old_bss]].sh_addr
+	      + shdr[move->old_to_new[old_bss]].sh_size > info->dynbss_base);
     }
   if (info->sdynbss)
     {
       old_sbss = addr_to_sec (dso, info->sdynbss_base);
       assert (old_sbss != -1);
+      if (move->old_to_new[old_sbss] == -1)
+	++old_sbss;
+      assert (move->old_to_new[old_sbss] != -1);
+      assert (shdr[move->old_to_new[old_sbss]].sh_addr <= info->sdynbss_base);
+      assert (shdr[move->old_to_new[old_sbss]].sh_addr
+	      + shdr[move->old_to_new[old_sbss]].sh_size > info->sdynbss_base);
     }
-  for (i = 1, j = 1; i < dso->ehdr.e_shnum; ++i)
+
+  rinfonew = rinfo;
+  if (rinfo.first != -1)
     {
-      const char *name = strptr (dso, dso->ehdr.e_shstrndx,
-				 dso->shdr[i].sh_name);
+      rinfonew.first = move->old_to_new[rinfo.first];
+      rinfonew.last = move->old_to_new[rinfo.last];
+      if (shdr[rinfonew.first].sh_type == SHT_REL
+	  && dso->shdr[rinfo.first].sh_type == SHT_RELA)
+	{
+	  rinfonew.rel_to_rela = 1;
+	  rinfonew.reldyn_rela = 0;
+	}
+    }
+  if (rinfo.plt != -1)
+    {
+      rinfonew.plt = move->old_to_new[rinfo.plt];
+      if (shdr[rinfonew.plt].sh_type == SHT_REL
+	  && dso->shdr[rinfo.plt].sh_type == SHT_RELA)
+	{
+	  rinfonew.rel_to_rela_plt = 1;
+	  rinfonew.plt_rela = 0;
+	}
+    }
+
+  for (i = 1, j = 1; i < ehdr.e_shnum; ++i)
+    {
+      const char *name;
+      name = strptr (dso, dso->ehdr.e_shstrndx, shdr[i].sh_name);
       if (! strcmp (name, ".dynbss"))
-	old_dynbss = i;
+	old_dynbss = move->new_to_old[j];
       else if (! strcmp (name, ".sdynbss"))
-	old_sdynbss = i;
+	old_sdynbss = move->new_to_old[j];
       else if (! strcmp (name, ".gnu.prelink_undo"))
 	undo = -1;
       if (! strcmp (name, ".gnu.conflict"))
 	{
-	  old_conflict = i;
-	  remove_section (move, move->old_to_new[i]);
+	  old_conflict = move->new_to_old[j];
+	  remove_section (move, j);
 	}
       else if (! strcmp (name, ".gnu.liblist"))
 	{
-	  old_liblist = i;
-	  remove_section (move, move->old_to_new[i]);
+	  old_liblist = move->new_to_old[j];
+	  remove_section (move, j);
 	}
-      else if (rinfo.rel_to_rela && i >= rinfo.first && i <= rinfo.last)
-	remove_section (move, move->old_to_new[i]);
-      else if (i == rinfo.plt
-	       && (rinfo.rel_to_rela || rinfo.rel_to_rela_plt))
-	remove_section (move, move->old_to_new[i]);
-      else if (i == dynstrndx && growdynstr)
-	remove_section (move, move->old_to_new[i]);
+      else if (rinfonew.rel_to_rela
+	       && i >= rinfonew.first && i <= rinfonew.last)
+	remove_section (move, j);
+      else if (i == rinfonew.plt
+	       && (rinfonew.rel_to_rela || rinfonew.rel_to_rela_plt))
+	remove_section (move, j);
+      else if (i == dynstrndxnew && growdynstr)
+	remove_section (move, j);
       else
-	shdr[j++] = dso->shdr[i];
+	shdr[j++] = shdr[i];
     }
   assert (j == move->new_shnum);
   ehdr.e_shnum = j;
@@ -188,11 +261,12 @@ prelink_exec (struct prelink_info *info)
   memset (new, 0, (rinfo.last - rinfo.first + 5) * sizeof (*new));
 
   i = 0;
-  if (rinfo.rel_to_rela)
+  if (rinfonew.rel_to_rela)
     {
-      add[i] = dso->shdr[rinfo.first];
-      add[i].sh_size = dso->shdr[rinfo.last].sh_addr
-		       + dso->shdr[rinfo.last].sh_size - add[i].sh_addr;
+      add[i] = shdr_after_undo[rinfonew.first];
+      add[i].sh_size = shdr_after_undo[rinfonew.last].sh_addr
+		       + shdr_after_undo[rinfonew.last].sh_size
+		       - add[i].sh_addr;
       assert (sizeof (Elf32_Rel) * 3 == sizeof (Elf32_Rela) * 2);
       assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
       add[i].sh_size = add[i].sh_size / 2 * 3;
@@ -200,14 +274,14 @@ prelink_exec (struct prelink_info *info)
       new_reloc = i++;
       for (j = rinfo.first + 1; j <= rinfo.last; ++j)
 	{
-	  add[i] = dso->shdr[j];
+	  add[i] = shdr_after_undo[rinfonew.first - rinfo.first + j];
 	  add[i].sh_size = add[i].sh_size / 2 * 3;
 	  old[i++] = j;
 	}
-      if (rinfo.plt)
+      if (rinfonew.plt)
 	{
-	  add[i] = dso->shdr[rinfo.plt];
-	  if (rinfo.rel_to_rela_plt)
+	  add[i] = shdr_after_undo[rinfonew.plt];
+	  if (rinfonew.rel_to_rela_plt)
 	    add[i].sh_size = add[i].sh_size / 2 * 3;
 	  /* Temporarily merge them, so that they are allocated adjacently.  */
 	  add[new_reloc].sh_size += add[i].sh_size;
@@ -215,9 +289,9 @@ prelink_exec (struct prelink_info *info)
 	  new_plt = i++;
 	}
     }
-  else if (rinfo.rel_to_rela_plt)
+  else if (rinfonew.rel_to_rela_plt)
     {
-      add[i] = dso->shdr[rinfo.plt];
+      add[i] = shdr_after_undo[rinfonew.plt];
       assert (sizeof (Elf32_Rel) * 3 == sizeof (Elf32_Rela) * 2);
       assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
       add[i].sh_size = add[i].sh_size / 2 * 3;
@@ -226,7 +300,7 @@ prelink_exec (struct prelink_info *info)
     }
   if (growdynstr)
     {
-      add[i] = dso->shdr[dynstrndx];
+      add[i] = shdr_after_undo[dynstrndxnew];
       add[i].sh_size += growdynstr;
       old[i] = dynstrndx;
       new_dynstr = i++;
@@ -340,6 +414,7 @@ prelink_exec (struct prelink_info *info)
 
   i = ehdr.e_shnum;
   ehdr.e_shnum = dso->ehdr.e_shnum;
+  ehdr.e_shstrndx = dso->ehdr.e_shstrndx;
   dso->ehdr = ehdr;
   memcpy (dso->phdr, phdr, ehdr.e_phnum * sizeof (GElf_Phdr));
   if (reopen_dso (dso, move))
@@ -347,11 +422,24 @@ prelink_exec (struct prelink_info *info)
 
   assert (i == dso->ehdr.e_shnum);
 
-  if (move->old_shnum != move->new_shnum)
+  if (shnum_after_undo != move->new_shnum)
     adjust_nonalloc (dso, &dso->ehdr, shdr, 0,
 		     dso->ehdr.e_shoff + 1,
-		     ((long) move->new_shnum - (long) move->old_shnum)
+		     ((long) move->new_shnum - (long) shnum_after_undo)
 		     * gelf_fsize (dso->elf, ELF_T_SHDR, 1, EV_CURRENT));
+
+  if (shdr_after_undo[shstrndxnew].sh_size
+      < dso->shdr[dso->ehdr.e_shstrndx].sh_size)
+    {
+      Elf_Data *data = elf_getdata (dso->scn[dso->ehdr.e_shstrndx], NULL);
+
+      assert (elf_getdata (dso->scn[dso->ehdr.e_shstrndx], data) == NULL);
+      assert (data->d_off == 0);
+      assert (shdr_after_undo[shstrndxnew].sh_size
+	      == shdr[dso->ehdr.e_shstrndx].sh_size);
+      assert (data->d_size == dso->shdr[dso->ehdr.e_shstrndx].sh_size);
+      data->d_size = shdr_after_undo[shstrndxnew].sh_size;
+    }
 
   for (i = 1; i < dso->ehdr.e_shnum; ++i)
     if (move->new_to_old[i] == -1)
@@ -569,7 +657,7 @@ prelink_exec (struct prelink_info *info)
 		 dso->filename);
 	  goto error_out;
 	}
-      ptr = data->d_buf + data->d_size;
+      ptr = data->d_buf + shdr_after_undo[dynstrndxnew].sh_size;
       data->d_size = dso->shdr[i].sh_size;
       for (j = 0; j < ndeps - 1; ++j)
 	if (liblist[j].l_name == 0)
@@ -630,9 +718,12 @@ prelink_exec (struct prelink_info *info)
 	  data = elf_getdata (dso->scn[new_sdynbss + 1], NULL);
 	  assert (dso->shdr[new_sdynbss + 1].sh_type != SHT_NOBITS
 		  || data->d_buf == NULL);
-	  assert (data->d_size == dso->shdr[new_sdynbss].sh_size
-				  + dso->shdr[new_sdynbss + 1].sh_size);
-	  data->d_size -= dso->shdr[new_sdynbss].sh_size;
+	  if (data->d_size != dso->shdr[new_sdynbss + 1].sh_size)
+	    {
+	      assert (data->d_size == dso->shdr[new_sdynbss].sh_size
+				      + dso->shdr[new_sdynbss + 1].sh_size);
+	      data->d_size -= dso->shdr[new_sdynbss].sh_size;
+	    }
 	}
     }
 
@@ -781,9 +872,12 @@ prelink_exec (struct prelink_info *info)
 	  data = elf_getdata (dso->scn[new_dynbss + 1], NULL);
 	  assert (dso->shdr[new_dynbss + 1].sh_type != SHT_NOBITS
 		  || data->d_buf == NULL);
-	  assert (data->d_size == dso->shdr[new_dynbss].sh_size
-				  + dso->shdr[new_dynbss + 1].sh_size);
-	  data->d_size -= dso->shdr[new_dynbss].sh_size;
+	  if (data->d_size != dso->shdr[new_dynbss + 1].sh_size)
+	    {
+	      assert (data->d_size == dso->shdr[new_dynbss].sh_size
+				      + dso->shdr[new_dynbss + 1].sh_size);
+	      data->d_size -= dso->shdr[new_dynbss].sh_size;
+	    }
 	}
     }
 

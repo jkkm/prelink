@@ -1,6 +1,6 @@
 #!/bin/sh
 . `dirname $0`/functions.sh
-rm -f reloc1 reloc11lib*.so reloc11.log
+rm -f reloc11 reloc11lib*.so reloc11.log
 rm -f prelink.cache
 $CC -shared -O2 -nostdlib -fpic -o reloc11lib1.so $srcdir/reloc10lib4.c
 $CC -shared -O2 -nostdlib -fpic -o reloc11lib2.so $srcdir/reloc11lib2.c
