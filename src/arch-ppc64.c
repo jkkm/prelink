@@ -129,7 +129,7 @@ ppc64_fixup_plt (struct prelink_info *info, GElf_Rela *rela, GElf_Addr value)
 	if (info->ent->depends[i]->opd
 	    && info->ent->depends[i]->opd->start <= value
 	    && (info->ent->depends[i]->opd->start
-	        + info->ent->depends[i]->opd->size) > value)
+		+ info->ent->depends[i]->opd->size) > value)
 	break;
 
       if (i == info->ent->ndepends)
@@ -177,6 +177,9 @@ ppc64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_PPC64_UADDR64:
       write_be64 (dso, rela->r_offset, value);
       break;
+    case R_PPC64_DTPREL64:
+      write_be64 (dso, rela->r_offset, value - 0x8000);
+      break;
     case R_PPC64_ADDR32:
     case R_PPC64_UADDR32:
       write_be32 (dso, rela->r_offset, value);
@@ -188,8 +191,16 @@ ppc64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_PPC64_ADDR16_LO:
       write_be16 (dso, rela->r_offset, value);
       break;
+    case R_PPC64_DTPREL16:
+    case R_PPC64_DTPREL16_LO:
+      write_be16 (dso, rela->r_offset, value - 0x8000);
+      break;
     case R_PPC64_ADDR16_HI:
+    case R_PPC64_DTPREL16_HA:
       write_be16 (dso, rela->r_offset, value >> 16);
+      break;
+    case R_PPC64_DTPREL16_HI:
+      write_be16 (dso, rela->r_offset, (value - 0x8000) >> 16);
       break;
     case R_PPC64_ADDR16_HA:
       write_be16 (dso, rela->r_offset, (value + 0x8000) >> 16);
@@ -239,6 +250,42 @@ ppc64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       break;
     case R_PPC64_REL64:
       write_be64 (dso, rela->r_offset, value - rela->r_offset);
+      break;
+    /* DTPMOD64 and TPREL* is impossible to predict in shared libraries
+       unless prelink sets the rules.  */
+    case R_PPC64_DTPMOD64:
+      if (dso->ehdr.e_type == ET_EXEC)
+	{
+	  error (0, 0, "%s: R_PPC64_DTPMOD64 reloc in executable?",
+		 dso->filename);
+	  return 1;
+	}
+      break;
+    case R_PPC64_TPREL64:
+    case R_PPC64_TPREL16:
+    case R_PPC64_TPREL16_LO:
+    case R_PPC64_TPREL16_HI:
+    case R_PPC64_TPREL16_HA:
+      if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
+	{
+	  value += info->resolvetls->offset - 0x7000;
+	  switch (GELF_R_TYPE (rela->r_info))
+	    {
+	    case R_PPC64_TPREL64:
+	      write_be64 (dso, rela->r_offset, value);
+	      break;
+	    case R_PPC64_TPREL16:
+	    case R_PPC64_TPREL16_LO:
+	      write_be16 (dso, rela->r_offset, value);
+	      break;
+	    case R_PPC64_TPREL16_HI:
+	      write_be16 (dso, rela->r_offset, value >> 16);
+	      break;
+	    case R_PPC64_TPREL16_HA:
+	      write_be16 (dso, rela->r_offset, (value + 0x8000) >> 16);
+	      break;
+	    }
+	}
       break;
     case R_PPC64_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -384,6 +431,7 @@ ppc64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 {
   GElf_Addr value;
   struct prelink_conflict *conflict;
+  struct prelink_tls *tls;
   GElf_Rela *ret;
   int r_type;
 
@@ -394,8 +442,42 @@ ppc64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   conflict = prelink_conflict (info, GELF_R_SYM (rela->r_info),
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
-    return 0;
-  value = conflict_lookup_value (conflict);
+    {
+      if (info->curtls == NULL)
+	return 0;
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	/* Even local DTPMOD and TPREL relocs need conflicts.  */
+	case R_PPC64_DTPMOD64:
+	case R_PPC64_TPREL64:
+	case R_PPC64_TPREL16:
+	case R_PPC64_TPREL16_LO:
+	case R_PPC64_TPREL16_HI:
+	case R_PPC64_TPREL16_HA:
+	  break;
+	default:
+	  return 0;
+	}
+      value = 0;
+    }
+  else
+    {
+      /* DTPREL wants to see only real conflicts, not lookups
+	 with reloc_class RTYPE_CLASS_TLS.  */
+      if (conflict->lookup.tls == conflict->conflict.tls
+	  && conflict->lookupval == conflict->conflictval)
+	switch (GELF_R_TYPE (rela->r_info))
+	  {
+	  case R_PPC64_DTPREL64:
+	  case R_PPC64_DTPREL16:
+	  case R_PPC64_DTPREL16_LO:
+	  case R_PPC64_DTPREL16_HI:
+	  case R_PPC64_DTPREL16_HA:
+	    return 0;
+	  }
+
+      value = conflict_lookup_value (conflict);
+    }
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -484,6 +566,65 @@ ppc64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       r_type = R_PPC64_ADDR64;
       value -= rela->r_offset;
       break;
+    case R_PPC64_DTPMOD64:
+    case R_PPC64_DTPREL64:
+    case R_PPC64_DTPREL16:
+    case R_PPC64_DTPREL16_LO:
+    case R_PPC64_DTPREL16_HI:
+    case R_PPC64_DTPREL16_HA:
+    case R_PPC64_TPREL64:
+    case R_PPC64_TPREL16:
+    case R_PPC64_TPREL16_LO:
+    case R_PPC64_TPREL16_HI:
+    case R_PPC64_TPREL16_HA:
+      if (conflict != NULL
+	  && (conflict->reloc_class != RTYPE_CLASS_TLS
+	      || conflict->lookup.tls == NULL))
+	{
+	  error (0, 0, "%s: TLS reloc not resolving to STT_TLS symbol",
+		 dso->filename);
+	  return 1;
+	}
+      tls = conflict ? conflict->lookup.tls : info->curtls;
+      r_type = R_PPC64_ADDR16;
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	case R_PPC64_DTPMOD64:
+	  r_type = R_PPC64_ADDR64;
+	  value = tls->modid;
+	  break;
+	case R_PPC64_DTPREL64:
+	  r_type = R_PPC64_ADDR64;
+	  value -= 0x8000;
+	  break;
+	case R_PPC64_DTPREL16:
+	case R_PPC64_DTPREL16_LO:
+	  value -= 0x8000;
+	  break;
+	case R_PPC64_DTPREL16_HI:
+	  value = (value - 0x8000) >> 16;
+	  break;
+	case R_PPC64_DTPREL16_HA:
+	  value >>= 16;
+	  break;
+	case R_PPC64_TPREL64:
+	  r_type = R_PPC64_ADDR64;
+	  value += tls->offset - 0x7000;
+	  break;
+	case R_PPC64_TPREL16:
+	case R_PPC64_TPREL16_LO:
+	  value += tls->offset - 0x7000;
+	  break;
+	case R_PPC64_TPREL16_HI:
+	  value = (value + tls->offset - 0x7000) >> 16;
+	  break;
+	case R_PPC64_TPREL16_HA:
+	  value = (value + tls->offset - 0x7000 + 0x8000) >> 16;
+	  break;
+	}
+      if (r_type == R_PPC64_ADDR16)
+	value = ((value & 0xffff) ^ 0x8000) - 0x8000;
+      break;
     default:
       error (0, 0, "%s: Unknown PowerPC64 relocation type %d", dso->filename,
 	     r_type);
@@ -519,6 +660,9 @@ ppc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_PPC64_ADDR64:
     case R_PPC64_UADDR64:
     case R_PPC64_REL64:
+    case R_PPC64_DTPMOD64:
+    case R_PPC64_DTPREL64:
+    case R_PPC64_TPREL64:
       write_be64 (dso, rela->r_offset, 0);
       break;
     case R_PPC64_ADDR32:
@@ -540,6 +684,14 @@ ppc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_PPC64_ADDR16_HIGHESTA:
     case R_PPC64_ADDR16_LO_DS:
     case R_PPC64_ADDR16_DS:
+    case R_PPC64_DTPREL16:
+    case R_PPC64_TPREL16:
+    case R_PPC64_DTPREL16_LO:
+    case R_PPC64_TPREL16_LO:
+    case R_PPC64_DTPREL16_HI:
+    case R_PPC64_TPREL16_HI:
+    case R_PPC64_DTPREL16_HA:
+    case R_PPC64_TPREL16_HA:
       write_be16 (dso, rela->r_offset, 0);
       break;
     case R_PPC64_ADDR24:
@@ -585,11 +737,22 @@ ppc64_reloc_size (int reloc_type)
     case R_PPC64_ADDR16_HIGHERA:
     case R_PPC64_ADDR16_HIGHEST:
     case R_PPC64_ADDR16_HIGHESTA:
+    case R_PPC64_DTPREL16:
+    case R_PPC64_DTPREL16_LO:
+    case R_PPC64_DTPREL16_HI:
+    case R_PPC64_DTPREL16_HA:
+    case R_PPC64_TPREL16:
+    case R_PPC64_TPREL16_LO:
+    case R_PPC64_TPREL16_HI:
+    case R_PPC64_TPREL16_HA:
       return 2;
     case R_PPC64_GLOB_DAT:
     case R_PPC64_ADDR64:
     case R_PPC64_UADDR64:
     case R_PPC64_REL64:
+    case R_PPC64_DTPMOD64:
+    case R_PPC64_DTPREL64:
+    case R_PPC64_TPREL64:
       return 8;
     default:
       break;
@@ -604,7 +767,11 @@ ppc64_reloc_class (int reloc_type)
     {
     case R_PPC64_COPY: return RTYPE_CLASS_COPY;
     case R_PPC64_ADDR24: return RTYPE_CLASS_PLT;
-    default: return RTYPE_CLASS_VALID;
+    default:
+      if (reloc_type >= R_PPC64_DTPMOD64
+	  && reloc_type <= R_PPC64_TPREL16_HIGHESTA)
+	return RTYPE_CLASS_TLS;
+      return RTYPE_CLASS_VALID;
     }
 }
 

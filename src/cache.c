@@ -536,7 +536,7 @@ prelink_save_cache (int do_warn)
       data[i].filename = (strings - (char *) data) + sizeof (cache);
       strings = stpcpy (strings, l.ents[i]->canon_filename) + 1;
       data[i].checksum = l.ents[i]->checksum;
-      data[i].flags = l.ents[i]->flags;
+      data[i].flags = l.ents[i]->flags & ~PCF_PRELINKED;
       data[i].ctime = l.ents[i]->ctime;
       data[i].mtime = l.ents[i]->mtime;
       if (l.ents[i]->type == ET_EXEC || l.ents[i]->type == ET_CACHE_EXEC)

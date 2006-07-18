@@ -273,6 +273,9 @@ gather_dso (DSO *dso, struct prelink_entry *ent)
 {
   int prelinked;
 
+  if (verbose > 5)
+    printf ("Checking shared library %s\n", ent->canon_filename);
+
   if (dso->ehdr.e_type != ET_DYN)
     {
       error (0, 0, "%s is not a shared library", ent->filename);
@@ -402,6 +405,9 @@ gather_exec (DSO *dso, const struct stat64 *st)
   const char *dl;
   struct prelink_entry *ent;
 
+  if (verbose > 5)
+    printf ("Checking executable %s\n", dso->filename);
+
   for (i = 0; i < dso->ehdr.e_phnum; ++i)
     if (dso->phdr[i].p_type == PT_INTERP)
       break;
@@ -512,6 +518,9 @@ gather_func (const char *name, const struct stat64 *st, int type,
       ent = prelink_find_entry (name, st, 0);
       if (ent != NULL && ent->type != ET_NONE)
 	{
+	  if (verbose > 5
+	      && (ent->type == ET_CACHE_EXEC || ent->type == ET_CACHE_DYN))
+	    printf ("Assuming prelinked %s\n", name);
 	  ent->u.explicit = 1;
 	  return 0;
 	}

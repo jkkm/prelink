@@ -10,7 +10,7 @@ TESTS = movelibs.sh \
 	reloc7.sh reloc8.sh reloc9.sh reloc10.sh reloc11.sh \
 	shuffle1.sh shuffle2.sh shuffle3.sh shuffle4.sh shuffle5.sh \
 	layout1.sh layout2.sh tls1.sh tls2.sh tls3.sh tls4.sh \
-	cxx1.sh \
+	cxx1.sh quick1.sh \
 	undosyslibs.sh
 TESTS_ENVIRONMENT = \
 	PRELINK="../src/prelink -c ./prelink.conf -C ./prelink.cache --ld-library-path=. --dynamic-linker=`echo ./ld*.so.*[0-9]`" \
@@ -20,9 +20,14 @@ TESTS_ENVIRONMENT = \
 
 extra_DIST = $(TESTS) functions.sh
 
-CLEANFILES = *.so *.so.* *.nop syslib.list prelink.cache prelink.conf \
+CLEANFILES = *.so *.so.* *.nop syslib.list syslnk.list prelink.cache prelink.conf \
 	$(TESTS:%.sh=%) $(TESTS:%.sh=%.log) $(TESTS:%.sh=%.lds) \
 	*.orig *.new core* *.\#prelink\#* tlstest
+
+clean-am: clean-dirs
+
+clean-dirs:
+	rm -rf *.tree
 
 .NOTPARALLEL:
 

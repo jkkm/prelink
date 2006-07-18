@@ -58,7 +58,8 @@ find_arches (void **p, void *info)
       || e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC)
     {
       for (i = 0; i < l->nbinlibs; ++i)
-	if (l->binlibs[i]->flags == e->flags)
+	if ((l->binlibs[i]->flags & (PCF_ELF64 | PCF_MACHINE))
+	    == (e->flags & (PCF_ELF64 | PCF_MACHINE)))
 	  return 1;
 
       l->binlibs[l->nbinlibs++] = e;
@@ -212,7 +213,7 @@ layout_libs (void)
   narches = l.nbinlibs;
   arches = (int *) alloca (narches * sizeof (int));
   for (arch = 0; arch < narches; ++arch)
-    arches[arch] = l.binlibs[arch]->flags;
+    arches[arch] = l.binlibs[arch]->flags & (PCF_ELF64 | PCF_MACHINE);
 
   for (arch = 0; arch < narches; ++arch)
     {
@@ -366,6 +367,7 @@ layout_libs (void)
 	      mmap_start += mmap_base;
 	    }
 
+	  seed = mmap_start;
 	  mmap_start = (mmap_start + max_page_size - 1) & ~(max_page_size - 1);
 	}
       if (random_base)

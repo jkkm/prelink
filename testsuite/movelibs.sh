@@ -4,6 +4,7 @@
 echo 'int main() { }' > movelibs.C
 $CXX -o movelibs movelibs.C
 > syslib.list
+> syslnk.list
 for i in `ldd ./movelibs | awk ' { print $3 } '`; do
   if [ -L $i ]; then
     j=`ls -l $i | sed 's/^.* -> //'`
@@ -17,6 +18,7 @@ for i in `ldd ./movelibs | awk ' { print $3 } '`; do
       cp -p `dirname $i`/$j .
       cp -p $j $j.orig
       echo $j >> syslib.list
+      echo $k >> syslnk.list
     fi
   else
     cp -p $i .
