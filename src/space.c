@@ -637,10 +637,10 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
       j = i;
     else if (phdr[i].p_type == PT_PHDR)
       {
-        if (phdr[i].p_filesz == ehdr->e_phnum * ehdr->e_phentsize)
-          phdr[i].p_filesz += ehdr->e_phentsize;
-        if (phdr[i].p_memsz == ehdr->e_phnum * ehdr->e_phentsize)
-          phdr[i].p_memsz += ehdr->e_phentsize;
+	if (phdr[i].p_filesz == ehdr->e_phnum * ehdr->e_phentsize)
+	  phdr[i].p_filesz += ehdr->e_phentsize;
+	if (phdr[i].p_memsz == ehdr->e_phnum * ehdr->e_phentsize)
+	  phdr[i].p_memsz += ehdr->e_phentsize;
       }
 
   memmove (&phdr[j + 2], &phdr[j + 1],

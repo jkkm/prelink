@@ -108,9 +108,10 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 
   for (i = 1; i < dso->ehdr.e_shnum; ++i)
     {
-      const char *name
-	= strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[i].sh_name);
-      if (! strcmp (name, ".gnu.liblist")
+      const char *name;
+      if (dso->shdr[i].sh_type == SHT_GNU_LIBLIST
+	  && (name = strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[i].sh_name))
+	  && ! strcmp (name, ".gnu.liblist")
 	  && (dso->shdr[i].sh_size % sizeof (Elf32_Lib)) == 0)
 	{
 	  nliblist = dso->shdr[i].sh_size / sizeof (Elf32_Lib);
@@ -126,7 +127,11 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	  if (! undo)
 	    break;
 	}
-      else if (undo && ! strcmp (name, ".gnu.prelink_undo"))
+      else if (undo
+	       && dso->shdr[i].sh_type == SHT_PROGBITS
+	       && (name = strptr (dso, dso->ehdr.e_shstrndx,
+				  dso->shdr[i].sh_name))
+	       && ! strcmp (name, ".gnu.prelink_undo"))
 	ent->done = 2;
     }
 

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -465,13 +465,81 @@ prelink_build_conflicts (struct prelink_info *info)
 
   for (i = 1; i < ndeps; ++i)
     {
+      dso = info->dsos[i];
+      ent = info->ent->depends[i - 1];
+
+      /* Verify .gnu.liblist sections of all dependent libraries.  */
+      if (ent->ndepends > 0)
+	{
+	  int j;
+	  const char *name;
+	  int nliblist;
+	  Elf32_Lib *liblist;
+	  Elf_Scn *scn;
+	  Elf_Data *data;
+
+	  for (j = 1; j < dso->ehdr.e_shnum; ++j)
+	    if (dso->shdr[j].sh_type == SHT_GNU_LIBLIST
+		&& (name = strptr (dso, dso->ehdr.e_shstrndx,
+				   dso->shdr[j].sh_name))
+		&& ! strcmp (name, ".gnu.liblist")
+		&& (dso->shdr[j].sh_size % sizeof (Elf32_Lib)) == 0)
+	      break;
+
+	  if (j == dso->ehdr.e_shnum)
+	    {
+	      error (0, 0, "%s: Library %s has dependencies, but doesn't contain .gnu.liblist section",
+		     info->dso->filename, ent->filename);
+	      goto error_out;
+	    }
+
+	  nliblist = dso->shdr[j].sh_size / sizeof (Elf32_Lib);
+	  scn = dso->scn[j];
+	  data = elf_getdata (scn, NULL);
+	  if (data == NULL || elf_getdata (scn, data)
+	      || data->d_buf == NULL || data->d_off
+	      || data->d_size != dso->shdr[j].sh_size)
+	    {
+	      error (0, 0, "%s: Could not read .gnu.liblist section from %s",
+		     info->dso->filename, ent->filename);
+	      goto error_out;
+	    }
+
+	  if (nliblist != ent->ndepends)
+	    {
+	      error (0, 0, "%s: Library %s has different number of libs in .gnu.liblist than expected",
+		     info->dso->filename, ent->filename);
+	      goto error_out;
+	    }
+	  liblist = (Elf32_Lib *) data->d_buf;
+	  for (j = 0; j < nliblist; ++j)
+	    if (liblist[j].l_time_stamp != ent->depends[j]->timestamp
+		|| liblist[j].l_checksum != ent->depends[j]->checksum)
+	      {
+		error (0, 0, "%s: .gnu.liblist in library %s is inconsistent with recorded dependencies",
+		       info->dso->filename, ent->filename);
+		goto error_out;
+	      }
+
+	  /* Extra check, maybe not needed.  */
+	  for (j = 0; j < nliblist; ++j)
+	    {
+	      int k;
+	      for (k = 0; k < info->ent->ndepends; ++k)
+		if (liblist[j].l_time_stamp == info->ent->depends[k]->timestamp
+		    && liblist[j].l_checksum == info->ent->depends[k]->checksum)
+		  break;
+
+	      if (k == info->ent->ndepends)
+		abort ();
+	    }
+	}
+
       if (info->conflicts[i] || info->tls[i].modid)
 	{
-
 	  int j, sec, first_conflict;
 	  struct prelink_conflict *conflict;
 
-	  dso = info->dsos[i];
 	  info->curconflicts = info->conflicts[i];
 	  info->curtls = info->tls[i].modid ? info->tls + i : NULL;
 	  first_conflict = info->conflict_rela_size;

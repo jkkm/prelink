@@ -1,4 +1,4 @@
-.TH prelink 8 "5 August 2003"
+.TH prelink 8 "23 November 2004"
 .SH NAME
 prelink \- prelink ELF shared libraries and binaries to speed up startup time
 .SH SYNOPSIS
@@ -189,6 +189,23 @@ before prelinking to standard output SHA1 digest is printed.
 See
 .BR sha1sum (1).
 .TP
+.B \-\-exec\-shield \-\-no\-exec\-shield
+On IA-32, if kernel supports Exec-Shield, prelink attempts to lay libraries
+out similarly to how kernel places them (i.e. if possible below the binary,
+most widely used into the ASCII armor zone).  These switches allow to override
+prelink detection of whether Exec-Shield is supported or not.
+.TP
+.B \-b \-\-black\-list=PATH
+This option allows to blacklist certain paths, libraries or binaries.
+Prelink will not touch them during prelinking.
+.TP
+.B \-o \-\-undo\-output=FILE
+When doing
+.B \-\-undo
+operation, don't overwrite the prelinked binary or library with its
+original content (before it was prelinked), but save that into the specified
+file.
+.TP
 .B \-V \-\-version
 Print version and exit.
 .TP
@@ -254,18 +271,32 @@ and neither in any of the directories specified on the command line, then it
 cannot be prelinked.
 Each line of the config file should be either comment starting with
 .BR # ,
-or directory name. It can be prefixed by
+or a directory name, or a blacklist specification.  Directory names can be prefixed
+by
 .B \-l
 switch, meaning tree walk of the given directory will be only limited to one
 filesystem, or
 .B \-h
 switch, meaning tree walk of the given directory will follow symbolic links.
+Blacklist specification should be prefixed by
+.B \-b
+and optionally also
+.B \-l
+or
+.B \-h
+if needed.  It should be either absolute directory name (in that case
+all files in that directory hierarchy will be blacklisted), absolute filename
+(in that case that particular library or binary will not be touched by
+prelink) or a glob pattern without
+.B /
+character in it (then all files matching that glob in any directory
+will be blacklisted).
 .SH SEE ALSO
 .BR ldd (1),
 .BR ld.so (8).
 .SH BUGS
 .LP
 .B prelink
-Some architectures, including IA-64, HPPA and MIPS are not yet supported.
+Some architectures, including IA-64, HPPA and MIPS, are not yet supported.
 .SH AUTHORS
 Jakub Jelinek <jakub@redhat.com>.

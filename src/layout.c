@@ -311,6 +311,18 @@ layout_libs (void)
 	    }
 	}
 
+      /* If layout_libs_init or the for cycle above cleared
+	 done flags for some libraries, make sure all libraries
+	 that depend on them are re-prelinked as well.  */
+      for (i = 0; i < l.nlibs; ++i)
+	if (l.libs[i]->done)
+	  for (j = 0; j < l.libs[i]->ndepends; ++j)
+	    if (l.libs[i]->depends[j]->done == 0)
+	      {
+		l.libs[i]->done = 0;
+		break;
+	      }
+
       /* Put the already prelinked libs into double linked list.  */
       qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), addr_cmp);
       for (i = 0; i < l.nlibs; ++i)
