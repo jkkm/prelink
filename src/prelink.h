@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -226,6 +226,7 @@ struct prelink_cache_entry
   uint32_t filename;
   uint32_t depends;
   uint32_t checksum;
+#define PCF_VERIFY_CANONFNAME	0x80000
 #define PCF_UNPRELINKABLE	0x40000
 #define PCF_PRELINKED		0x20000
 #define PCF_ELF64		0x10000

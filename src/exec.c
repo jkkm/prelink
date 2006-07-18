@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -500,7 +500,8 @@ error_out:
 	      && dso->shdr[j].sh_addr + dso->shdr[j].sh_size
 		 <= dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz)
 	    {
-	      if (dso->shdr[j].sh_type != SHT_NOBITS)
+	      if (dso->shdr[j].sh_type != SHT_NOBITS
+		  || (dso->shdr[j].sh_flags & SHF_TLS))
 		{
 		  if (sfirst)
 		    {
@@ -817,7 +818,8 @@ error_out:
 		{
 		  if (dso->shdr[j].sh_addr < dso->phdr[i].p_vaddr)
 		    break;
-		  if (dso->shdr[j].sh_type == SHT_NOBITS)
+		  if (dso->shdr[j].sh_type == SHT_NOBITS
+		      && (dso->shdr[j].sh_flags & SHF_TLS) == 0)
 		    {
 		      error (0, 0, "%s: COPY relocs not present at start of first SHT_NOBITS section",
 			     dso->filename);

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -135,6 +135,24 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
       if (strcmp (canon_filename, ent->canon_filename) != 0)
 	{
 	  struct prelink_link *hardlink;
+
+	  if (ent->flags & PCF_VERIFY_CANONFNAME)
+	    {
+	      char *canon_ent_filename
+		= canonicalize_file_name (ent->canon_filename);
+
+	      ent->flags &= ~PCF_VERIFY_CANONFNAME;
+	      if (canon_ent_filename == NULL
+		  || strcmp (canon_ent_filename, ent->canon_filename) != 0)
+		{
+		  free (canon_ent_filename);
+		  canon_ent_filename = (char *) ent->canon_filename;
+		  ent->canon_filename = canon_filename;
+		  free (canon_ent_filename);
+		  return ent;
+		}
+	      free (canon_ent_filename);
+	    }
 
 	  hardlink = (struct prelink_link *)
 		     malloc (sizeof (struct prelink_link));
@@ -347,9 +365,9 @@ prelink_load_cache (void)
       ents[i]->end = cache->entry[i].end;
       ents[i]->type = (ents[i]->base == 0 && ents[i]->end == 0)
 		      ? ET_CACHE_EXEC : ET_CACHE_DYN;
-      ents[i]->flags = cache->entry[i].flags;
+      ents[i]->flags = cache->entry[i].flags | PCF_VERIFY_CANONFNAME;
 
-      if (ents[i]->flags == PCF_UNPRELINKABLE)
+      if (ents[i]->flags == (PCF_UNPRELINKABLE | PCF_VERIFY_CANONFNAME))
 	ents[i]->type = (quick || print_cache) ? ET_UNPRELINKABLE : ET_NONE;
 
       /* If mtime is equal to ctime, assume the filesystem does not store
@@ -557,7 +575,8 @@ prelink_save_cache (int do_warn)
       data[i].filename = (strings - (char *) data) + sizeof (cache);
       strings = stpcpy (strings, l.ents[i]->canon_filename) + 1;
       data[i].checksum = l.ents[i]->checksum;
-      data[i].flags = l.ents[i]->flags & ~PCF_PRELINKED;
+      data[i].flags = l.ents[i]->flags
+		      & ~(PCF_PRELINKED | PCF_VERIFY_CANONFNAME);
       data[i].ctime = l.ents[i]->ctime;
       data[i].mtime = l.ents[i]->mtime;
       if (l.ents[i]->type == ET_EXEC || l.ents[i]->type == ET_CACHE_EXEC)

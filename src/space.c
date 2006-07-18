@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -330,6 +330,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	  if (!(shdr[j].sh_flags & (SHF_ALLOC | SHF_WRITE | SHF_ALLOC)))
 	    break;
 	  if (shdr[j].sh_type == SHT_NOBITS
+	      && (shdr[j].sh_flags & SHF_TLS) == 0
 	      && shdr[j].sh_addr >= phdr[i].p_vaddr)
 	    shdr[j].sh_type = SHT_PROGBITS;
 	}
