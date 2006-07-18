@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -68,12 +68,12 @@ sh_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 	return 0;
 
       data = read_une32 (dso, dyn->d_un.d_ptr);
-      /* If .got[0] points to _DYNAMIC, it needs to be adjusted.  */
+      /* If .got.plt[0] points to _DYNAMIC, it needs to be adjusted.  */
       if (data == dso->shdr[n].sh_addr && data >= start)
 	write_ne32 (dso, dyn->d_un.d_ptr, data + adjust);
 
       data = read_une32 (dso, dyn->d_un.d_ptr + 4);
-      /* If .got[1] points to .plt + 36, it needs to be adjusted.  */
+      /* If .got.plt[1] points to .plt + 36, it needs to be adjusted.  */
       if (data && data >= start)
 	{
 	  int i;
@@ -365,6 +365,7 @@ static int
 sh_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 {
   int sec;
+  const char *name;
 
   switch (GELF_R_TYPE (rela->r_info))
     {
@@ -376,9 +377,8 @@ sh_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
       break;
     case R_SH_JMP_SLOT:
       sec = addr_to_sec (dso, rela->r_offset);
-      if (sec == -1
-	  || strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-			     dso->shdr[sec].sh_name), ".got"))
+      name = strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[sec].sh_name);
+      if (sec == -1 || (strcmp (name, ".got") && strcmp (name, ".got.plt")))
 	{
 	  error (0, 0, "%s: R_SH_JMP_SLOT not pointing into .got section",
 		 dso->filename);
