@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -143,10 +143,6 @@ adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
       case N_CATCH:
       case N_SO:
       case N_SOL:
-      /* I'm not 100% sure about the following 3.  */
-      case N_SLINE:
-      case N_BSLINE:
-      case N_DSLINE:
 	value = read_32 (data->d_buf + off + 8);
 	sec = addr_to_sec (dso, value);
 	if (sec != -1)
@@ -173,6 +169,9 @@ adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
       /* These are relative.  */
       case N_LBRAC:
       case N_RBRAC:
+      case N_SLINE:
+      case N_BSLINE:
+      case N_DSLINE:
 	break;
       default:
 	error (0, 0, "%s: Unknown stabs code 0x%02x\n", dso->filename, type);
