@@ -450,6 +450,9 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    {
 	      if (j == i)
 		continue;
+	      /* Don't break PT_GNU_STACK which has zero vaddr.  */
+	      if (!phdr[j].p_vaddr)
+		continue;
 	      if (phdr[j].p_vaddr
 		  < adjust->basemove_end - adjust->basemove_adjust)
 		{
