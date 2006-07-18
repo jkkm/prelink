@@ -5769,7 +5769,7 @@ fi
 
 if test "$cross_compiling" = yes; then
   echo "configure: warning: Could not test whether libelf properly converts Elf64_Sxword quantities.
-If you are using libelf-0.7* and your libelf is buggy, please use
+If you are using libelf-0.7.0 and your libelf is buggy, please use
 patches/libelf-0.7.0.patch." 1>&2
 else
   cat > conftest.$ac_ext <<EOF
@@ -5889,7 +5889,7 @@ else
   cat conftest.$ac_ext >&5
   rm -fr conftest*
   { echo "configure: error: libelf does not properly convert Elf64_Sxword quantities.
-If you are using libelf-0.7*, please use patches/libelf-0.7.0.patch." 1>&2; exit 1; }
+If you are using libelf-0.7.0, please use patches/libelf-0.7.0.patch." 1>&2; exit 1; }
 fi
 rm -fr conftest*
 fi

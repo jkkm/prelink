@@ -125,7 +125,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		  goto error_out;
 		}
 
-	      if (st.st_dev != info->ent->dev || st.st_ino != info->ent->ino)
+	      if (st.st_dev != ent2->dev || st.st_ino != ent2->ino)
 	        {
 		  error (0, 0, "%s: %s => %s does not match recorded dependency",
 			 info->ent->filename, soname, filename);

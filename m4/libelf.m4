@@ -111,8 +111,8 @@ int main (void)
   exit (8);
 }
     ],,[AC_MSG_ERROR([libelf does not properly convert Elf64_Sxword quantities.
-If you are using libelf-0.7*, please use patches/libelf-0.7.0.patch.])],
+If you are using libelf-0.7.0, please use patches/libelf-0.7.0.patch.])],
 [AC_MSG_WARN([Could not test whether libelf properly converts Elf64_Sxword quantities.
-If you are using libelf-0.7* and your libelf is buggy, please use
+If you are using libelf-0.7.0 and your libelf is buggy, please use
 patches/libelf-0.7.0.patch.])])
   ])
