@@ -13,7 +13,7 @@ TESTS_ENVIRONMENT = \
 	CXX="$(CXX)" CXXLINK="$(CXX) -Wl,--dynamic-linker=`echo ./ld*.so.*`" \
 	$(SHELL)
 
-extra_DIST = $(TESTS)
+extra_DIST = $(TESTS) env.sh
 
 CLEANFILES = *.so *.so.* prelink.cache prelink.conf $(TESTS:%.sh=%) \
 	$(TESTS:%.sh=%.log) $(TESTS:%.sh=%.lds) core *.\#prelink\#

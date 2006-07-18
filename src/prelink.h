@@ -67,6 +67,8 @@ typedef struct
 #define DT_VERNEED_BIT 52
 #define DT_VERDEF_BIT 53
 #define DT_VERSYM_BIT 54
+#define DT_FILTER_BIT 55
+#define DT_AUXILIARY_BIT 56
   uint64_t info_set_mask;
   int fd, fdro;
   int lastscn, dynamic;

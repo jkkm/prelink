@@ -50,7 +50,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       GElf_Addr l_addr;
     } deps[info->ent->ndepends + 1];
   char *r;
-  int i, ndeps = 0, undef = 0;
+  int i, ndeps = 0, undef = 0, seen = 0, tdeps = 0;
 
   /* Record the dependencies.  */
   while ((r = fgets (buffer, 8192, f)) != NULL)
@@ -96,9 +96,17 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	  goto error_out;
         }
 
-      ent2 = ndeps ? info->ent->depends [ndeps - 1] : info->ent;
-      if (strcmp (ent2->filename, filename) != 0
-	  && strcmp (ent2->canon_filename, filename) != 0)
+      tdeps = ndeps - seen + 1;
+      if (! seen
+	  && (strcmp (info->ent->filename, filename) == 0
+	      || strcmp (info->ent->canon_filename, filename) == 0))
+	{
+	  seen = 1;
+	  tdeps = 0;
+	}
+      else if (ent2 = info->ent->depends [tdeps - 1],
+	       strcmp (ent2->filename, filename) != 0
+	       && strcmp (ent2->canon_filename, filename) != 0)
 	{
 	  struct prelink_link *hardlink;
 
@@ -126,18 +134,19 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	    }
 	}
 
-      if (! ndeps)
-        deps[ndeps].ent = info->ent;
+      if (! tdeps)
+        deps[0].ent = info->ent;
       else
-        deps[ndeps].ent = info->ent->depends[ndeps - 1];
-      deps[ndeps].soname = strdup (soname);
-      if (deps[ndeps].soname == NULL)
+        deps[tdeps].ent = info->ent->depends[tdeps - 1];
+      deps[tdeps].soname = strdup (soname);
+      if (deps[tdeps].soname == NULL)
 	{
 	  error (0, ENOMEM, "Could not record `%s' SONAME", soname);
 	  goto error_out;
 	}
-      deps[ndeps].start = start;
-      deps[ndeps++].l_addr = l_addr;
+      deps[tdeps].start = start;
+      deps[tdeps].l_addr = l_addr;
+      ++ndeps;
     }
 
   if (ndeps != info->ent->ndepends + 1)
@@ -305,7 +314,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 
 	  if (symstart == deps[0].start)
 	    {
-	      error (0, 0, "Conflict in _dl_loader `%s'", buffer);
+	      error (0, 0, "Conflict in _dl_loaded `%s'", buffer);
 	      goto error_out;
 	    }
 
@@ -394,6 +403,12 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
     } while (fgets (buffer, 8192, f) != NULL);
 
   info->sonames = malloc (ndeps * sizeof (const char *));
+  if (info->sonames == NULL)
+    {
+      error (0, ENOMEM, "%s: Could not record dependency SONAMEs", dso->filename);
+      goto error_out;
+    }
+
   for (i = 0; i < ndeps; i++)
     info->sonames[i] = deps[i].soname;
 

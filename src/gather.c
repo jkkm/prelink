@@ -37,10 +37,10 @@ struct prelink_dir *dirs;
 static int
 gather_deps (DSO *dso, struct prelink_entry *ent)
 {
-  int i;
+  int i, seen = 0;
   FILE *f;
   const char *argv[5];
-  const char *envp[2];
+  const char *envp[3];
   char *line = NULL, *p, *q = NULL;
   const char **depends = NULL;
   size_t ndepends = 0, ndepends_alloced = 0;
@@ -106,7 +106,9 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   argv[i++] = ent->filename;
   argv[i] = NULL;
   envp[0] = "LD_TRACE_LOADED_OBJECTS=1";
-  envp[1] = NULL;
+  envp[1] = "LD_TRACE_PRELINKING=1";
+  envp[2] = "LD_WARN=";
+  envp[3] = NULL;
   f = execve_open (dynamic_linker, (char * const *)argv, (char * const *)envp);
   if (f == NULL)
     return 1;
@@ -143,6 +145,11 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
       *p = '\0';
       p += sizeof " => " - 1;
       *q = '\0';
+      if (! strcmp (p, ent->filename))
+	{
+	  ++seen;
+	  continue;
+	}
       if (ndepends == ndepends_alloced)
 	{
 	  ndepends_alloced += 10;
@@ -164,6 +171,13 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   if (execve_close (f))
     {
       error (0, 0, "%s: Dependency tracing failed", ent->filename);
+      goto error_out;
+    }
+
+  if (seen != 1)
+    {
+      error (0, 0, "%s seen %d times in LD_TRACE_PRELINKING output, expected once",
+	     ent->filename, seen);
       goto error_out;
     }
 

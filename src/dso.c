@@ -86,6 +86,10 @@ read_dynamic (DSO *dso)
 		    dso->info_DT_VERSYM = dyn.d_un.d_val;
 		    dso->info_set_mask |= (1ULL << DT_VERSYM_BIT);
 		  }
+		else if (dyn.d_tag == DT_FILTER)
+		  dso->info_set_mask |= (1ULL << DT_FILTER_BIT);
+		else if (dyn.d_tag == DT_AUXILIARY)
+		  dso->info_set_mask |= (1ULL << DT_AUXILIARY_BIT);
 	      }
 	    if (ndx < maxndx)
 	      break;

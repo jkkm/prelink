@@ -9,53 +9,64 @@
  all-dl-routines = $(dl-routines) $(sysdep-dl-routines)
  # But they are absent from the shared libc, because that code is in ld.so.
  elide-routines.os = $(all-dl-routines) dl-support enbl-secure \
---- libc/elf/elf.h	2001/07/23 19:17:51	1.1.1.23
-+++ libc/elf/elf.h	2001/07/23 20:00:36	1.8
-@@ -316,6 +316,7 @@ typedef struct
- #define SHT_SYMTAB_SHNDX  18		/* Extended section indeces */
- #define	SHT_NUM		  19		/* Number of defined types.  */
- #define SHT_LOOS	  0x60000000	/* Start OS-specific */
-+#define SHT_GNU_LIBLIST   0x6ffffff7	/* Prelink library list */
- #define SHT_CHECKSUM	  0x6ffffff8	/* Checksum for DSO content.  */
- #define SHT_LOSUNW	  0x6ffffffa	/* Sun-specific low bound.  */
- #define SHT_SUNW_move	  0x6ffffffa
-@@ -649,6 +650,9 @@ typedef struct
-    Dyn.d_un.d_val field of the Elf*_Dyn structure.  This follows Sun's
-    approach.  */
- #define DT_VALRNGLO	0x6ffffd00
-+#define DT_GNU_PRELINKED 0x6ffffdf5	/* Prelinking timestamp */
-+#define DT_GNU_CONFLICTSZ 0x6ffffdf6	/* Size of conflict section */
-+#define DT_GNU_LIBLISTSZ 0x6ffffdf7	/* Size of library list */
- #define DT_CHECKSUM	0x6ffffdf8
- #define DT_PLTPADSZ	0x6ffffdf9
- #define DT_MOVEENT	0x6ffffdfa
-@@ -659,6 +663,8 @@ typedef struct
- #define DT_SYMINSZ	0x6ffffdfe	/* Size of syminfo table (in bytes) */
- #define DT_SYMINENT	0x6ffffdff	/* Entry size of syminfo */
- #define DT_VALRNGHI	0x6ffffdff
-+#define DT_VALTAGIDX(tag)	(DT_VALRNGHI - (tag))	/* Reverse order! */
-+#define DT_VALNUM 12
- 
- /* DT_* entries which fall between DT_ADDRRNGHI & DT_ADDRRNGLO use the
-    Dyn.d_un.d_ptr field of the Elf*_Dyn structure.
-@@ -666,6 +672,8 @@ typedef struct
-    If any adjustment is made to the ELF object after it has been
-    built these entries will need to be adjusted.  */
- #define DT_ADDRRNGLO	0x6ffffe00
-+#define DT_GNU_CONFLICT	0x6ffffef8	/* Start of conflict section */
-+#define DT_GNU_LIBLIST	0x6ffffef9	/* Library list */
- #define DT_CONFIG	0x6ffffefa	/* Configuration information.  */
- #define DT_DEPAUDIT	0x6ffffefb	/* Dependency auditing.  */
- #define DT_AUDIT	0x6ffffefc	/* Object auditing.  */
-@@ -673,6 +681,8 @@ typedef struct
- #define	DT_MOVETAB	0x6ffffefe	/* Move table.  */
- #define DT_SYMINFO	0x6ffffeff	/* Syminfo table.  */
- #define DT_ADDRRNGHI	0x6ffffeff
-+#define DT_ADDRTAGIDX(tag)	(DT_ADDRRNGHI - (tag))	/* Reverse order! */
-+#define DT_ADDRNUM 10
- 
- /* The versioning entry types.  The next are defined as part of the
-    GNU extension.  */
+--- libc/elf/dl-conflict.c Thu Aug 24 05:00:32 2000
++++ libc/elf/dl-conflict.c Mon Aug 27 08:57:58 2001
+@@ -0,0 +1,55 @@
++/* Resolve conflicts against already prelinked libraries.
++   Copyright (C) 2001 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Jakub Jelinek <jakub@redhat.com>, 2001.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Library General Public License as
++   published by the Free Software Foundation; either version 2 of the
++   License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Library General Public License for more details.
++
++   You should have received a copy of the GNU Library General Public
++   License along with the GNU C Library; see the file COPYING.LIB.  If not,
++   write to the Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++   Boston, MA 02111-1307, USA.  */
++
++#include <errno.h>
++#include <libintl.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include <ldsodefs.h>
++#include <sys/mman.h>
++#include <sys/types.h>
++#include "dynamic-link.h"
++
++extern unsigned long int _dl_num_cache_relocations;	/* in dl-lookup.c */
++
++void
++_dl_resolve_conflicts (struct link_map *l, ElfW(Rela) *conflict,
++		       ElfW(Rela) *conflictend)
++{
++  if (__builtin_expect (_dl_debug_mask & DL_DEBUG_RELOC, 0))
++    _dl_printf ("\nconflict processing: %s\n",
++		l->l_name[0] ? l->l_name : _dl_argv[0]);
++
++  {
++    /* Do the conflict relocation of the object and library GOT and other
++       data.  */
++
++    /* This macro is used as a callback from the ELF_DYNAMIC_RELOCATE code.  */
++#define RESOLVE_MAP(ref, version, flags) (*ref = NULL, 0)
++#define RESOLVE(ref, version, flags) (*ref = NULL, 0)
++
++#include "dynamic-link.h"
++
++    _dl_num_cache_relocations += conflictend - conflict;
++
++    for (; conflict < conflictend; ++conflict)
++      elf_machine_rela (l, conflict, NULL, NULL, (void *) conflict->r_offset);
++  }
++}
 --- libc/elf/dl-deps.c	2001/07/09 18:56:58	1.1.1.17
 +++ libc/elf/dl-deps.c	2001/07/09 19:42:52	1.15
 @@ -21,6 +21,7 @@
@@ -136,75 +147,6 @@
      }
  
    /* Now determine the order in which the initialization has to happen.  */
---- libc/elf/dl-conflict.c Thu Aug 24 05:00:32 2000
-+++ libc/elf/dl-conflict.c Mon Aug 27 08:57:58 2001
-@@ -0,0 +1,55 @@
-+/* Resolve conflicts against already prelinked libraries.
-+   Copyright (C) 2001 Free Software Foundation, Inc.
-+   This file is part of the GNU C Library.
-+   Contributed by Jakub Jelinek <jakub@redhat.com>, 2001.
-+
-+   The GNU C Library is free software; you can redistribute it and/or
-+   modify it under the terms of the GNU Library General Public License as
-+   published by the Free Software Foundation; either version 2 of the
-+   License, or (at your option) any later version.
-+
-+   The GNU C Library is distributed in the hope that it will be useful,
-+   but WITHOUT ANY WARRANTY; without even the implied warranty of
-+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-+   Library General Public License for more details.
-+
-+   You should have received a copy of the GNU Library General Public
-+   License along with the GNU C Library; see the file COPYING.LIB.  If not,
-+   write to the Free Software Foundation, Inc., 59 Temple Place - Suite 330,
-+   Boston, MA 02111-1307, USA.  */
-+
-+#include <errno.h>
-+#include <libintl.h>
-+#include <stdlib.h>
-+#include <unistd.h>
-+#include <ldsodefs.h>
-+#include <sys/mman.h>
-+#include <sys/types.h>
-+#include "dynamic-link.h"
-+
-+extern unsigned long int _dl_num_cache_relocations;	/* in dl-lookup.c */
-+
-+void
-+_dl_resolve_conflicts (struct link_map *l, ElfW(Rela) *conflict,
-+		       ElfW(Rela) *conflictend)
-+{
-+  if (__builtin_expect (_dl_debug_mask & DL_DEBUG_RELOC, 0))
-+    _dl_printf ("\nconflict processing: %s\n",
-+		l->l_name[0] ? l->l_name : _dl_argv[0]);
-+
-+  {
-+    /* Do the conflict relocation of the object and library GOT and other
-+       data.  */
-+
-+    /* This macro is used as a callback from the ELF_DYNAMIC_RELOCATE code.  */
-+#define RESOLVE_MAP(ref, version, flags) (*ref = NULL, 0)
-+#define RESOLVE(ref, version, flags) (*ref = NULL, 0)
-+
-+#include "dynamic-link.h"
-+
-+    _dl_num_cache_relocations += conflictend - conflict;
-+
-+    for (; conflict < conflictend; ++conflict)
-+      elf_machine_rela (l, conflict, NULL, NULL, (void *) conflict->r_offset);
-+  }
-+}
---- libc/elf/do-rel.h	2001/08/27 07:57:29	1.1.1.6
-+++ libc/elf/do-rel.h	2001/08/27 08:48:40	1.7
-@@ -48,7 +48,7 @@ elf_dynamic_do_rel (struct link_map *map
-   const ElfW(Rel) *end = (const void *) (reladdr + relsize);
-   ElfW(Addr) l_addr = map->l_addr;
- 
--#ifndef RTLD_BOOTSTRAP
-+#if (!defined DO_RELA || !defined ELF_MACHINE_PLT_REL) && !defined RTLD_BOOTSTRAP
-   /* We never bind lazily during ld.so bootstrap.  Unfortunately gcc is
-      not clever enough to see through all the function calls to realize
-      that.  */
 --- libc/elf/dl-lookup.c	2001/08/27 07:57:28	1.1.1.15
 +++ libc/elf/dl-lookup.c	2001/08/27 09:49:39	1.9
 @@ -184,6 +184,12 @@ _dl_do_lookup_versioned (const char *und
@@ -589,6 +531,17 @@
  # define PLTREL  ElfW(Rela)
  #else
  # define PLTREL  ElfW(Rel)
+--- libc/elf/do-rel.h	2001/08/27 07:57:29	1.1.1.6
++++ libc/elf/do-rel.h	2001/08/27 08:48:40	1.7
+@@ -48,7 +48,7 @@ elf_dynamic_do_rel (struct link_map *map
+   const ElfW(Rel) *end = (const void *) (reladdr + relsize);
+   ElfW(Addr) l_addr = map->l_addr;
+ 
+-#ifndef RTLD_BOOTSTRAP
++#if (!defined DO_RELA || !defined ELF_MACHINE_PLT_REL) && !defined RTLD_BOOTSTRAP
+   /* We never bind lazily during ld.so bootstrap.  Unfortunately gcc is
+      not clever enough to see through all the function calls to realize
+      that.  */
 --- libc/elf/dynamic-link.h	2001/07/09 18:56:58	1.1.1.5
 +++ libc/elf/dynamic-link.h	2001/07/09 19:42:52	1.2
 @@ -1,5 +1,5 @@
@@ -686,6 +639,53 @@
        }									      \
      if ((map)->l_info[DT_PLTREL]					      \
  	&& (!test_rel || (map)->l_info[DT_PLTREL]->d_un.d_val == DT_##RELOC)) \
+--- libc/elf/elf.h	2001/07/23 19:17:51	1.1.1.23
++++ libc/elf/elf.h	2001/07/23 20:00:36	1.8
+@@ -316,6 +316,7 @@ typedef struct
+ #define SHT_SYMTAB_SHNDX  18		/* Extended section indeces */
+ #define	SHT_NUM		  19		/* Number of defined types.  */
+ #define SHT_LOOS	  0x60000000	/* Start OS-specific */
++#define SHT_GNU_LIBLIST   0x6ffffff7	/* Prelink library list */
+ #define SHT_CHECKSUM	  0x6ffffff8	/* Checksum for DSO content.  */
+ #define SHT_LOSUNW	  0x6ffffffa	/* Sun-specific low bound.  */
+ #define SHT_SUNW_move	  0x6ffffffa
+@@ -649,6 +650,9 @@ typedef struct
+    Dyn.d_un.d_val field of the Elf*_Dyn structure.  This follows Sun's
+    approach.  */
+ #define DT_VALRNGLO	0x6ffffd00
++#define DT_GNU_PRELINKED 0x6ffffdf5	/* Prelinking timestamp */
++#define DT_GNU_CONFLICTSZ 0x6ffffdf6	/* Size of conflict section */
++#define DT_GNU_LIBLISTSZ 0x6ffffdf7	/* Size of library list */
+ #define DT_CHECKSUM	0x6ffffdf8
+ #define DT_PLTPADSZ	0x6ffffdf9
+ #define DT_MOVEENT	0x6ffffdfa
+@@ -659,6 +663,8 @@ typedef struct
+ #define DT_SYMINSZ	0x6ffffdfe	/* Size of syminfo table (in bytes) */
+ #define DT_SYMINENT	0x6ffffdff	/* Entry size of syminfo */
+ #define DT_VALRNGHI	0x6ffffdff
++#define DT_VALTAGIDX(tag)	(DT_VALRNGHI - (tag))	/* Reverse order! */
++#define DT_VALNUM 12
+ 
+ /* DT_* entries which fall between DT_ADDRRNGHI & DT_ADDRRNGLO use the
+    Dyn.d_un.d_ptr field of the Elf*_Dyn structure.
+@@ -666,6 +672,8 @@ typedef struct
+    If any adjustment is made to the ELF object after it has been
+    built these entries will need to be adjusted.  */
+ #define DT_ADDRRNGLO	0x6ffffe00
++#define DT_GNU_CONFLICT	0x6ffffef8	/* Start of conflict section */
++#define DT_GNU_LIBLIST	0x6ffffef9	/* Library list */
+ #define DT_CONFIG	0x6ffffefa	/* Configuration information.  */
+ #define DT_DEPAUDIT	0x6ffffefb	/* Dependency auditing.  */
+ #define DT_AUDIT	0x6ffffefc	/* Object auditing.  */
+@@ -673,6 +681,8 @@ typedef struct
+ #define	DT_MOVETAB	0x6ffffefe	/* Move table.  */
+ #define DT_SYMINFO	0x6ffffeff	/* Syminfo table.  */
+ #define DT_ADDRRNGHI	0x6ffffeff
++#define DT_ADDRTAGIDX(tag)	(DT_ADDRRNGHI - (tag))	/* Reverse order! */
++#define DT_ADDRNUM 10
+ 
+ /* The versioning entry types.  The next are defined as part of the
+    GNU extension.  */
 --- libc/elf/rtld.c	2001/08/27 07:57:29	1.1.1.32
 +++ libc/elf/rtld.c	2001/08/27 09:49:39	1.38
 @@ -67,6 +67,8 @@ struct r_search_path *_dl_search_paths;
@@ -1008,14 +1008,6 @@
  
  /* Check the version dependencies of all objects available through
     MAP.  If VERBOSE print some more diagnostics.  */
---- libc/sysdeps/i386/bits/link.h Thu Aug 24 05:00:32 2000
-+++ libc/sysdeps/i386/bits/link.h Mon Aug 27 08:58:05 2001
-@@ -0,0 +1,5 @@
-+struct link_map_machine
-+  {
-+    Elf32_Addr plt; /* Address of .plt + 0x16 */
-+    Elf32_Addr gotplt; /* Address of .got + 0x0c */
-+  };
 --- libc/sysdeps/i386/dl-machine.h	2001/08/27 07:58:29	1.1.1.14
 +++ libc/sysdeps/i386/dl-machine.h	2001/08/27 08:48:41	1.5
 @@ -87,6 +87,14 @@ elf_machine_runtime_setup (struct link_m
@@ -1144,3 +1136,11 @@
 +#endif
  
  #endif /* RESOLVE */
+--- libc/sysdeps/i386/bits/link.h Thu Aug 24 05:00:32 2000
++++ libc/sysdeps/i386/bits/link.h Mon Aug 27 08:58:05 2001
+@@ -0,0 +1,5 @@
++struct link_map_machine
++  {
++    Elf32_Addr plt; /* Address of .plt + 0x16 */
++    Elf32_Addr gotplt; /* Address of .got + 0x0c */
++  };
