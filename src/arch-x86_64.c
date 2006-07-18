@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -135,6 +135,24 @@ x86_64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_X86_64_PC32:
       write_le32 (dso, rela->r_offset, value + rela->r_addend - rela->r_offset);
       break;
+    case R_X86_64_DTPOFF64:
+      write_le64 (dso, rela->r_offset, value + rela->r_addend);
+      break;
+    /* DTPMOD64 and TPOFF64 is impossible to predict in shared libraries
+       unless prelink sets the rules.  */
+    case R_X86_64_DTPMOD64:
+      if (dso->ehdr.e_type == ET_EXEC)
+	{
+	  error (0, 0, "%s: R_X86_64_DTPMOD64 reloc in executable?",
+		 dso->filename);
+	  return 1;
+	}
+      break;
+    case R_X86_64_TPOFF64:
+      if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
+	write_le64 (dso, rela->r_offset,
+		    value + rela->r_addend - info->resolvetls->offset);
+      break;
     case R_X86_64_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
 	/* COPY relocs are handled specially in generic code.  */
@@ -223,6 +241,7 @@ x86_64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 {
   GElf_Addr value;
   struct prelink_conflict *conflict;
+  struct prelink_tls *tls;
   GElf_Rela *ret;
 
   if (GELF_R_TYPE (rela->r_info) == R_X86_64_RELATIVE
@@ -232,8 +251,31 @@ x86_64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   conflict = prelink_conflict (info, GELF_R_SYM (rela->r_info),
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
-    return 0;
-  value = conflict_lookup_value (conflict);
+    {
+      if (info->curtls == NULL)
+	return 0;
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	/* Even local DTPMOD and TPOFF relocs need conflicts.  */
+	case R_X86_64_DTPMOD64:
+	case R_X86_64_TPOFF64:
+	  break;
+	default:
+	  return 0;
+	}
+      value = 0;
+    }
+  else
+    {
+      /* DTPOFF wants to see only real conflicts, not lookups
+	 with reloc_class RTYPE_CLASS_TLS.  */
+      if (GELF_R_TYPE (rela->r_info) == R_X86_64_DTPOFF64
+	  && conflict->lookup.tls == conflict->conflict.tls
+	  && conflict->lookupval == conflict->conflictval)
+	return 0;
+
+      value = conflict_lookup_value (conflict);
+    }
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -257,6 +299,33 @@ x86_64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_X86_64_COPY:
       error (0, 0, "R_X86_64_COPY should not be present in shared libraries");
       return 1;
+    case R_X86_64_DTPMOD64:
+    case R_X86_64_DTPOFF64:
+    case R_X86_64_TPOFF64:
+      if (conflict != NULL
+	  && (conflict->reloc_class != RTYPE_CLASS_TLS
+	      || conflict->lookup.tls == NULL))
+	{
+	  error (0, 0, "%s: TLS reloc not resolving to STT_TLS symbol",
+		 dso->filename);
+	  return 1;
+	}
+      tls = conflict ? conflict->lookup.tls : info->curtls;
+      ret->r_info = GELF_R_INFO (0, R_X86_64_64);
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	case R_X86_64_DTPMOD64:
+	  ret->r_addend = tls->modid;
+	  break;
+	case R_X86_64_DTPOFF64:
+	  ret->r_addend += value;
+	  break;
+	case R_X86_64_TPOFF64:
+	  ret->r_addend = value + rela->r_addend - tls->offset;
+	  break;
+	}
+      break;
+
     default:
       error (0, 0, "%s: Unknown X86-64 relocation type %d", dso->filename,
 	     (int) GELF_R_TYPE (rela->r_info));
@@ -372,6 +441,9 @@ x86_64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
       break;
     case R_X86_64_GLOB_DAT:
     case R_X86_64_64:
+    case R_X86_64_DTPMOD64:
+    case R_X86_64_DTPOFF64:
+    case R_X86_64_TPOFF64:
       write_le64 (dso, rela->r_offset, 0);
       break;
     case R_X86_64_32:
@@ -413,6 +485,10 @@ x86_64_reloc_class (int reloc_type)
     {
     case R_X86_64_COPY: return RTYPE_CLASS_COPY;
     case R_X86_64_JUMP_SLOT: return RTYPE_CLASS_PLT;
+    case R_X86_64_DTPMOD64:
+    case R_X86_64_DTPOFF64:
+    case R_X86_64_TPOFF64:
+      return RTYPE_CLASS_TLS;
     default: return RTYPE_CLASS_VALID;
     }
 }

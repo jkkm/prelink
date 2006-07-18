@@ -1,5 +1,9 @@
 #!/bin/sh
 . `dirname $0`/functions.sh
+# Kernels before 2.4.10 are known not to work
+case "`uname -r`" in
+  [01].*|2.[0-3].*|2.4.[0-9]|2.4.[0-9][^0-9]*) exit 77;;
+esac
 rm -f shuffle2 shuffle2lib*.so shuffle2.log shuffle2.lds
 $CC -shared -O2 -fpic -o shuffle2lib1.so $srcdir/reloc1lib1.c
 $CC -shared -O2 -fpic -o shuffle2lib2.so $srcdir/reloc1lib2.c shuffle2lib1.so
