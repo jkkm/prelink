@@ -356,7 +356,7 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 	     r_type);
       return 1;
     }
-  ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
+  ret->r_info = GELF_R_INFO (0, r_type);
   ret->r_addend = value;
   return 0;
 }

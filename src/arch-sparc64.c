@@ -71,6 +71,13 @@ sparc64_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
       if (rela->r_addend >= start)
 	rela->r_addend += adjust;
     }
+  else if (SPARC64_R_TYPE (rela->r_info) == R_SPARC_JMP_SLOT
+	   && rela->r_addend)
+    {
+      /* .plt[32768+] r_addends are -some_address_in_plt_section.  */
+      if ((- rela->r_addend) >= start)
+	rela->r_addend -= adjust;
+    }
   return 0;
 }
 
@@ -90,7 +97,7 @@ sparc64_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr value)
   if (rela->r_addend)
     {
       /* .plt[32768+]  */
-      write_be64 (dso, value - dso->base);
+      write_be64 (dso, rela->r_offset, value);
     }
   else if (disp >= -0x800000 && disp < 0x800000)
     {
@@ -101,7 +108,7 @@ sparc64_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr value)
       write_be32 (dso, rela->r_offset + 4, 0x01000000);
       write_be32 (dso, rela->r_offset + 8, 0x01000000);
     }
-  else if (value >> 32)
+  else if (! (value >> 32))
     {
       /* sethi %hi(value), %g1
 	 jmpl %g1 + %lo(value), %g0
@@ -477,17 +484,20 @@ sparc64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 	      | (((value & 0x3ff) + (GELF_R_TYPE (rela->r_info) >> 8)) & 0x1fff);
       r_type = R_SPARC_32;
       break;
+    case R_SPARC_JMP_SLOT:
+      if (rela->r_addend)
+	r_type = R_SPARC_64;
+      break;
     case R_SPARC_UA16:
     case R_SPARC_UA32:
     case R_SPARC_UA64:
-    case R_SPARC_JMP_SLOT:
       break;
     default:
       error (0, 0, "%s: Unknown Sparc relocation type %d", dso->filename,
 	     r_type);
       return 1;
     }
-  ret->r_info = GELF_R_INFO (0, SPARC64_R_TYPE (rela->r_info));
+  ret->r_info = GELF_R_INFO (0, r_type);
   ret->r_addend = value;
   return 0;
 }

@@ -55,6 +55,8 @@ if test "$newbu" = truex; then
   AC_SYS_LARGEFILE
 fi
 
+AC_LIBELF_SXWORD
+
 AC_OUTPUT([Makefile
 	   src/Makefile
 	   gelfx/Makefile

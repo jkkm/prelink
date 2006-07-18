@@ -2,4 +2,4 @@
 
 AUTOMAKE_OPTIONS = 1.4 gnu
 
-EXTRA_DIST = glibc.patch
+EXTRA_DIST = glibc.patch libelf-0.7.0.patch

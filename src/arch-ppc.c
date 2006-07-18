@@ -31,24 +31,6 @@ static int
 ppc_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		 GElf_Addr adjust)
 {
-  if (dyn->d_tag == DT_PLTGOT)
-    {
-      int i;
-
-      for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-			      dso->shdr[i].sh_name), ".got"))
-	  {
-	    Elf32_Addr data;
-
-	    data = read_ube32 (dso, dso->shdr[i].sh_addr);
-	    /* .got[0] points to _DYNAMIC, it needs to be adjusted.  */
-	    if (data == dso->shdr[n].sh_addr && data >= start)
-	      write_be32 (dso, dso->shdr[i].sh_addr, data + adjust);
-	    break;
-	  }
-    }
-
   return 0;
 }
 
@@ -66,18 +48,8 @@ ppc_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 {
   if (GELF_R_TYPE (rela->r_info) == R_PPC_RELATIVE)
     {
-      if (rela->r_addend)
-	{
-	  if (rela->r_addend >= start)
-	    rela->r_addend += adjust;
-	}
-      else
-	{
-	  GElf_Addr val = read_ube32 (dso, rela->r_offset);
-
-	  if (val >= start)
-	    write_be32 (dso, rela->r_offset, val + adjust);
-	}
+      if (rela->r_addend >= start)
+	rela->r_addend += adjust;
     }
   return 0;
 }
@@ -95,24 +67,49 @@ ppc_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr value)
 {
   Elf32_Sword disp = value - rela->r_offset;
 
-  if (disp >= -0x800000 && disp < 0x800000)
+  if (disp >= -0x2000000 && disp < 0x2000000)
     {
-      /* b,a value
-	  nop
-	 nop  */
-      write_be32 (dso, rela->r_offset, 0x30800000 | ((disp >> 2) & 0x3fffff));
-      write_be32 (dso, rela->r_offset + 4, 0x01000000);
-      write_be32 (dso, rela->r_offset + 8, 0x01000000);
+      /* b value  */
+      write_be32 (dso, rela->r_offset, 0x48000000 | (disp & 0x3fffffc));
+    }
+  else if ((Elf32_Addr) value >= -0x2000000 || value < 0x2000000)
+    {
+      /* ba value  */
+      write_be32 (dso, rela->r_offset, 0x48000002 | (value & 0x3fffffc));
     }
   else
     {
-      /* sethi %hi(value), %g1
-	 jmpl %g1 + %lo(value), %g0
-	  nop  */
-      write_be32 (dso, rela->r_offset, 0x03000000 | ((value >> 10) & 0x3fffff));
-      write_be32 (dso, rela->r_offset + 4, 0x81c06000 | (value & 0x3ff));
-      write_be32 (dso, rela->r_offset + 8, 0x01000000);
-    }
+      Elf32_Addr plt = dso->info[DT_PLTGOT];
+
+      if (rela->r_offset - plt < (8192 * 2 + 18) * 4)
+	{
+	  Elf32_Word index = (rela->r_offset - plt - 18 * 4) / (4 * 2);
+	  Elf32_Word count = dso->info[DT_PLTRELSZ] / sizeof (Elf32_Rela);
+	  Elf32_Addr data;
+
+	  data = plt + (18 + 2 * count
+			+ (count > 8192 ? (count - 8192) * 2 : 0)) * 4;
+	  write_be32 (dso, data + 4 * index, value);
+	  /* li %r11, 4*index
+	     b .plt+0  */
+	  write_be32 (dso, rela->r_offset,
+		      0x39600000 | ((index * 4) & 0xffff));
+	  write_be32 (dso, rela->r_offset + 4,
+		      0x48000000 | (plt - rela->r_offset - 4));
+	}
+      else
+	{
+	  /* lis %r12, %hi(finaladdr)
+	     addi %r12, %r12, %lo(finaladdr)
+	     mtctr %r12
+	     bctr  */
+	  write_be32 (dso, rela->r_offset,
+		      0x39800000 | (((value + 0x8000) >> 16) & 0xffff));
+	  write_be32 (dso, rela->r_offset + 4, 0x398c0000 | (value & 0xffff));
+	  write_be32 (dso, rela->r_offset + 8, 0x7d8903a6);
+	  write_be32 (dso, rela->r_offset + 12, 0x4e800420);
+	}
+    } 
 }
 
 static int
@@ -126,22 +123,8 @@ ppc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     return 0;
   else if (GELF_R_TYPE (rela->r_info) == R_PPC_RELATIVE)
     {
-      /* 32-bit PPC handles RELATIVE relocs as
-	 *(int *)rela->r_offset += l_addr + rela->r_addend.
-	 RELATIVE relocs against .got traditionally have the
-	 addend in memory pointed by r_offset and 0 r_addend,
-	 other RELATIVE relocs have 0 in memory and non-zero
-	 r_addend.  For prelinking, we need the value in
-	 memory to be already relocated for l_addr == 0 case,
-	 so we have to make sure r_addend will be 0.  */
-      if (rela->r_addend == 0)
-	return 0;
-      value = read_ube32 (dso, rela->r_offset);
-      value += rela->r_addend;
-      rela->r_addend = 0;
-      write_be32 (dso, rela->r_offset, value);
-      /* Tell prelink_rela routine it should update the relocation.  */
-      return 2;
+      write_be32 (dso, rela->r_offset, rela->r_addend);
+      return 0;
     }
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
@@ -149,42 +132,49 @@ ppc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   switch (GELF_R_TYPE (rela->r_info))    
     {
     case R_PPC_GLOB_DAT:
-    case R_PPC_32:
-    case R_PPC_UA32:
+    case R_PPC_ADDR32:
+    case R_PPC_UADDR32:
       write_be32 (dso, rela->r_offset, value);
       break;
     case R_PPC_JMP_SLOT:
       ppc_fixup_plt (dso, rela, value);
       break;
-    case R_PPC_8:
-      write_8 (dso, rela->r_offset, value);
-      break;
-    case R_PPC_16:
-    case R_PPC_UA16:
+    case R_PPC_ADDR16:
+    case R_PPC_UADDR16:
+    case R_PPC_ADDR16_LO:
       write_be16 (dso, rela->r_offset, value);
       break;
-    case R_PPC_LO10:
+    case R_PPC_ADDR16_HI:
+      write_be16 (dso, rela->r_offset, value >> 16);
+      break;
+    case R_PPC_ADDR16_HA:
+      write_be16 (dso, rela->r_offset, (value + 0x8000) >> 16);
+      break;
+    case R_PPC_ADDR24:
       write_be32 (dso, rela->r_offset,
-		  (value & 0x3ff) | (read_ube32 (dso, rela->r_offset) & ~0x3ff));
+		  (value & 0x03fffffc)
+		  | (read_ube32 (dso, rela->r_offset) & 0xfc000003));
       break;
-    case R_PPC_HI22:
+    case R_PPC_ADDR14:
       write_be32 (dso, rela->r_offset,
-		  ((value >> 10) & 0x3fffff)
-		  | (read_ube32 (dso, rela->r_offset) & 0xffc00000));
+		  (value & 0xfffc)
+		  | (read_ube32 (dso, rela->r_offset) & 0xffff0003));
       break;
-    case R_PPC_DISP8:
-      write_8 (dso, rela->r_offset, value - rela->r_offset);
+    case R_PPC_ADDR14_BRTAKEN:
+    case R_PPC_ADDR14_BRNTAKEN:
+      write_be32 (dso, rela->r_offset,
+		  (value & 0xfffc)
+		  | (read_ube32 (dso, rela->r_offset) & 0xffdf0003)
+		  | (((GELF_R_TYPE (rela->r_info) == R_PPC_ADDR14_BRTAKEN)
+		      ^ (value >> 10)) & 0x00200000));
       break;
-    case R_PPC_DISP16:
-      write_be16 (dso, rela->r_offset, value - rela->r_offset);
+    case R_PPC_REL24:
+      write_be32 (dso, rela->r_offset,
+		  ((value - rela->r_offset) & 0x03fffffc)
+		  | (read_ube32 (dso, rela->r_offset) & 0xfc000003));
       break;
-    case R_PPC_DISP32:
+    case R_PPC_REL32:
       write_be32 (dso, rela->r_offset, value - rela->r_offset);
-      break;
-    case R_PPC_WDISP30:
-      write_be32 (dso, rela->r_offset,
-		  (((value - rela->r_offset) >> 2) & 0x3fffffff)
-		  | (read_ube32 (dso, rela->r_offset) & 0xc0000000));
       break;
     case R_PPC_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -206,16 +196,11 @@ ppc_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 {
   switch (GELF_R_TYPE (rela->r_info))    
     {
-    case R_PPC_32:
-    case R_PPC_UA32:
+    case R_PPC_ADDR32:
       buf_write_be32 (buf, rela->r_addend);
       break;
-    case R_PPC_16:
-    case R_PPC_UA16:
+    case R_PPC_ADDR16_LO:
       buf_write_be16 (buf, rela->r_addend);
-      break;
-    case R_PPC_8:
-      buf_write_8 (buf, rela->r_addend);
       break;
     default:
       abort ();
@@ -242,34 +227,44 @@ ppc_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
     {
     case R_PPC_NONE:
       break;
-    case R_PPC_DISP32:
-      value -= rela->r_offset;
     case R_PPC_GLOB_DAT:
-    case R_PPC_32:
-    case R_PPC_UA32:
+    case R_PPC_ADDR32:
+    case R_PPC_UADDR32:
       buf_write_be32 (buf, value);
       break;
-    case R_PPC_DISP16:
-      value -= rela->r_offset;
-    case R_PPC_16:
-    case R_PPC_UA16:
+    case R_PPC_ADDR16_HA:
+      value += 0x8000;
+      /* FALLTHROUGH  */
+    case R_PPC_ADDR16_HI:
+      value = value >> 16;
+      /* FALLTHROUGH  */
+    case R_PPC_ADDR16:
+    case R_PPC_UADDR16:
+    case R_PPC_ADDR16_LO:
       buf_write_be16 (buf, value);
       break;
-    case R_PPC_DISP8:
-      value -= rela->r_offset;
-    case R_PPC_8:
-      buf_write_8 (buf, value);
+    case R_PPC_ADDR24:
+      buf_write_be32 (buf, (value & 0x03fffffc)
+			   | (buf_read_ube32 (buf) & 0xfc000003));
       break;
-    case R_PPC_LO10:
-      buf_write_be32 (buf, (buf_read_ube32 (buf) & ~0x3ff) | (value & 0x3ff));
+    case R_PPC_ADDR14:
+      buf_write_be32 (buf, (value & 0xfffc)
+			   | (buf_read_ube32 (buf) & 0xffff0003));
       break;
-    case R_PPC_HI22:
-      buf_write_be32 (buf, (buf_read_ube32 (buf) & 0xffc00000)
-			   | ((value >> 10) & 0x3fffff));
+    case R_PPC_ADDR14_BRTAKEN:
+    case R_PPC_ADDR14_BRNTAKEN:
+      buf_write_be32 (buf, (value & 0xfffc)
+			   | (buf_read_ube32 (buf) & 0xffdf0003)
+			   | (((GELF_R_TYPE (rela->r_info)
+				== R_PPC_ADDR14_BRTAKEN)
+			       ^ (value >> 10)) & 0x00200000));
       break;
-    case R_PPC_WDISP30:
-      buf_write_be32 (buf, (buf_read_ube32 (buf) & 0xc0000000)
-			   | (((value - rela->r_offset) >> 2) & 0x3fffffff));
+    case R_PPC_REL24:
+      buf_write_be32 (buf, ((value - rela->r_offset) & 0x03fffffc)
+			   | (buf_read_ube32 (buf) & 0xfc000003));
+      break;
+    case R_PPC_REL32:
+      buf_write_be32 (buf, value - rela->r_offset);
       break;
     case R_PPC_RELATIVE:
       error (0, 0, "%s: R_PPC_RELATIVE in ET_EXEC object?",
@@ -315,48 +310,58 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   r_type = GELF_R_TYPE (rela->r_info);
   switch (r_type)    
     {
-    case R_PPC_DISP32:
-      value -= rela->r_offset;
     case R_PPC_GLOB_DAT:
-    case R_PPC_32:
-      r_type = R_PPC_32;
+    case R_PPC_ADDR32:
+    case R_PPC_UADDR32:
+      r_type = R_PPC_ADDR32;
       break;
-    case R_PPC_DISP16:
-      value -= rela->r_offset;
-    case R_PPC_16:
-      r_type = R_PPC_16;
-      break;
-    case R_PPC_DISP8:
-      value -= rela->r_offset;
-    case R_PPC_8:
-      r_type = R_PPC_8;
-      break;
-    /* Attempt to transform all reloc which read-modify-write into
-       simple writes.  */
-    case R_PPC_LO10:
-      value = (read_ube32 (dso, rela->r_offset) & ~0x3ff) | (value & 0x3ff);
-      r_type = R_PPC_32;
-      break;
-    case R_PPC_HI22:
-      value = (read_ube32 (dso, rela->r_offset) & 0xffc00000)
-	      | ((value >> 10) & 0x3fffff);
-      r_type = R_PPC_32;
-      break;
-    case R_PPC_WDISP30:
-      value = (read_ube32 (dso, rela->r_offset) & 0xc0000000)
-	      | (((value - rela->r_offset) >> 2) & 0x3fffffff);
-      r_type = R_PPC_32;
-      break;
-    case R_PPC_UA16:
-    case R_PPC_UA32:
     case R_PPC_JMP_SLOT:
+      break;
+    case R_PPC_ADDR16_HA:
+      value += 0x8000;
+      /* FALLTHROUGH  */
+    case R_PPC_ADDR16_HI:
+      value = value >> 16;
+      /* FALLTHROUGH  */
+    case R_PPC_ADDR16:
+    case R_PPC_UADDR16:
+    case R_PPC_ADDR16_LO:
+      r_type = R_PPC_ADDR16_LO;
+      value &= 0xffff;
+      break;
+    case R_PPC_ADDR24:
+      r_type = R_PPC_ADDR32;
+      value = (value & 0x03fffffc)
+	      | (read_ube32 (dso, rela->r_offset) & 0xfc000003);
+      break;
+    case R_PPC_ADDR14:
+      r_type = R_PPC_ADDR32;
+      value = (value & 0xfffc)
+	      | (read_ube32 (dso, rela->r_offset) & 0xffff0003);
+      break;
+    case R_PPC_ADDR14_BRTAKEN:
+    case R_PPC_ADDR14_BRNTAKEN:
+      r_type = R_PPC_ADDR32;
+      value = (value & 0xfffc)
+	      | (read_ube32 (dso, rela->r_offset) & 0xffdf0003)
+	      | (((r_type == R_PPC_ADDR14_BRTAKEN)
+		  ^ (value >> 10)) & 0x00200000);
+      break;
+    case R_PPC_REL24:
+      r_type = R_PPC_ADDR32;
+      value = ((value - rela->r_offset) & 0x03fffffc)
+	      | (read_ube32 (dso, rela->r_offset) & 0xfc000003);
+      break;
+    case R_PPC_REL32:
+      r_type = R_PPC_ADDR32;
+      value -= rela->r_offset;
       break;
     default:
       error (0, 0, "%s: Unknown PowerPC relocation type %d", dso->filename,
 	     r_type);
       return 1;
     }
-  ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
+  ret->r_info = GELF_R_INFO (0, r_type);
   ret->r_addend = value;
   return 0;
 }
@@ -377,6 +382,25 @@ ppc_need_rel_to_rela (DSO *dso, int first, int last)
 static int
 ppc_arch_prelink (DSO *dso)
 {
+  Elf32_Addr plt = dso->info[DT_PLTGOT];
+
+  if (plt)
+    {
+      Elf32_Word count = dso->info[DT_PLTRELSZ] / sizeof (Elf32_Rela);
+      Elf32_Addr data;
+
+      data = plt + (18 + 2 * count
+		    + (count > 8192 ? (count - 8192) * 2 : 0)) * 4;
+
+      /* addis %r11, %r11, %hi(data)
+	 lwz %r11, %r11, %lo(data)
+	 mtctr %r11
+	 bctr  */
+      write_be32 (dso, plt,  0x3d6b0000 | (((data + 0x8000) >> 16) & 0xffff));
+      write_be32 (dso, plt + 4, 0x816b0000 | (data & 0xffff));
+      write_be32 (dso, plt + 8, 0x7d6903a6);
+      write_be32 (dso, plt + 12, 0x4e800420);
+    }
   return 0;
 }
 
@@ -385,12 +409,11 @@ ppc_reloc_size (int reloc_type)
 {
   switch (reloc_type)
     {
-    case R_PPC_8:
-    case R_PPC_DISP8:
-      return 1;
-    case R_PPC_16:
-    case R_PPC_DISP16:
-    case R_PPC_UA16:
+    case R_PPC_ADDR16:
+    case R_PPC_UADDR16:
+    case R_PPC_ADDR16_LO:
+    case R_PPC_ADDR16_HA:
+    case R_PPC_ADDR16_HI:
       return 2;
     default:
       break;
@@ -432,12 +455,10 @@ PL_ARCH = {
   .reloc_class = ppc_reloc_class,
   .max_reloc_size = 4,
   .arch_prelink = ppc_arch_prelink,
-  /* Although TASK_UNMAPPED_BASE is 0x70000000, we leave some
-     area so that mmap of /etc/ld.so.cache and ld.so's malloc
-     does not take some library's VA slot.
-     Also, if this guard area isn't too small, typically
-     even dlopened libraries will get the slots they desire.  */
-  .mmap_base = 0x71000000LL,
-  .mmap_end =  0x80000000LL,
+  /* This will need some changes in layout.c.
+     PowerPC prefers addresses right below 0x10000000
+     and can use the region above say 0x18000000 if libs don't fit.  */
+  .mmap_base = 0x40000LL,
+  .mmap_end =  0x10000000LL,
   .page_size = 0x10000
 };
