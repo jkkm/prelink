@@ -239,7 +239,6 @@ layout_libs (void)
 		  list->prev->next = list;
 		  list = e;
 		  list->prev->next = NULL;
-		  list->prev = NULL;
 		}
 	      done |= 0x80;
 	      mmap_fin = mmap_end + (mmap_start - mmap_base);

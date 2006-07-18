@@ -147,7 +147,7 @@ sparc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_SPARC_DISP32:
       write_be32 (dso, rela->r_offset, value - rela->r_offset);
       break;
-    case R_SPARC_WDISP32:
+    case R_SPARC_WDISP30:
       write_be32 (dso, rela->r_offset,
 		  (((value - rela->r_offset) >> 2) & 0x3fffffff)
 		  | (read_be32 (dso, rela->r_offset) & 0xc0000000));
@@ -166,10 +166,16 @@ sparc_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 {
   switch (GELF_R_TYPE (rela->r_info))    
     {
-    case R_SPARC_GLOB_DAT:
-    case R_SPARC_REFQUAD:
-    case R_SPARC_JMP_SLOT:
+    case R_SPARC_32:
+    case R_SPARC_UA32:
       buf_write_be32 (buf, rela->r_addend);
+      break;
+    case R_SPARC_16:
+    case R_SPARC_UA16:
+      buf_write_be16 (buf, rela->r_addend);
+      break;
+    case R_SPARC_8:
+      buf_write_8 (buf, rela->r_addend);
       break;
     default:
       abort ();
@@ -191,14 +197,40 @@ sparc_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
 
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
+  value += rela->r_addend;
   switch (GELF_R_TYPE (rela->r_info))    
     {
     case R_SPARC_NONE:
       break;
+    case R_SPARC_DISP32:
+      value -= rela->r_offset;
     case R_SPARC_GLOB_DAT:
-    case R_SPARC_REFQUAD:
-    case R_SPARC_JMP_SLOT:
-      buf_write_be32 (buf, value + rela->r_addend);
+    case R_SPARC_32:
+    case R_SPARC_UA32:
+      buf_write_be32 (buf, value);
+      break;
+    case R_SPARC_DISP16:
+      value -= rela->r_offset;
+    case R_SPARC_16:
+    case R_SPARC_UA16:
+      buf_write_be16 (buf, value);
+      break;
+    case R_SPARC_DISP8:
+      value -= rela->r_offset;
+    case R_SPARC_8:
+      buf_write_8 (buf, value);
+      break;
+    case R_SPARC_LO10:
+      buf_write_32 (buf, (buf_read_ube32 (buf, rela->r_offset) & ~0x3ff)
+			  | (value & 0x3ff));
+      break;
+    case R_SPARC_HI22:
+      buf_write_32 (buf, (buf_read_ube32 (buf, rela->r_offset) & 0xffc00000)
+			  | ((value >> 10) & 0x3fffff));
+      break;
+    case R_SPARC_WDISP30:
+      buf_write_32 (buf, (buf_read_ube32 (buf, rela->r_offset) & 0xc0000000)
+			  | (((value - rela->r_offset) >> 2) & 0x3fffffff));
       break;
     case R_SPARC_RELATIVE:
       error (0, 0, "%s: R_SPARC_RELATIVE in ET_EXEC object?", info->dso->filename);
@@ -224,6 +256,7 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   GElf_Addr value;
   struct prelink_conflict *conflict;
   GElf_Rela *ret;
+  int r_type;
 
   if (GELF_R_TYPE (rela->r_info) == R_SPARC_RELATIVE
       || GELF_R_TYPE (rela->r_info) == R_SPARC_NONE)
@@ -238,23 +271,53 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   if (ret == NULL)
     return 1;
   ret->r_offset = rela->r_offset;
-  ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  value += rela->r_addend;
+  r_type = GELF_R_TYPE (rela->r_info);
+  switch (r_type)    
     {
+    case R_SPARC_DISP32:
+      value -= rela->r_offset;
     case R_SPARC_GLOB_DAT:
-    case R_SPARC_REFQUAD:
-      ret->r_addend = value + rela->r_addend;
+    case R_SPARC_32:
+      r_type = R_SPARC_32;
       break;
+    case R_SPARC_DISP16:
+      value -= rela->r_offset;
+    case R_SPARC_16:
+      r_type = R_SPARC_16;
+      break;
+    case R_SPARC_DISP8:
+      value -= rela->r_offset;
+    case R_SPARC_8:
+      r_type = R_SPARC_8;
+      break;
+    /* Attempt to transform all reloc which read-modify-write into
+       simple writes.  */
+    case R_SPARC_LO10:
+      value = (read_ube32 (dso, rela->r_offset) & ~0x3ff) | (value & 0x3ff);
+      r_type = R_SPARC_32;
+      break;
+    case R_SPARC_HI22:
+      value = (read_ube32 (dso, rela->r_offset) & 0xffc00000)
+	      | ((value >> 10) & 0x3fffff);
+      r_type = R_SPARC_32;
+      break;
+    case R_SPARC_WDISP30:
+      value = (read_ube32 (dso, rela->r_offset) & 0xc0000000)
+	      | (((value - rela->r_offset) >> 2) & 0x3fffffff);
+      r_type = R_SPARC_32;
+      break;
+    case R_SPARC_UA16:
+    case R_SPARC_UA32:
     case R_SPARC_JMP_SLOT:
-      ret->r_addend = value + rela->r_addend;
-      if (sparc_is_indirect_plt (dso, rela, relaaddr))
-	ret->r_info = GELF_R_INFO (0, R_SPARC_GLOB_DAT);
       break;
     default:
       error (0, 0, "%s: Unknown Sparc relocation type %d", dso->filename,
-	     (int) GELF_R_TYPE (rela->r_info));
+	     r_type);
       return 1;
     }
+  ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
+  ret->r_addend = value;
   return 0;
 }
 
@@ -280,6 +343,18 @@ sparc_arch_prelink (DSO *dso)
 static int
 sparc_reloc_size (int reloc_type)
 {
+  switch (reloc_type)
+    {
+    case R_SPARC_8:
+    case R_SPARC_DISP8:
+      return 1;
+    case R_SPARC_16:
+    case R_SPARC_DISP16:
+    case R_SPARC_UA16:
+      return 2;
+    default:
+      break;
+    }
   return 4;
 }
 
@@ -288,6 +363,7 @@ sparc_reloc_class (int reloc_type)
 {
   switch (reloc_type)
     {
+    case R_SPARC_COPY: return RTYPE_CLASS_COPY;
     case R_SPARC_JMP_SLOT: return RTYPE_CLASS_PLT;
     default: return RTYPE_CLASS_VALID;
     }
@@ -315,12 +391,12 @@ PL_ARCH = {
   .reloc_class = sparc_reloc_class,
   .max_reloc_size = 4,
   .arch_prelink = sparc_arch_prelink,
-  /* Although TASK_UNMAPPED_BASE is 0x0000020000000000, we leave some
+  /* Although TASK_UNMAPPED_BASE is 0x70000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc
      does not take some library's VA slot.
      Also, if this guard area isn't too small, typically
      even dlopened libraries will get the slots they desire.  */
-  .mmap_base = 0x0000020001000000LL,
-  .mmap_end =  0x0000020100000000LL,
+  .mmap_base = 0x71000000LL,
+  .mmap_end =  0x80000000LL,
   .page_size = 0x10000
 };

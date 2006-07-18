@@ -9,6 +9,7 @@ AM_INIT_AUTOMAKE([prelink], [0.0])
 ALL_LINGUAS=
 
 AC_PROG_CC
+AC_PROG_CXX
 AC_PROG_CPP
 AC_PROG_GCC_TRADITIONAL
 AM_PROG_LIBTOOL
@@ -61,4 +62,5 @@ AC_OUTPUT([Makefile
 	   gelf/Makefile
 	   m4/Makefile
 	   patches/Makefile
-	   doc/Makefile])
+	   doc/Makefile
+	   testsuite/Makefile])
