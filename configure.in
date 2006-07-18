@@ -51,6 +51,27 @@ AC_SUBST(LIBGELF)
 dnl Now check what kind of libelf we will link against
 AC_CHECK_FUNC(gelf_getvernaux,[newbu=true],[newbu=false])
 
+dnl Check if FTW_ACTIONRETVAL is supported
+AC_CACHE_CHECK([whether FTW_ACTIONRETVAL is supported],
+	       [ac_cv_ftw_actionretval], [dnl
+  AC_EGREP_CPP([FTW supports ACTIONRETVAL], [
+  #ifndef _GNU_SOURCE
+  #define _GNU_SOURCE 1
+  #endif
+  #include <ftw.h>
+  #ifdef FTW_ACTIONRETVAL
+  FTW supports ACTIONRETVAL
+  #endif
+  ], ac_cv_ftw_actionretval=yes, ac_cv_ftw_actionretval=no)])
+if test "x$ac_cv_ftw_actionretval" = xyes; then
+  AC_DEFINE(HAVE_FTW_ACTIONRETVAL, 1,
+	    [Define if FTW_ACTIONRETVAL is supported.])
+fi
+
+dnl SELinux checks
+AC_CHECK_LIB(selinux,is_selinux_enabled)
+AC_CHECK_HEADERS(selinux/selinux.h)
+
 dnl This test must come as early as possible after the compiler configuration
 dnl tests, because the choice of the file model can (in principle) affect
 dnl whether functions and headers are available, whether they work, etc.

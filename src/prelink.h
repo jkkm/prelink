@@ -384,6 +384,8 @@ int prelink_verify (const char *filename);
 int gather_object (const char *dir, int deref, int onefs);
 int gather_config (const char *config);
 int gather_check_libs (void);
+int add_to_blacklist (const char *name, int deref, int onefs);
+int blacklist_from_config (const char *config);
 
 FILE *execve_open (const char *path, char *const argv[], char *const envp[]);
 int execve_close (FILE *f);

@@ -31,10 +31,21 @@
 #include "prelinktab.h"
 #include "reloc.h"
 
+#ifndef HAVE_FTW_ACTIONRETVAL
+# define FTW_ACTIONRETVAL	0
+# define FTW_CONTINUE		0
+# define FTW_STOP		1
+#endif
+
 static int gather_lib (struct prelink_entry *ent);
 static int implicit;
 
-struct prelink_dir *dirs;
+static struct prelink_dir *dirs;
+static struct prelink_dir *blacklist;
+#ifndef HAVE_FTW_ACTIONRETVAL
+static char *blacklist_dir;
+static size_t blacklist_dir_len;
+#endif
 
 static int
 gather_deps (DSO *dso, struct prelink_entry *ent)
@@ -500,6 +511,25 @@ add_dir_to_dirlist (const char *name, dev_t dev, int flags)
     }
 
   len = strlen (canon_name);
+
+  for (dir = blacklist; dir; dir = dir->next)
+    if (((dir->flags != FTW_CHDIR && len >= dir->len)
+	 || (dir->flags == FTW_CHDIR && len == dir->len))
+	&& strncmp (dir->dir, canon_name, dir->len) == 0)
+      {
+	if (dir->flags == FTW_CHDIR)
+	  break;
+	if ((dir->flags & FTW_MOUNT) && dir->dev != dev)
+	  continue;
+	break;
+      }
+
+  if (dir != NULL)
+    {
+      free ((char *) canon_name);
+      return 2;
+    }
+
   dir = malloc (sizeof (struct prelink_dir) + len + 1);
   if (dir == NULL)
     {
@@ -524,6 +554,15 @@ gather_func (const char *name, const struct stat64 *st, int type,
 {
   unsigned char e_ident [EI_NIDENT + 2];
 
+#ifndef HAVE_FTW_ACTIONRETVAL
+  if (blacklist_dir)
+    {
+      if (strncmp (name, blacklist_dir, blacklist_dir_len) == 0)
+	return FTW_CONTINUE;
+      free (blacklist_dir);
+      blacklist_dir = NULL;
+    }
+#endif
   if (type == FTW_F && S_ISREG (st->st_mode) && (st->st_mode & 0111))
     {
       int fd;
@@ -537,18 +576,18 @@ gather_func (const char *name, const struct stat64 *st, int type,
 	      && (ent->type == ET_CACHE_EXEC || ent->type == ET_CACHE_DYN))
 	    printf ("Assuming prelinked %s\n", name);
 	  ent->u.explicit = 1;
-	  return 0;
+	  return FTW_CONTINUE;
 	}
 
       fd = open (name, O_RDONLY);
       if (fd == -1)
-	return 0;
+	return FTW_CONTINUE;
 
       if (read (fd, e_ident, sizeof (e_ident)) != sizeof (e_ident))
 	{
 close_it:
 	  close (fd);
-	  return 0;
+	  return FTW_CONTINUE;
 	}
 
       /* Quickly find ET_EXEC ELF binaries only.  */
@@ -572,14 +611,38 @@ close_it:
 
       dso = fdopen_dso (fd, name);
       if (dso == NULL)
-	return 0;
+	return FTW_CONTINUE;
 
       gather_exec (dso, st);
     }
   else if (type == FTW_D)
-    return add_dir_to_dirlist (name, st->st_dev, FTW_CHDIR);
+    switch (add_dir_to_dirlist (name, st->st_dev, FTW_CHDIR))
+      {
+      case 0: return FTW_CONTINUE;
+      default: return FTW_STOP;
+      case 2:
+#ifdef HAVE_FTW_ACTIONRETVAL
+        return FTW_SKIP_SUBTREE;
+#else
+	{
+	  blacklist_dir_len = strlen (name) + 1;
+	  if (blacklist_dir_len > 1 && name[blacklist_dir_len - 2] == '/')
+	    blacklist_dir_len--;
+	  blacklist_dir = malloc (blacklist_dir_len + 1);
+	  if (blacklist_dir == NULL)
+	    {
+	      error (0, ENOMEM, "Cannot store blacklisted dir name");
+	      return FTW_STOP;
+	    }
+	  memcpy (blacklist_dir, name, blacklist_dir_len - 1);
+	  blacklist_dir[blacklist_dir_len - 1] = '/';
+	  blacklist_dir[blacklist_dir_len] = '\0';
+	  return FTW_CONTINUE;
+	}
+#endif
+      }
 
-  return 0;
+  return FTW_CONTINUE;
 }
 
 static int
@@ -705,14 +768,21 @@ gather_object (const char *name, int deref, int onefs)
       if (! deref) flags |= FTW_PHYS;
       if (onefs) flags |= FTW_MOUNT;
 
-      if (implicit && ! deref
-	  && add_dir_to_dirlist (name, st.st_dev, flags))
-	return 1;
+      if (implicit && ! deref)
+	{
+	  ret = add_dir_to_dirlist (name, st.st_dev, flags);
+	  if (ret)
+	    return ret == 2 ? 0 : 1;
+	}
       if (!all && implicit && ! deref)
 	return 0;
       ++implicit;
-      ret = nftw64 (name, gather_func, 20, flags);
+      ret = nftw64 (name, gather_func, 20, flags | FTW_ACTIONRETVAL);
       --implicit;
+#ifndef HAVE_FTW_ACTIONRETVAL
+      free (blacklist_dir);
+      blacklist_dir = NULL;
+#endif
       return ret;
     }
   else
@@ -759,6 +829,7 @@ gather_config (const char *config)
 	    {
 	    case 'h': deref = 1; break;
 	    case 'l': onefs = 1; break;
+	    case 'b': *p = '\0'; continue;
 	    default:
 	      error (0, 0, "Unknown directory option `%s'\n", p);
 	      break;
@@ -828,6 +899,26 @@ gather_check_lib (void **p, void *info)
 	name = e->canon_filename;
       len = name - e->canon_filename;
 
+      for (dir = blacklist; dir; dir = dir->next)
+	if (((dir->flags != FTW_CHDIR && len >= dir->len)
+	     || (dir->flags == FTW_CHDIR && len == dir->len))
+	    && strncmp (dir->dir, e->canon_filename, dir->len) == 0)
+	  {
+	    if (dir->flags == FTW_CHDIR)
+	      break;
+	    if ((dir->flags & FTW_MOUNT) && dir->dev != e->dev)
+	      continue;
+	    break;
+	  }
+
+      if (dir != NULL)
+	{
+	  error (0, 0, "%s is presnet in a blacklisted directory %s",
+		 e->canon_filename, dir->dir);
+	  e->type = ET_BAD;
+	  return 1;
+	}
+
       for (dir = dirs; dir; dir = dir->next)
 	if (((dir->flags != FTW_CHDIR && len >= dir->len)
 	     || (dir->flags == FTW_CHDIR && len == dir->len))
@@ -868,6 +959,163 @@ gather_check_libs (void)
       free (f);
     }
 
+  dir = blacklist;
+  while (dir != NULL)
+    {
+      f = dir;
+      dir = dir->next;
+      free (f);
+    }
+
   dirs = NULL;
+  blacklist = NULL;
   return 0;
+}
+
+int
+add_to_blacklist (const char *name, int deref, int onefs)
+{
+  const char *canon_name;
+  struct prelink_dir *path;
+  size_t len;
+  struct stat64 st;
+
+  if (stat64 (name, &st) < 0)
+    {
+      if (implicit)
+	return 0;
+      error (0, errno, "Could not stat %s", name);
+      return 1;
+    }
+
+  if (!S_ISDIR (st.st_mode))
+    {
+      struct prelink_entry *ent;
+
+      ent = prelink_find_entry (name, &st, 1);
+      if (ent == NULL)
+	return 1;
+
+      ent->type = ET_BAD;
+      ent->u.explicit = 1;
+      return 0;
+    }
+
+  canon_name = canonicalize_file_name (name);
+  if (canon_name == NULL)
+    {
+      if (implicit)
+	return 0;
+      error (0, errno, "Could not canonicalize %s", name);
+      return 1;
+    }
+
+  len = strlen (canon_name);
+  path = malloc (sizeof (struct prelink_dir) + len + 1);
+  if (path == NULL)
+    {
+      error (0, ENOMEM, "Could not record path %s", name);
+      free ((char *) canon_name);
+      return 1;
+    }
+
+  path->next = blacklist;
+  path->flags = 0;
+  if (! deref) path->flags |= FTW_PHYS;
+  if (onefs) path->flags |= FTW_MOUNT;
+  path->dev = 0;
+  path->len = len;
+  strcpy (path->dir, canon_name);
+  free ((char *) canon_name);
+  blacklist = path;
+  return 0;
+}
+
+int
+blacklist_from_config (const char *config)
+{
+  FILE *file = fopen (config, "r");
+  char *line = NULL;
+  size_t len;
+  int ret = 0;
+
+  if (file == NULL)
+    {
+      error (0, errno, "Can't open configuration file %s", config);
+      return 1;
+    }
+
+  implicit = 1;
+  do
+    {
+      ssize_t i = getline (&line, &len, file);
+      int deref = 0;
+      int onefs = 0;
+      int blacklist = 0;
+      char *p;
+
+      if (i < 0)
+	break;
+
+      if (line[i - 1] == '\n')
+	line[i - 1] = '\0';
+
+      p = strchr (line, '#');
+      if (p != NULL)
+	*p = '\0';
+
+      p = line + strspn (line, " \t");
+
+      while (*p == '-')
+	{
+	  switch (p[1])
+	    {
+	    case 'h': deref = 1; break;
+	    case 'l': onefs = 1; break;
+	    case 'b': blacklist = 1; break;
+	    }
+	  p = p + 2 + strspn (p + 2, " \t");
+	}
+
+      if (*p == '\0' || !blacklist)
+	continue;
+
+      if (strpbrk (p, "*?[{") == NULL)
+	{
+	  ret = add_to_blacklist (p, deref, onefs);
+	  if (ret)
+	    {
+	      ret = 1;
+	      break;
+	    }
+	}
+      else
+	{
+	  glob_t g;
+
+	  if (!glob (p, GLOB_BRACE, NULL, &g))
+	    {
+	      size_t n;
+
+	      for (n = 0; n < g.gl_pathc; ++n)
+		{
+		  ret = add_to_blacklist (g.gl_pathv[n], deref, onefs);
+		  if (ret)
+		    {
+		      ret = 1;
+		      break;
+		    }
+		}
+
+	      globfree (&g);
+	      if (ret)
+		break;
+	    }
+	}
+    } while (!feof (file));
+
+  free (line);
+  fclose (file);
+  implicit = 0;
+  return ret;
 }

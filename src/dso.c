@@ -28,6 +28,11 @@
 #include <utime.h>
 #include "prelink.h"
 
+#if defined HAVE_LIBSELINUX && defined HAVE_SELINUX_SELINUX_H
+#include <selinux/selinux.h>
+#define USE_SELINUX
+#endif
+
 #define RELOCATE_SCN(shf) \
   ((shf) & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR))
 
@@ -704,6 +709,30 @@ reopen_dso (DSO *dso, struct section_move *move)
   char *e_ident;
   int fd, i, j;
 
+#ifdef USE_SELINUX
+  static int selinux_enabled = -1;
+  if (selinux_enabled == -1)
+    selinux_enabled = is_selinux_enabled ();
+  if (selinux_enabled)
+    {
+      security_context_t scontext;
+      if (getfilecon (dso->filename, &scontext) < 0)
+	{
+	  error (0, errno, "Could not get security context for %s",
+		 dso->filename);
+	  return 1;
+	}
+      if (setfscreatecon (scontext) < 0)
+	{
+	  error (0, errno, "Could not set security context for %s",
+		 dso->filename);
+	  freecon (scontext);
+	  return 1;
+	}
+      freecon (scontext);
+    }
+#endif
+
   if (move == NULL)
     {
       move = init_section_move (dso);
@@ -734,6 +763,11 @@ reopen_dso (DSO *dso, struct section_move *move)
 	  goto error_out;
 	}
     }
+
+#ifdef USE_SELINUX
+  if (selinux_enabled)
+    setfscreatecon (NULL);
+#endif
 
   elf = elf_begin (fd, ELF_C_WRITE, NULL);
   if (elf == NULL)

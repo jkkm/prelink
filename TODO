@@ -1,3 +1,4 @@
+- sparse files
 - security audit:
   - should we only limit prelinking in non-world writeable directories
 - more ports

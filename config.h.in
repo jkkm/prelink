@@ -3,14 +3,23 @@
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #undef HAVE_DLFCN_H
 
+/* Define if FTW_ACTIONRETVAL is supported. */
+#undef HAVE_FTW_ACTIONRETVAL
+
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
 /* Define to 1 if you have the `elf' library (-lelf). */
 #undef HAVE_LIBELF
 
+/* Define to 1 if you have the `selinux' library (-lselinux). */
+#undef HAVE_LIBSELINUX
+
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
+
+/* Define to 1 if you have the <selinux/selinux.h> header file. */
+#undef HAVE_SELINUX_SELINUX_H
 
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H

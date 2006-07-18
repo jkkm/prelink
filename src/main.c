@@ -80,6 +80,7 @@ static char argp_doc[] = "prelink -- program to relocate and prelink ELF shared 
 
 static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
+  {"black-list",	'b', "PATH", 0, "Blacklist path" },
   {"cache-file",	'C', "CACHE", 0, "Use CACHE as cache file" },
   {"config-file",	'c', "CONF", 0, "Use CONF as configuration file" },
   {"force",		'f', 0, 0,  "Force prelinking" },
@@ -122,6 +123,10 @@ parse_opt (int key, char *arg, struct argp_state *state)
     {
     case 'a':
       all = 1;
+      break;
+    case 'b':
+      if (add_to_blacklist (arg, dereference, one_file_system))
+	exit (EXIT_FAILURE);
       break;
     case 'f':
       force = 1;
@@ -236,9 +241,11 @@ main (int argc, char *argv[])
   if (! access ("/proc/sys/kernel/exec-shield", F_OK))
     exec_shield = 1;
 
-  argp_parse (&argp, argc, argv, 0, &remaining, 0);
+  prelink_init_cache ();
 
   elf_version (EV_CURRENT);
+
+  argp_parse (&argp, argc, argv, 0, &remaining, 0);
 
   if (ld_library_path == NULL)
     ld_library_path = getenv ("LD_LIBRARY_PATH");
@@ -253,8 +260,6 @@ main (int argc, char *argv[])
     error (EXIT_FAILURE, 0, "--dry-run and --verify options are incompatible");
   if ((undo || verify) && quick)
     error (EXIT_FAILURE, 0, "--undo and --quick options are incompatible"); 
-
-  prelink_init_cache ();
 
   if (print_cache)
     {
@@ -363,6 +368,9 @@ main (int argc, char *argv[])
 
       return failures;
     }
+
+  if (blacklist_from_config (prelink_conf))
+    return EXIT_FAILURE;
 
   if (quick)
     prelink_load_cache ();
