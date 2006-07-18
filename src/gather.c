@@ -38,7 +38,7 @@ struct prelink_dir *dirs;
 static int
 gather_deps (DSO *dso, struct prelink_entry *ent)
 {
-  int i, seen = 0;
+  int i, j, seen = 0;
   FILE *f = NULL;
   const char *argv[5];
   const char *envp[4];
@@ -240,6 +240,14 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
     if (ent->depends[i]->type == ET_NONE
 	&& gather_lib (ent->depends[i]))
       goto error_out;
+
+  for (i = 0; i < ndepends; ++i)
+    for (j = 0; j < ent->depends[i]->ndepends; ++j)
+      if (ent->depends[i]->depends[j] == ent)
+	{
+	  error (0, 0, "%s has dependency cycle", ent->canon_filename);
+	  goto error_out;
+	}
 
   if (! undo && (!nliblist || liblist) && nliblist == ndepends)
     {

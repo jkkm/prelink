@@ -196,7 +196,8 @@ ppc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       write_be32 (dso, rela->r_offset,
 		  (value & 0xfffc)
 		  | (read_ube32 (dso, rela->r_offset) & 0xffdf0003)
-		  | (((GELF_R_TYPE (rela->r_info) == R_PPC_ADDR14_BRTAKEN)
+		  | ((((GELF_R_TYPE (rela->r_info) == R_PPC_ADDR14_BRTAKEN)
+		       << 21)
 		      ^ (value >> 10)) & 0x00200000));
       break;
     case R_PPC_REL24:
@@ -324,8 +325,8 @@ ppc_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
     case R_PPC_ADDR14_BRNTAKEN:
       buf_write_be32 (buf, (value & 0xfffc)
 			   | (buf_read_ube32 (buf) & 0xffdf0003)
-			   | (((GELF_R_TYPE (rela->r_info)
-				== R_PPC_ADDR14_BRTAKEN)
+			   | ((((GELF_R_TYPE (rela->r_info)
+				 == R_PPC_ADDR14_BRTAKEN) << 21)
 			       ^ (value >> 10)) & 0x00200000));
       break;
     case R_PPC_REL24:
@@ -450,7 +451,7 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       r_type = R_PPC_ADDR32;
       value = (value & 0xfffc)
 	      | (read_ube32 (dso, rela->r_offset) & 0xffdf0003)
-	      | (((r_type == R_PPC_ADDR14_BRTAKEN)
+	      | ((((r_type == R_PPC_ADDR14_BRTAKEN) << 21)
 		  ^ (value >> 10)) & 0x00200000);
       break;
     case R_PPC_REL24:

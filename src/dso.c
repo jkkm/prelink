@@ -177,23 +177,29 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
 int
 check_dso (DSO *dso)
 {
-  int i;
+  int i, last = 1;
 
   /* FIXME: Several routines in prelink and in libelf-0.7.0 too
      rely on sh_offset's monotonically increasing.  */
   for (i = 2; i < dso->ehdr.e_shnum; ++i)
-    if (dso->shdr[i - 1].sh_offset
-	+ (dso->shdr[i - 1].sh_type == SHT_NOBITS
-	   ? 0 : dso->shdr[i - 1].sh_size) > dso->shdr[i].sh_offset)
-      {
-	if (dso->permissive
-	    && ! RELOCATE_SCN (dso->shdr[i - 1].sh_flags)
-	    && ! RELOCATE_SCN (dso->shdr[i].sh_flags))
-	  continue;
-	error (0, 0, "%s: section file offsets not monotonically increasing",
-	       dso->filename);
-	return 1;
-      }
+    {
+      if (dso->shdr[last].sh_offset
+	  + (dso->shdr[last].sh_type == SHT_NOBITS
+	     ? 0 : dso->shdr[last].sh_size) > dso->shdr[i].sh_offset)
+	{
+	  if (!dso->permissive
+	      || RELOCATE_SCN (dso->shdr[last].sh_flags)
+	      || RELOCATE_SCN (dso->shdr[i].sh_flags))
+	    {
+	      error (0, 0, "%s: section file offsets not monotonically increasing",
+		     dso->filename);
+	      return 1;
+	    }
+	}
+      if (!dso->permissive
+	  || (dso->shdr[i].sh_type != SHT_NOBITS && dso->shdr[i].sh_size != 0))
+	last = i;
+    }
   return 0;
 }
 
@@ -241,6 +247,7 @@ fdopen_dso (int fd, const char *name)
 {
   Elf *elf = NULL;
   GElf_Ehdr ehdr;
+  GElf_Addr last_off;
   int i, j, k, last, *sections, *invsections;
   DSO *dso = NULL;
   struct PLArch *plarch;
@@ -353,6 +360,7 @@ fdopen_dso (int fd, const char *name)
       memcpy (dso->move->new_to_old, sections, dso->ehdr.e_shnum * sizeof (int));
     }
 
+  last_off = 0;
   for (i = 1; i < ehdr.e_shnum; ++i)
     {
       if (dso->shdr[i].sh_link >= ehdr.e_shnum)
@@ -374,6 +382,38 @@ fdopen_dso (int fd, const char *name)
 	    }
 	  dso->shdr[i].sh_info = invsections[dso->shdr[i].sh_info];
 	}
+	
+      /* Some linkers mess up sh_offset fields for empty or nobits
+	 sections.  */
+      if (RELOCATE_SCN (dso->shdr[i].sh_flags)
+	  && (dso->shdr[i].sh_size == 0
+	      || dso->shdr[i].sh_type == SHT_NOBITS))
+	{
+	  for (j = i + 1; j < ehdr.e_shnum; ++j)
+	    if (! RELOCATE_SCN (dso->shdr[j].sh_flags))
+	      break;
+	    else if (dso->shdr[j].sh_size != 0
+		     && dso->shdr[j].sh_type != SHT_NOBITS)
+	      break;
+	  dso->shdr[i].sh_offset = (last_off + dso->shdr[i].sh_addralign - 1)
+				   & ~(dso->shdr[i].sh_addralign - 1);
+	  if (j < ehdr.e_shnum
+	      && dso->shdr[i].sh_offset > dso->shdr[j].sh_offset)
+	    {
+	      GElf_Addr k;
+
+	      for (k = dso->shdr[i].sh_addralign - 1; k; )
+		{
+		  k >>= 1;
+		  dso->shdr[i].sh_offset = (last_off + k) & ~k;
+		  if (dso->shdr[i].sh_offset <= dso->shdr[j].sh_offset)
+		    break;
+		}
+	    }
+	  last_off = dso->shdr[i].sh_offset;
+	}
+      else
+	last_off = dso->shdr[i].sh_offset + dso->shdr[i].sh_size;
     }
   dso->ehdr.e_shstrndx = invsections[dso->ehdr.e_shstrndx];
 
