@@ -112,6 +112,8 @@ echo is present in prelink.conf.
 exit 0
 EOF
 chmod 755 quick2.tree/usr/bin/bin11.script
+echo 'int main () { return 0; }' \
+  | $CCLINK -o quick2.tree/usr/bin/bin12 -pie -fPIE -xc - -xnone
 cat > quick2.tree/etc/prelink.conf <<EOF
 -b *.sh
 -b *.py
@@ -217,20 +219,21 @@ L=quick2.tree/usr/lib/lib
 L1=${L}1.so; L2=${L}2.so; L3=${L}3.so; L4=${L}4.so
 L5=${L}5.so; L6=${L}6.so; L7=${L}7.so
 B=quick2.tree/usr/bin/bin
-B1=${B}1; B2=${B}2; B3=${B}3; B4=${B}4; B5=${B}5; B6=${B}6; B7=${B}7; B8=${B}8
+B1=${B}1; B2=${B}2; B3=${B}3; B4=${B}4; B5=${B}5
+B6=${B}6; B7=${B}7; B8=${B}8; B12=${B}12
 SL=`grep -f syslib.list quick2.tree/etc/log1 \
     | sed -n '/^Prelinking/s|^.*\(quick2.tree/lib/\)|\1|p'`
 CHECK_E="$B1 $B2 $B4 $B6"; CHECKE="$CHECK_E $B3 $B5 $B7"
 CHECKL="$SL $L1 $L2 $L4 $L5 $L6 $L7"; PREL="$CHECK_E $CHECKL"; ASSUME=""; UNPREL=""
 check_log quick2.tree/etc/log1
 CHECKE=""; CHECKL=""; PREL=""; ASSUME="$B1 $B2 $B4 $B6 $SL $L1 $L2 $L4 $L5 $L6"
-UNPREL="$B3 $B5 $B7 $B8 $L7"
+UNPREL="$B3 $B5 $B7 $B8 $B12 $L7"
 check_log quick2.tree/etc/log2
-CHECKE="$B1 $B3 $B4 $B5 $B6"; CHECKL="$SL $L1 $L2 $L5 $L6 $L7"; PREL="$L7"; ASSUME="$B2 $L4"; UNPREL="$B7 $B8"
+CHECKE="$B1 $B3 $B4 $B5 $B6"; CHECKL="$SL $L1 $L2 $L5 $L6 $L7"; PREL="$L7"; ASSUME="$B2 $L4"; UNPREL="$B7 $B8 $B12"
 check_log quick2.tree/etc/log3
-CHECKE=""; CHECKL=""; PREL=""; ASSUME="$B1 $B2 $B4 $B6 $SL $L1 $L2 $L4 $L5 $L6"; UNPREL="$B3 $B5 $B7 $B8 $L7"
+CHECKE=""; CHECKL=""; PREL=""; ASSUME="$B1 $B2 $B4 $B6 $SL $L1 $L2 $L4 $L5 $L6"; UNPREL="$B3 $B5 $B7 $B8 $B12 $L7"
 check_log quick2.tree/etc/log4
-CHECKE="$B1 $B3 $B4 $B5 $B6"; CHECKL="$SL $L1 $L2 $L3 $L5 $L7 $L7"; PREL="$B1 $B3 $B4 $B5 $B6 $L2 $L3 $L5 $L6 $L7"; ASSUME="$B2 $L4"; UNPREL="$B7 $B8"
+CHECKE="$B1 $B3 $B4 $B5 $B6"; CHECKL="$SL $L1 $L2 $L3 $L5 $L7 $L7"; PREL="$B1 $B3 $B4 $B5 $B6 $L2 $L3 $L5 $L6 $L7"; ASSUME="$B2 $L4"; UNPREL="$B7 $B8 $B12"
 check_log quick2.tree/etc/log5
 BINS="$B1 $B2 $B3 $B4 $B5 $B6"
 LIBS="$SL $L1 $L2 $L3 $L4 $L5 $L6 $L7 $L2.old"

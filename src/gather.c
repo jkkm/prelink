@@ -23,6 +23,7 @@
 #include <fnmatch.h>
 #include <ftw.h>
 #include <glob.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -283,12 +284,12 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	{
 	  error (0, 0, "%s is not a shared library", depends [i]);
 error_out_regather_libs:
-          for (i = 0; i < ndepends; ++i)
-            {
-              if (cache_dyn_depends[i] && ent->depends[i]->type == ET_NONE)
-                gather_lib (ent->depends[i]);
-            }
-          goto error_out_free_depends;
+	  for (i = 0; i < ndepends; ++i)
+	    {
+	      if (cache_dyn_depends[i] && ent->depends[i]->type == ET_NONE)
+		gather_lib (ent->depends[i]);
+	    }
+	  goto error_out_free_depends;
 	}
     }
 
@@ -299,8 +300,8 @@ error_out_regather_libs:
     if (ent->depends[i]->type == ET_NONE
 	&& gather_lib (ent->depends[i]))
       {
-        cache_dyn_depends[i] = 0;
-        goto error_out_regather_libs;
+	cache_dyn_depends[i] = 0;
+	goto error_out_regather_libs;
       }
 
   for (i = 0; i < ndepends; ++i)
@@ -621,7 +622,7 @@ static int
 gather_func (const char *name, const struct stat64 *st, int type,
 	     struct FTW *ftwp)
 {
-  unsigned char e_ident [EI_NIDENT + 2];
+  unsigned char e_ident [sizeof (Elf64_Ehdr) + sizeof (Elf64_Phdr)];
 
 #ifndef HAVE_FTW_ACTIONRETVAL
   if (blacklist_dir)
@@ -687,7 +688,7 @@ close_it:
 	  return FTW_CONTINUE;
 	}
 
-      /* Quickly find ET_EXEC ELF binaries only.  */
+      /* Quickly find ET_EXEC ELF binaries and most of PIE binaries.  */
 
       if (memcmp (e_ident, ELFMAG, SELFMAG) != 0)
 	{
@@ -708,21 +709,102 @@ make_unprelinkable:
       switch (e_ident [EI_DATA])
 	{
 	case ELFDATA2LSB:
-	  if (e_ident [EI_NIDENT] != ET_EXEC || e_ident [EI_NIDENT + 1] != 0)
+	  if (e_ident [EI_NIDENT + 1] != 0)
+	    goto make_unprelinkable;
+	  if (e_ident [EI_NIDENT] != ET_EXEC)
 	    {
 	      if (e_ident [EI_NIDENT] != ET_DYN)
 		goto make_unprelinkable;
+	      else if (e_ident [EI_CLASS] == ELFCLASS32)
+		{
+		  if (e_ident [offsetof (Elf32_Ehdr, e_phoff)]
+		      == sizeof (Elf32_Ehdr)
+		      && memcmp (e_ident + offsetof (Elf32_Ehdr, e_phoff) + 1,
+				 "\0\0\0", 3) == 0
+		      && (e_ident [offsetof (Elf32_Ehdr, e_phnum)]
+			  || e_ident [offsetof (Elf32_Ehdr, e_phnum) + 1])
+		      && e_ident [sizeof (Elf32_Ehdr)
+				  + offsetof (Elf32_Phdr, p_type)] == PT_PHDR
+		      && memcmp (e_ident + sizeof (Elf32_Ehdr)
+				 + offsetof (Elf32_Phdr, p_type) + 1,
+				 "\0\0\0", 3) == 0)
+		    {
+maybe_pie:
+		      dso = fdopen_dso (fd, name);
+		      if (dso == NULL)
+			goto close_it;
+		      if (dynamic_info_is_set (dso, DT_DEBUG))
+			{
+			  close_dso (dso);
+			  goto make_unprelinkable;
+			}
+		      close_dso (dso);
+		    }
+		  goto close_it;
+		}
+	      else if (e_ident [EI_CLASS] == ELFCLASS64)
+		{
+		  if (e_ident [offsetof (Elf64_Ehdr, e_phoff)]
+		      == sizeof (Elf64_Ehdr)
+		      && memcmp (e_ident + offsetof (Elf64_Ehdr, e_phoff) + 1,
+				 "\0\0\0\0\0\0\0", 7) == 0
+		      && (e_ident [offsetof (Elf64_Ehdr, e_phnum)]
+			  || e_ident [offsetof (Elf64_Ehdr, e_phnum) + 1])
+		      && e_ident [sizeof (Elf64_Ehdr)
+				  + offsetof (Elf64_Phdr, p_type)] == PT_PHDR
+		      && memcmp (e_ident + sizeof (Elf64_Ehdr)
+				 + offsetof (Elf64_Phdr, p_type) + 1,
+				 "\0\0\0", 3) == 0)
+		    goto maybe_pie;
+		  goto close_it;
+		}
 	      else
-		goto close_it;
+		goto make_unprelinkable;
 	    }
 	  break;
 	case ELFDATA2MSB:
-	  if (e_ident [EI_NIDENT + 1] != ET_EXEC || e_ident [EI_NIDENT] != 0)
+	  if (e_ident [EI_NIDENT] != 0)
+	    goto make_unprelinkable;
+	  if (e_ident [EI_NIDENT + 1] != ET_EXEC)
 	    {
 	      if (e_ident [EI_NIDENT + 1] != ET_DYN)
 		goto make_unprelinkable;
+	      else if (e_ident [EI_CLASS] == ELFCLASS32)
+		{
+		  if (e_ident [offsetof (Elf32_Ehdr, e_phoff) + 3]
+		      == sizeof (Elf32_Ehdr)
+		      && memcmp (e_ident + offsetof (Elf32_Ehdr, e_phoff),
+				 "\0\0\0", 3) == 0
+		      && (e_ident [offsetof (Elf32_Ehdr, e_phnum)]
+			  || e_ident [offsetof (Elf32_Ehdr, e_phnum) + 1])
+		      && e_ident [sizeof (Elf32_Ehdr)
+				  + offsetof (Elf32_Phdr, p_type) + 3]
+			 == PT_PHDR
+		      && memcmp (e_ident + sizeof (Elf32_Ehdr)
+				 + offsetof (Elf32_Phdr, p_type),
+				 "\0\0\0", 3) == 0)
+		    goto maybe_pie;
+		  goto close_it;
+		}
+	      else if (e_ident [EI_CLASS] == ELFCLASS64)
+		{
+		  if (e_ident [offsetof (Elf64_Ehdr, e_phoff) + 7]
+		      == sizeof (Elf64_Ehdr)
+		      && memcmp (e_ident + offsetof (Elf64_Ehdr, e_phoff),
+				 "\0\0\0\0\0\0\0", 7) == 0
+		      && (e_ident [offsetof (Elf64_Ehdr, e_phnum)]
+			  || e_ident [offsetof (Elf64_Ehdr, e_phnum) + 1])
+		      && e_ident [sizeof (Elf64_Ehdr)
+				  + offsetof (Elf64_Phdr, p_type) + 3]
+			 == PT_PHDR
+		      && memcmp (e_ident + sizeof (Elf64_Ehdr)
+				 + offsetof (Elf64_Phdr, p_type),
+				 "\0\0\0", 3) == 0)
+		    goto maybe_pie;
+		  goto close_it;
+		}
 	      else
-		goto close_it;
+		goto make_unprelinkable;
 	    }
 	  break;
 	default:
