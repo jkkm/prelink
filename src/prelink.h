@@ -43,6 +43,7 @@
 #define SHT_GNU_LIBLIST		0x6ffffff7
 #endif
 
+struct prelink_entry;
 struct prelink_info;
 struct PLArch;
 struct opd_lib;
@@ -110,6 +111,7 @@ struct PLArch
   int R_COPY;
   int R_JMP_SLOT;
   int R_RELATIVE;
+  int (*adjust_section) (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
   int (*adjust_dyn) (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		     GElf_Addr adjust);
   int (*adjust_rel) (DSO *dso, GElf_Rel *rel, GElf_Addr start,
@@ -133,6 +135,8 @@ struct PLArch
   int (*need_rel_to_rela) (DSO *dso, int first, int last);
   GElf_Addr (*create_opd) (struct prelink_info *info, int first, int last,
 			   int plt);
+  int (*read_opd) (DSO *dso, struct prelink_entry *ent);
+  int (*free_opd) (struct prelink_entry *ent);
   /* Return reloc size in bytes for given non-COPY reloc type.  */
   int (*reloc_size) (int);
 #define RTYPE_CLASS_VALID	8

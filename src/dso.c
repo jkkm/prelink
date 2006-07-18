@@ -211,6 +211,31 @@ open_dso (const char *name)
   return fdopen_dso (fd, name);
 }
 
+/* WARNING: If prelink is ever multi-threaded, this will not work
+   Other alternatives are:
+   1) make section_cmp nested function - trampolines
+      vs. non-exec stack needs to be resolved for it though
+   2) make the variable __thread
+   3) use locking around the qsort
+ */
+static DSO *section_cmp_dso;
+
+static int
+section_cmp (const void *A, const void *B)
+{
+  int *a = (int *) A;
+  int *b = (int *) B;
+  DSO *dso = section_cmp_dso;
+
+  if (dso->shdr[*a].sh_offset < dso->shdr[*b].sh_offset)
+    return -1;
+  if (dso->shdr[*a].sh_offset > dso->shdr[*b].sh_offset)
+    return 1;
+  if (*a < *b)
+    return -1;
+  return *a > *b;
+}
+
 DSO *
 fdopen_dso (int fd, const char *name)
 {
@@ -220,20 +245,6 @@ fdopen_dso (int fd, const char *name)
   DSO *dso = NULL;
   struct PLArch *plarch;
   extern struct PLArch __start_pl_arch[], __stop_pl_arch[];
-
-  int section_cmp (const void *A, const void *B)
-    {
-      int *a = (int *) A;
-      int *b = (int *) B;
-
-      if (dso->shdr[*a].sh_offset < dso->shdr[*b].sh_offset)
-	return -1;
-      if (dso->shdr[*a].sh_offset > dso->shdr[*b].sh_offset)
-	return 1;
-      if (*a < *b)
-	return -1;
-      return *a > *b;
-    }
 
   elf = elf_begin (fd, ELF_C_READ, NULL);
   if (elf == NULL)
@@ -318,6 +329,7 @@ fdopen_dso (int fd, const char *name)
       sections[--k] = i;
   assert (j == k);
 
+  section_cmp_dso = dso;
   qsort (sections + k, dso->ehdr.e_shnum - k, sizeof (*sections), section_cmp);
   invsections = sections + dso->ehdr.e_shnum;
   invsections[0] = 0;
@@ -1181,6 +1193,15 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
     {
       const char *name;
 
+      if (dso->arch->adjust_section)
+	{
+	  int ret = dso->arch->adjust_section (dso, i, start, adjust);
+
+	  if (ret == 1)
+	    return 1;
+	  else if (ret)
+	    continue;
+	}
       switch (dso->shdr[i].sh_type)
 	{
 	case SHT_PROGBITS:

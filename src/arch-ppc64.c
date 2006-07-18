@@ -1,4 +1,4 @@
-/* Copyright (C) 2002 Red Hat, Inc.
+/* Copyright (C) 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2002.
 
    This program is free software; you can redistribute it and/or modify
@@ -29,26 +29,43 @@
 #include "prelink.h"
 #include "layout.h"
 
+struct opd_rec
+{
+  GElf_Addr fn, toc, chain;
+};
+
+struct opd_lib
+{
+  GElf_Addr start, size;
+  struct opd_rec table[1];
+};
+
+static int
+ppc64_adjust_section (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
+{
+  if (dso->shdr[n].sh_type == SHT_PROGBITS
+      && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			   dso->shdr[n].sh_name), ".got"))
+    {
+      Elf64_Addr data;
+
+      /* .got[0]-0x8000 points to .got, it needs to be adjusted.  */
+      data = read_ube64 (dso, dso->shdr[n].sh_addr);
+      if (addr_to_sec (dso, data - 0x8000) == n
+	  && data - 0x8000 == dso->shdr[n].sh_addr)
+	write_be64 (dso, dso->shdr[n].sh_addr, data + adjust);
+    }
+  return 0;
+}
+
 static int
 ppc64_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		 GElf_Addr adjust)
 {
-  if (dyn->d_tag == DT_PLTGOT)
+  if (dyn->d_tag == DT_PPC64_GLINK && dyn->d_un.d_ptr >= start)
     {
-      int i;
-
-      for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-			      dso->shdr[i].sh_name), ".got"))
-	  {
-	    Elf64_Addr data;
-
-	    data = read_ube64 (dso, dso->shdr[i].sh_addr);
-	    /* .got[0] points to .toc, it needs to be adjusted.  */
-	    if (data >= start)
-	      write_be64 (dso, dso->shdr[i].sh_addr, data + adjust);
-	    break;
-	  }
+      dyn->d_un.d_ptr += adjust;
+      return 1;
     }
 
   return 0;
@@ -68,6 +85,10 @@ ppc64_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 {
   if (GELF_R_TYPE (rela->r_info) == R_PPC64_RELATIVE)
     {
+      GElf_Addr val = read_ube64 (dso, rela->r_offset);
+
+      if (val == rela->r_addend && val >= start)
+	write_be64 (dso, rela->r_offset, val + adjust);
       if (rela->r_addend >= start)
 	rela->r_addend += adjust;
     }
@@ -82,55 +103,49 @@ ppc64_prelink_rel (struct prelink_info *info, GElf_Rel *rel,
   return 1;
 }
 
-static void
-ppc64_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr value)
+static int
+ppc64_fixup_plt (struct prelink_info *info, GElf_Rela *rela, GElf_Addr value)
 {
-XXX
-  Elf32_Sword disp = value - rela->r_offset;
+  DSO *dso = info->dso;
+  int sec, i;
+  size_t n;
+  struct opd_rec rec;
 
-  if (disp >= -0x2000000 && disp < 0x2000000)
+  sec = addr_to_sec (dso, value);
+  if (sec != -1)
     {
-      /* b value  */
-      write_be32 (dso, rela->r_offset, 0x48000000 | (disp & 0x3fffffc));
-    }
-  else if ((Elf32_Addr) value >= -0x2000000 || value < 0x2000000)
-    {
-      /* ba value  */
-      write_be32 (dso, rela->r_offset, 0x48000002 | (value & 0x3fffffc));
+      rec.fn = read_ube64 (dso, value);
+      rec.toc = read_ube64 (dso, value + 8);
+      rec.chain = read_ube64 (dso, value + 16);
     }
   else
     {
-      Elf32_Addr plt = dso->info[DT_PLTGOT];
+      for (i = 0; i < info->ent->ndepends; ++i)
+	if (info->ent->depends[i]->opd
+	    && info->ent->depends[i]->opd->start <= value
+	    && (info->ent->depends[i]->opd->start
+	        + info->ent->depends[i]->opd->size) > value)
+	break;
 
-      if (rela->r_offset - plt < (8192 * 2 + 18) * 4)
+      if (i == info->ent->ndepends)
 	{
-	  Elf32_Word index = (rela->r_offset - plt - 18 * 4) / (4 * 2);
-	  Elf32_Word count = dso->info[DT_PLTRELSZ] / sizeof (Elf32_Rela);
-	  Elf32_Addr data;
-
-	  data = plt + (18 + 2 * count
-			+ (count > 8192 ? (count - 8192) * 2 : 0)) * 4;
-	  write_be32 (dso, data + 4 * index, value);
-	  /* li %r11, 4*index
-	     b .plt+0  */
-	  write_be32 (dso, rela->r_offset,
-		      0x39600000 | ((index * 4) & 0xffff));
-	  write_be32 (dso, rela->r_offset + 4,
-		      0x48000000 | ((plt - rela->r_offset - 4) & 0x3fffffc));
+	  error (0, 0, "%s: R_PPC64_JMP_SLOT doesn't resolve to an .opd address",
+		 dso->filename);
+	  return 1;
 	}
-      else
+      if ((value - info->ent->depends[i]->opd->start) % 24)
 	{
-	  /* lis %r12, %hi(finaladdr)
-	     addi %r12, %r12, %lo(finaladdr)
-	     mtctr %r12
-	     bctr  */
-	  write_be32 (dso, rela->r_offset,
-		      0x39800000 | (((value + 0x8000) >> 16) & 0xffff));
-	  write_be32 (dso, rela->r_offset + 4, 0x398c0000 | (value & 0xffff));
-	  write_be32 (dso, rela->r_offset + 8, 0x7d8903a6);
-	  write_be32 (dso, rela->r_offset + 12, 0x4e800420);
+	  error (0, 0, "%s: R_PPC64_JMP_SLOT doesn't resolve to valid .opd section location",
+		 dso->filename);
+	  return 1;
 	}
-    } 
+      n = (value - info->ent->depends[i]->opd->start) / 24;
+      rec = info->ent->depends[i]->opd->table[n];
+    }
+  write_be64 (dso, rela->r_offset, rec.fn);
+  write_be64 (dso, rela->r_offset, rec.toc);
+  write_be64 (dso, rela->r_offset, rec.chain);
+  return 0;
 }
 
 static int
@@ -159,11 +174,10 @@ ppc64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       break;
     case R_PPC64_ADDR32:
     case R_PPC64_UADDR32:
-      write_be64 (dso, rela->r_offset, value);
+      write_be32 (dso, rela->r_offset, value);
       break;
     case R_PPC64_JMP_SLOT:
-      ppc64_fixup_plt (dso, rela, value);
-      break;
+      return ppc64_fixup_plt (info, rela, value);
     case R_PPC64_ADDR16:
     case R_PPC64_UADDR16:
     case R_PPC64_ADDR16_LO:
@@ -190,7 +204,7 @@ ppc64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_PPC64_ADDR16_LO_DS:
     case R_PPC64_ADDR16_DS:
       write_be16 (dso, rela->r_offset,
-		  (value & 0xfffc) | read_ube16 (dso->rela->r_offset & 3));
+		  (value & 0xfffc) | read_ube16 (dso, rela->r_offset & 3));
       break;
     case R_PPC64_ADDR24:
       write_be32 (dso, rela->r_offset,
@@ -217,6 +231,9 @@ ppc64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       break;
     case R_PPC64_REL32:
       write_be32 (dso, rela->r_offset, value - rela->r_offset);
+      break;
+    case R_PPC64_REL64:
+      write_be64 (dso, rela->r_offset, value - rela->r_offset);
       break;
     case R_PPC64_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -298,13 +315,13 @@ ppc64_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
     case R_PPC64_ADDR16_HIGHERA:
       value += 0x8000;
       /* FALLTHROUGH  */
-    case R_PPC64_ADDR16_HIGHERA:
+    case R_PPC64_ADDR16_HIGHER:
       buf_write_be16 (buf, value >> 32);
       break;
     case R_PPC64_ADDR16_HIGHESTA:
       value += 0x8000;
       /* FALLTHROUGH  */
-    case R_PPC64_ADDR16_HIGHESTA:
+    case R_PPC64_ADDR16_HIGHEST:
       buf_write_be16 (buf, value >> 48);
       break;
     case R_PPC64_ADDR16_LO_DS:
@@ -334,6 +351,9 @@ ppc64_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
       break;
     case R_PPC64_REL32:
       buf_write_be32 (buf, value - rela->r_offset);
+      break;
+    case R_PPC64_REL64:
+      buf_write_be64 (buf, value - rela->r_offset);
       break;
     case R_PPC64_RELATIVE:
       error (0, 0, "%s: R_PPC64_RELATIVE in ET_EXEC object?",
@@ -455,6 +475,10 @@ ppc64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       value -= rela->r_offset;
       value = (Elf32_Sword) value;
       break;
+    case R_PPC64_REL64:
+      r_type = R_PPC64_ADDR64;
+      value -= rela->r_offset;
+      break;
     default:
       error (0, 0, "%s: Unknown PowerPC64 relocation type %d", dso->filename,
 	     r_type);
@@ -479,31 +503,6 @@ ppc64_need_rel_to_rela (DSO *dso, int first, int last)
 }
 
 static int
-ppc64_arch_prelink (DSO *dso)
-{
-  Elf32_Addr plt = dso->info[DT_PLTGOT];
-
-  if (plt)
-    {
-      Elf32_Word count = dso->info[DT_PLTRELSZ] / sizeof (Elf32_Rela);
-      Elf32_Addr data;
-
-      data = plt + (18 + 2 * count
-		    + (count > 8192 ? (count - 8192) * 2 : 0)) * 4;
-
-      /* addis %r11, %r11, %hi(data)
-	 lwz %r11, %r11, %lo(data)
-	 mtctr %r11
-	 bctr  */
-      write_be32 (dso, plt,  0x3d6b0000 | (((data + 0x8000) >> 16) & 0xffff));
-      write_be32 (dso, plt + 4, 0x816b0000 | (data & 0xffff));
-      write_be32 (dso, plt + 8, 0x7d6903a6);
-      write_be32 (dso, plt + 12, 0x4e800420);
-    }
-  return 0;
-}
-
-static int
 ppc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 {
   switch (GELF_R_TYPE (rela->r_info))
@@ -514,6 +513,7 @@ ppc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_PPC64_GLOB_DAT:
     case R_PPC64_ADDR64:
     case R_PPC64_UADDR64:
+    case R_PPC64_REL64:
       write_be64 (dso, rela->r_offset, 0);
       break;
     case R_PPC64_ADDR32:
@@ -584,6 +584,7 @@ ppc64_reloc_size (int reloc_type)
     case R_PPC64_GLOB_DAT:
     case R_PPC64_ADDR64:
     case R_PPC64_UADDR64:
+    case R_PPC64_REL64:
       return 8;
     default:
       break;
@@ -602,6 +603,45 @@ ppc64_reloc_class (int reloc_type)
     }
 }
 
+static int
+ppc64_read_opd (DSO *dso, struct prelink_entry *ent)
+{
+  int opd;
+  GElf_Addr n, s;
+
+  free (ent->opd);
+  ent->opd = NULL;
+  for (opd = 1; opd < dso->ehdr.e_shnum; ++opd)
+    if (dso->shdr[opd].sh_type == SHT_PROGBITS
+	&& ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			     dso->shdr[opd].sh_name), ".opd"))
+      break;
+  if (opd == dso->ehdr.e_shnum)
+    return 0;
+  ent->opd = malloc (sizeof (struct opd_lib) + dso->shdr[opd].sh_size);
+  /* The error will happen only when we'll need the opd.  */
+  if (ent->opd == NULL)
+    return 0;
+  s = dso->shdr[opd].sh_addr;
+  for (n = 0; n < dso->shdr[opd].sh_size / 24; ++n, s += 24)
+    {
+      ent->opd->table[n].fn = read_ube64 (dso, s);
+      ent->opd->table[n].toc = read_ube64 (dso, s + 8);
+      ent->opd->table[n].chain = read_ube64 (dso, s + 16);
+    }
+  ent->opd->start = dso->shdr[opd].sh_addr;
+  ent->opd->size = dso->shdr[opd].sh_size;
+  return 0;
+}
+
+static int
+ppc64_free_opd (struct prelink_entry *ent)
+{
+  free (ent->opd);
+  ent->opd = NULL;
+  return 0;
+}
+
 PL_ARCH = {
   .class = ELFCLASS64,
   .machine = EM_PPC64,
@@ -610,6 +650,7 @@ PL_ARCH = {
   .R_COPY = R_PPC64_COPY,
   .R_RELATIVE = R_PPC64_RELATIVE,
   .dynamic_linker = "/lib64/ld64.so.1",
+  .adjust_section = ppc64_adjust_section,
   .adjust_dyn = ppc64_adjust_dyn,
   .adjust_rel = ppc64_adjust_rel,
   .adjust_rela = ppc64_adjust_rela,
@@ -624,8 +665,9 @@ PL_ARCH = {
   .need_rel_to_rela = ppc64_need_rel_to_rela,
   .reloc_size = ppc64_reloc_size,
   .reloc_class = ppc64_reloc_class,
+  .read_opd = ppc64_read_opd,
+  .free_opd = ppc64_free_opd,
   .max_reloc_size = 8,
-  .arch_prelink = ppc64_arch_prelink,
   .undo_prelink_rela = ppc64_undo_prelink_rela,
   /* Although TASK_UNMAPPED_BASE is 0x8000000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc

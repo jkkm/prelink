@@ -39,7 +39,7 @@ static int
 gather_deps (DSO *dso, struct prelink_entry *ent)
 {
   int i, seen = 0;
-  FILE *f;
+  FILE *f = NULL;
   const char *argv[5];
   const char *envp[4];
   char *line = NULL, *p, *q = NULL;
@@ -72,7 +72,11 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
     {
       if (dynamic_info_is_set (dso, DT_GNU_PRELINKED_BIT)
 	  && dynamic_info_is_set (dso, DT_CHECKSUM_BIT))
-	ent->done = 2;
+	{
+	  if (! undo && dso->arch->read_opd)
+	    dso->arch->read_opd (dso, ent);
+	  ent->done = 2;
+	}
       close_dso (dso);
       return 0;
     }
@@ -101,6 +105,8 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	ent->done = 2;
     }
 
+  if (! undo && dso->arch->read_opd)
+    dso->arch->read_opd (dso, ent);
   close_dso (dso);
   dso = NULL;
 
@@ -119,7 +125,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   envp[3] = NULL;
   f = execve_open (dl, (char * const *)argv, (char * const *)envp);
   if (f == NULL)
-    return 1;
+    goto error_out;
 
   do
     {
@@ -178,10 +184,12 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 
   if (execve_close (f))
     {
+      f = NULL;
       error (0, 0, "%s: Dependency tracing failed", ent->filename);
       goto error_out;
     }
 
+  f = NULL;
   if (seen != 1)
     {
       error (0, 0, "%s seen %d times in LD_TRACE_PRELINKING output, expected once",
@@ -240,6 +248,8 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   return 0;
 
 error_out:
+  if (f)
+    execve_close (f);
   free (line);
   free (ent->depends);
   ent->depends = NULL;

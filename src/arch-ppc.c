@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -156,6 +156,9 @@ ppc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_PPC_UADDR32:
       write_be32 (dso, rela->r_offset, value);
       break;
+    case R_PPC_DTPREL32:
+      write_be32 (dso, rela->r_offset, value - 0x8000);
+      break;
     case R_PPC_JMP_SLOT:
       ppc_fixup_plt (dso, rela, value);
       break;
@@ -164,8 +167,16 @@ ppc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_PPC_ADDR16_LO:
       write_be16 (dso, rela->r_offset, value);
       break;
+    case R_PPC_DTPREL16:
+    case R_PPC_DTPREL16_LO:
+      write_be16 (dso, rela->r_offset, value - 0x8000);
+      break;
     case R_PPC_ADDR16_HI:
+    case R_PPC_DTPREL16_HA:
       write_be16 (dso, rela->r_offset, value >> 16);
+      break;
+    case R_PPC_DTPREL16_HI:
+      write_be16 (dso, rela->r_offset, (value - 0x8000) >> 16);
       break;
     case R_PPC_ADDR16_HA:
       write_be16 (dso, rela->r_offset, (value + 0x8000) >> 16);
@@ -195,6 +206,42 @@ ppc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       break;
     case R_PPC_REL32:
       write_be32 (dso, rela->r_offset, value - rela->r_offset);
+      break;
+    /* DTPMOD32 and TPREL* is impossible to predict in shared libraries
+       unless prelink sets the rules.  */
+    case R_PPC_DTPMOD32:
+      if (dso->ehdr.e_type == ET_EXEC)
+	{
+	  error (0, 0, "%s: R_PPC_DTPMOD32 reloc in executable?",
+		 dso->filename);
+	  return 1;
+	}
+      break;
+    case R_PPC_TPREL32:
+    case R_PPC_TPREL16:
+    case R_PPC_TPREL16_LO:
+    case R_PPC_TPREL16_HI:
+    case R_PPC_TPREL16_HA:
+      if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
+	{
+	  value += info->resolvetls->offset - 0x7000;
+	  switch (GELF_R_TYPE (rela->r_info))
+	    {
+	    case R_PPC_TPREL32:
+	      write_be32 (dso, rela->r_offset, value);
+	      break;
+	    case R_PPC_TPREL16:
+	    case R_PPC_TPREL16_LO:
+	      write_be16 (dso, rela->r_offset, value);
+	      break;
+	    case R_PPC_TPREL16_HI:
+	      write_be16 (dso, rela->r_offset, value >> 16);
+	      break;
+	    case R_PPC_TPREL16_HA:
+	      write_be16 (dso, rela->r_offset, (value + 0x8000) >> 16);
+	      break;
+	    }
+	}
       break;
     case R_PPC_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -312,6 +359,7 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 {
   GElf_Addr value;
   struct prelink_conflict *conflict;
+  struct prelink_tls *tls;
   GElf_Rela *ret;
   int r_type;
 
@@ -322,8 +370,42 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   conflict = prelink_conflict (info, GELF_R_SYM (rela->r_info),
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
-    return 0;
-  value = conflict_lookup_value (conflict);
+    {
+      if (info->curtls == NULL)
+	return 0;
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	/* Even local DTPMOD and TPREL relocs need conflicts.  */
+	case R_PPC_DTPMOD32:
+	case R_PPC_TPREL32:
+	case R_PPC_TPREL16:
+	case R_PPC_TPREL16_LO:
+	case R_PPC_TPREL16_HI:
+	case R_PPC_TPREL16_HA:
+	  break;
+	default:
+	  return 0;
+	}
+      value = 0;
+    }
+  else
+    {
+      /* DTPREL wants to see only real conflicts, not lookups
+	 with reloc_class RTYPE_CLASS_TLS.  */
+      if (conflict->lookup.tls == conflict->conflict.tls
+	  && conflict->lookupval == conflict->conflictval)
+	switch (GELF_R_TYPE (rela->r_info))
+	  {
+	  case R_PPC_DTPREL32:
+	  case R_PPC_DTPREL16:
+	  case R_PPC_DTPREL16_LO:
+	  case R_PPC_DTPREL16_HI:
+	  case R_PPC_DTPREL16_HA:
+	    return 0;
+	  }
+
+      value = conflict_lookup_value (conflict);
+    }
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -379,6 +461,65 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_PPC_REL32:
       r_type = R_PPC_ADDR32;
       value -= rela->r_offset;
+      break;
+    case R_PPC_DTPMOD32:
+    case R_PPC_DTPREL32:
+    case R_PPC_DTPREL16:
+    case R_PPC_DTPREL16_LO:
+    case R_PPC_DTPREL16_HI:
+    case R_PPC_DTPREL16_HA:
+    case R_PPC_TPREL32:
+    case R_PPC_TPREL16:
+    case R_PPC_TPREL16_LO:
+    case R_PPC_TPREL16_HI:
+    case R_PPC_TPREL16_HA:
+      if (conflict != NULL
+          && (conflict->reloc_class != RTYPE_CLASS_TLS
+              || conflict->lookup.tls == NULL))
+        {
+          error (0, 0, "%s: TLS reloc not resolving to STT_TLS symbol",
+                 dso->filename);
+          return 1;
+        }
+      tls = conflict ? conflict->lookup.tls : info->curtls;
+      r_type = R_PPC_ADDR16;
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	case R_PPC_DTPMOD32:
+	  r_type = R_PPC_ADDR32;
+	  value = tls->modid;
+	  break;
+	case R_PPC_DTPREL32:
+	  r_type = R_PPC_ADDR32;
+	  value -= 0x8000;
+	  break;
+	case R_PPC_DTPREL16:
+	case R_PPC_DTPREL16_LO:
+	  value -= 0x8000;
+	  break;
+	case R_PPC_DTPREL16_HI:
+	  value = (value - 0x8000) >> 16;
+	  break;
+	case R_PPC_DTPREL16_HA:
+	  value >>= 16;
+	  break;
+	case R_PPC_TPREL32:
+	  r_type = R_PPC_ADDR32;
+	  value += tls->offset - 0x7000;
+	  break;
+	case R_PPC_TPREL16:
+	case R_PPC_TPREL16_LO:
+	  value += tls->offset - 0x7000;
+	  break;
+	case R_PPC_TPREL16_HI:
+	  value = (value + tls->offset - 0x7000) >> 16;
+	  break;
+	case R_PPC_TPREL16_HA:
+	  value = (value + tls->offset - 0x7000 + 0x8000) >> 16;
+	  break;
+	}
+      if (r_type == R_PPC_ADDR16)
+	value = ((value & 0xffff) ^ 0x8000) - 0x8000;
       break;
     default:
       error (0, 0, "%s: Unknown PowerPC relocation type %d", dso->filename,
@@ -440,6 +581,9 @@ ppc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_PPC_ADDR32:
     case R_PPC_UADDR32:
     case R_PPC_REL32:
+    case R_PPC_DTPMOD32:
+    case R_PPC_DTPREL32:
+    case R_PPC_TPREL32:
       write_be32 (dso, rela->r_offset, 0);
       break;
     case R_PPC_JMP_SLOT:
@@ -450,6 +594,14 @@ ppc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_PPC_ADDR16_LO:
     case R_PPC_ADDR16_HI:
     case R_PPC_ADDR16_HA:
+    case R_PPC_DTPREL16:
+    case R_PPC_TPREL16:
+    case R_PPC_DTPREL16_LO:
+    case R_PPC_TPREL16_LO:
+    case R_PPC_DTPREL16_HI:
+    case R_PPC_TPREL16_HI:
+    case R_PPC_DTPREL16_HA:
+    case R_PPC_TPREL16_HA:
       write_be16 (dso, rela->r_offset, 0);
       break;
     case R_PPC_ADDR24:
@@ -487,8 +639,16 @@ ppc_reloc_size (int reloc_type)
     case R_PPC_ADDR16:
     case R_PPC_UADDR16:
     case R_PPC_ADDR16_LO:
-    case R_PPC_ADDR16_HA:
     case R_PPC_ADDR16_HI:
+    case R_PPC_ADDR16_HA:
+    case R_PPC_DTPREL16:
+    case R_PPC_DTPREL16_LO:
+    case R_PPC_DTPREL16_HI:
+    case R_PPC_DTPREL16_HA:
+    case R_PPC_TPREL16:
+    case R_PPC_TPREL16_LO:
+    case R_PPC_TPREL16_HI:
+    case R_PPC_TPREL16_HA:
       return 2;
     default:
       break;
@@ -503,7 +663,10 @@ ppc_reloc_class (int reloc_type)
     {
     case R_PPC_COPY: return RTYPE_CLASS_COPY;
     case R_PPC_JMP_SLOT: return RTYPE_CLASS_PLT;
-    default: return RTYPE_CLASS_VALID;
+    default:
+      if (reloc_type >= R_PPC_DTPMOD32 && reloc_type <= R_PPC_DTPREL32)
+	return RTYPE_CLASS_TLS;
+      return RTYPE_CLASS_VALID;
     }
 }
 
