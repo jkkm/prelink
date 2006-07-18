@@ -283,6 +283,16 @@ execstack_set (DSO *dso, int flag)
     {
       /* There is enough space for the headers even without reshuffling
 	 anything.  */
+      for (i = 0; i < dso->ehdr.e_phnum; ++i)
+	if (dso->phdr[i].p_type == PT_PHDR)
+	  {
+	    if (dso->phdr[i].p_filesz
+		== dso->ehdr.e_phnum * dso->ehdr.e_phentsize)
+	      dso->phdr[i].p_filesz += dso->ehdr.e_phentsize;
+	    if (dso->phdr[i].p_memsz
+		== dso->ehdr.e_phnum * dso->ehdr.e_phentsize)
+	      dso->phdr[i].p_memsz += dso->ehdr.e_phentsize;
+	  }
       i = dso->ehdr.e_phnum++;
       ret = execstack_make_rdwr (dso, flag);
       if (ret != -1)
@@ -308,28 +318,37 @@ execstack_set (DSO *dso, int flag)
      to overlap on the same page.  */
   last = -1;
   for (i = 0; i < dso->ehdr.e_phnum; ++i)
-  if (dso->phdr[i].p_type == PT_LOAD
-      && dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz >= start)
-    {
-      if (last != -1
-	  && (((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz - 1)
-		^ dso->phdr[i].p_vaddr)
-	      & ~(dso->arch->max_page_size - 1))
-	  && !(((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz
-		 + adjust - 1)
-		^ (dso->phdr[i].p_vaddr + adjust))
-	       & ~(dso->arch->max_page_size - 1)))
-	{
-	  if (align >= dso->arch->max_page_size)
-	    {
-	      error (0, 0, "%s: Cannot grow reloc sections", dso->filename);
-	      goto error_out;
-	    }
-	  adjust = (adjust + dso->arch->max_page_size - 1)
-		   & ~(dso->arch->max_page_size - 1);
-	}
-      last = i;
-    }
+    if (dso->phdr[i].p_type == PT_LOAD
+	&& dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz >= start)
+      {
+	if (last != -1
+	    && (((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz - 1)
+		 ^ dso->phdr[i].p_vaddr)
+		& ~(dso->arch->max_page_size - 1))
+	    && !(((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz
+		   + adjust - 1)
+		  ^ (dso->phdr[i].p_vaddr + adjust))
+		 & ~(dso->arch->max_page_size - 1)))
+	  {
+	    if (align >= dso->arch->max_page_size)
+	      {
+		error (0, 0, "%s: Cannot grow reloc sections", dso->filename);
+		goto error_out;
+	      }
+	    adjust = (adjust + dso->arch->max_page_size - 1)
+		     & ~(dso->arch->max_page_size - 1);
+	  }
+	last = i;
+      }
+
+  for (i = 0; i < dso->ehdr.e_phnum; ++i)
+    if (dso->phdr[i].p_type == PT_PHDR)
+      {
+	if (dso->phdr[i].p_filesz == dso->ehdr.e_phnum * dso->ehdr.e_phentsize)
+	  dso->phdr[i].p_filesz += dso->ehdr.e_phentsize;
+	if (dso->phdr[i].p_memsz == dso->ehdr.e_phnum * dso->ehdr.e_phentsize)
+	  dso->phdr[i].p_memsz += dso->ehdr.e_phentsize;
+      }
 
   i = dso->ehdr.e_phnum++;
   ret = execstack_make_rdwr (dso, flag);
