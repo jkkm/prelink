@@ -181,21 +181,74 @@ static int
 i386_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  Elf32_Addr value;
-  unsigned int i;
-
   switch (GELF_R_TYPE (rela->r_info))    
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
     case R_386_32:
     case R_386_PC32:
-      value = rela->r_addend;
-      for (i = 0; i < sizeof (Elf32_Addr); ++i, value >>= 8)
-	*buf++ = value;
+      buf_write_le32 (buf, rela->r_addend);
       break;
     default:
       abort ();
+    }
+  return 0;
+}
+
+static int
+i386_apply_rel (struct prelink_info *info, GElf_Rel *rel, char *buf)
+{
+  GElf_Addr value;
+
+  value = info->resolve (info, GELF_R_SYM (rel->r_info),
+			 GELF_R_TYPE (rel->r_info));
+  switch (GELF_R_TYPE (rel->r_info))    
+    {
+    case R_386_GLOB_DAT:
+    case R_386_JMP_SLOT:
+      buf_write_le32 (buf, value);
+      break;
+    case R_386_32:
+      buf_write_le32 (buf, buf_read_ule32 (buf) + value);
+      break;
+    case R_386_PC32:
+      buf_write_le32 (buf, buf_read_ule32 (buf) + value - rel->r_offset);
+      break;
+    case R_386_COPY:
+      abort ();
+    case R_386_RELATIVE:
+      error (0, 0, "%s: R_386_RELATIVE in ET_EXEC object?", info->dso->filename);
+      return 1;
+    default:
+      return 1;
+    }
+  return 0;
+}
+
+static int
+i386_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
+{
+  GElf_Addr value;
+
+  value = info->resolve (info, GELF_R_SYM (rela->r_info),
+			 GELF_R_TYPE (rela->r_info));
+  switch (GELF_R_TYPE (rela->r_info))    
+    {
+    case R_386_GLOB_DAT:
+    case R_386_JMP_SLOT:
+    case R_386_32:
+      buf_write_le32 (buf, value + rela->r_addend);
+      break;
+    case R_386_PC32:
+      buf_write_le32 (buf, value + rela->r_addend - rela->r_offset);
+      break;
+    case R_386_COPY:
+      abort ();
+    case R_386_RELATIVE:
+      error (0, 0, "%s: R_386_RELATIVE in ET_EXEC object?", info->dso->filename);
+      return 1;
+    default:
+      return 1;
     }
   return 0;
 }
@@ -390,9 +443,12 @@ PL_ARCH = {
   .prelink_conflict_rel = i386_prelink_conflict_rel,
   .prelink_conflict_rela = i386_prelink_conflict_rela,
   .apply_conflict_rela = i386_apply_conflict_rela,
+  .apply_rel = i386_apply_rel,
+  .apply_rela = i386_apply_rela,
   .rel_to_rela = i386_rel_to_rela,
   .need_rel_to_rela = i386_need_rel_to_rela,
   .reloc_size = i386_reloc_size,
+  .max_reloc_size = 4,
   .arch_prelink = i386_arch_prelink,
   /* Although TASK_UNMAPPED_BASE is 0x40000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc

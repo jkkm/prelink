@@ -75,6 +75,7 @@ struct PLArch
 {
   int class;
   int machine;
+  int max_reloc_size;
   int R_COPY;
   int R_JMP_SLOT;
   int R_RELATIVE;
@@ -90,6 +91,8 @@ struct PLArch
   int (*prelink_conflict_rela) (struct prelink_info *info, GElf_Rela *rela);
   int (*apply_conflict_rela) (struct prelink_info *info, GElf_Rela *rela,
 			      char *buf);
+  int (*apply_rel) (struct prelink_info *info, GElf_Rel *rel, char *buf);
+  int (*apply_rela) (struct prelink_info *info, GElf_Rela *rela, char *buf);
   int (*rel_to_rela) (DSO *dso, GElf_Rel *rel, GElf_Rela *rela);
   int (*need_rel_to_rela) (DSO *dso, int first, int last);
   /* Return reloc size in bytes for given non-COPY reloc type.  */
@@ -292,11 +295,14 @@ int gather_check_libs (void);
 FILE *execve_open (const char *path, char *const argv[], char *const envp[]);
 int execve_close (FILE *f);
 
+int remove_redundant_cxx_conflicts (struct prelink_info *info);
+int get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
+		       char *buf, GElf_Word size);
+
 int layout_libs (void);
 
 int prelink_all (void);
 
-extern struct prelink_entry *prelinked;
 extern const char *dynamic_linker;
 extern const char *ld_library_path;
 extern const char *prelink_cache;
