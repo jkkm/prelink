@@ -6,7 +6,12 @@ rm -f reloc8 reloc8lib*.so reloc8.log
 rm -f prelink.cache
 NOCOPYRELOC=-Wl,-z,nocopyreloc
 case "`uname -m`" in
-  x86_64) NOCOPYRELOC="$NOCOPYRELOC -mcmodel=medium";;
+  x86_64) if $CC -xc /dev/null -S -o /dev/null -mcmodel=medium -mlarge-data-threshold=1; then
+            NOCOPYRELOC="$NOCOPYRELOC -mcmodel=medium -mlarge-data-threshold=1"
+          else
+            NOCOPYRELOC="$NOCOPYRELOC -mcmodel=medium"
+          fi
+          ;;
   s390*) if file reloc1lib1.so | grep -q 64-bit; then NOCOPYRELOC=; fi;;
 esac
 $CC -shared -O2 -Wl,-z,nocombreloc -fpic -o reloc8lib1.so $srcdir/reloc3lib1.c

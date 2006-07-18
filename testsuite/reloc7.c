@@ -7,7 +7,7 @@ int j __attribute__((aligned (32)));
 int k[2048];
 int l = 26;
 int m[3] = { 28, 29, 30 };
-extern int baz[];
+extern int baz[3];
 
 struct A n __attribute__((section("nsec"))) = { 1, &n, &m[2] };
 static struct A o __attribute__((section("osec"))) = { 2, &o, &baz[1] };
