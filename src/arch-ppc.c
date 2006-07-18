@@ -114,7 +114,7 @@ ppc_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr value)
 	  write_be32 (dso, rela->r_offset,
 		      0x39600000 | ((index * 4) & 0xffff));
 	  write_be32 (dso, rela->r_offset + 4,
-		      0x48000000 | (plt - rela->r_offset - 4));
+		      0x48000000 | ((plt - rela->r_offset - 4) & 0x3fffffc));
 	}
       else
 	{
