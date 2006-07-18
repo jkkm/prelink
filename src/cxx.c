@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -96,8 +96,7 @@ find_cxx_sym (struct prelink_info *info, GElf_Addr addr,
     {
       gelfx_getsym (dso->elf, fcs->symtab, ndx, &fcs->sym);
       if (fcs->sym.st_value <= addr
-	  && fcs->sym.st_value + fcs->sym.st_size >=
-	     addr + reloc_size)
+	  && fcs->sym.st_value + fcs->sym.st_size >= addr + reloc_size)
 	break;
     }
 
@@ -124,24 +123,26 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
   const char *name = NULL, *secname = NULL;
   GElf_Addr symtab_start;
   GElf_Word symoff;
+  Elf_Data *binsymtab = NULL;
+  int binsymtabsec;
   struct prelink_conflict *conflict;
   static struct
     {
       unsigned char *prefix;
-      unsigned char prefix_len, st_info;
+      unsigned char prefix_len, st_info, check_pltref;
       unsigned char *section;
     }
   specials[] =
     {
       /* G++ 3.0 ABI.  */
       /* Virtual table.  */
-      { "_ZTV", 4, GELF_ST_INFO (STB_WEAK, STT_OBJECT), ".data" },
+      { "_ZTV", 4, GELF_ST_INFO (STB_WEAK, STT_OBJECT), 1, ".data" },
       /* Typeinfo.  */
-      { "_ZTI", 4, GELF_ST_INFO (STB_WEAK, STT_OBJECT), ".data" },
+      { "_ZTI", 4, GELF_ST_INFO (STB_WEAK, STT_OBJECT), 0, ".data" },
       /* G++ 2.96-RH ABI.  */
       /* Virtual table.  */
-      { "__vt_", 5, GELF_ST_INFO (STB_WEAK, STT_OBJECT), ".data" },
-      { NULL, 0, 0, NULL }
+      { "__vt_", 5, GELF_ST_INFO (STB_WEAK, STT_OBJECT), 0, ".data" },
+      { NULL, 0, 0, 0, NULL }
     };
 
   /* Don't bother doing this for non-C++ programs.  */
@@ -150,6 +151,15 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
       break;
   if (i == info->ent->ndepends)
     return 0;
+
+  binsymtabsec = addr_to_sec (info->dso, info->dso->info[DT_SYMTAB]);
+  if (binsymtabsec != -1)
+    {
+      Elf_Scn *scn = info->dso->scn[binsymtabsec];
+
+      binsymtab = elf_getdata (scn, NULL);
+      assert (elf_getdata (scn, binsymtab) == NULL);
+    }
 
   state = 0;
   memset (&fcs1, 0, sizeof (fcs1));
@@ -167,17 +177,10 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
 	  && fcs1.sym.st_value + fcs1.sym.st_size
 	     >= info->conflict_rela[i].r_offset + reloc_size)
 	{
+	  if (state == 3)
+	    goto remove_noref;
 	  if (state == 2)
-	    {
-	      if (verbose > 3)
-		error (0, 0, "Removing C++ conflict at %s:%s+%d",
-		       fcs1.dso->filename, name,
-		       (int) (info->conflict_rela[i].r_offset
-			      - fcs1.sym.st_value));
-	      info->conflict_rela[i].r_info =
-		GELF_R_INFO (1, GELF_R_TYPE (info->conflict_rela[i].r_info));
-	      ++removed;
-	    }
+	    goto check_pltref;
 	  continue;
 	}
 
@@ -224,6 +227,9 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
       if (ndx < maxndx)
 	continue;
 
+      if (specials[k].check_pltref)
+	state = 2;
+
       symtab_start = fcs1.dso->shdr[fcs1.symsec].sh_addr - fcs1.dso->base;
       symoff = symtab_start + n * fcs1.dso->shdr[fcs1.symsec].sh_entsize;
 
@@ -234,20 +240,20 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
 	  break;
 
       if (conflict == NULL)
-	continue;
+	goto check_pltref;
 
       if (conflict->conflict.ent != fcs1.ent
 	  || fcs1.dso->base + conflict->conflictval != fcs1.sym.st_value)
-	continue;
+	goto check_pltref;
 
       if (verbose > 4)
-	error (0, 0, "Possible C++ conflict removal at %s:%s+%d",
+	error (0, 0, "Possible C++ conflict removal from unreferenced table at %s:%s+%d",
 	       fcs1.dso->filename, name,
 	       (int) (info->conflict_rela[i].r_offset - fcs1.sym.st_value));
 
       /* Limit size slightly.  */
       if (fcs1.sym.st_size > 16384)
-	continue;
+	goto check_pltref;
 
       o = find_cxx_sym (info, conflict->lookup.ent->base + conflict->lookupval,
 			&fcs2, fcs1.sym.st_size);
@@ -257,7 +263,7 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
 	  || fcs1.sym.st_info != fcs2.sym.st_info
 	  || ELF32_ST_VISIBILITY (fcs2.sym.st_other) != STV_DEFAULT
 	  || strcmp (name, (char *) fcs2.strtab->d_buf + fcs2.sym.st_name) != 0)
-	continue;
+	goto check_pltref;
 
       mem1 = malloc (fcs1.sym.st_size * 2);
       if (mem1 == NULL)
@@ -276,21 +282,82 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
 	  || memcmp (mem1, mem2, fcs1.sym.st_size) != 0)
 	{
 	  free (mem1);
-	  continue;
+	  goto check_pltref;
 	}
 
       free (mem1);
 
-      state = 2;
+      state = 3;
 
+remove_noref:
       if (verbose > 3)
-	error (0, 0, "Removing C++ conflict at %s:%s+%d",
+	error (0, 0, "Removing C++ conflict from unreferenced table at %s:%s+%d",
 	       fcs1.dso->filename, name,
 	       (int) (info->conflict_rela[i].r_offset - fcs1.sym.st_value));
 
       info->conflict_rela[i].r_info =
 	GELF_R_INFO (1, GELF_R_TYPE (info->conflict_rela[i].r_info));
       ++removed;
+      continue;
+
+check_pltref:
+      /* If the binary calls directly (or takes its address) one of the
+	 methods in a virtual table, but doesn't define it, there is no
+	 need to leave conflicts in the virtual table which will only
+	 slow down the code (as it has to hop through binary's .plt
+	 back to the method).  */
+      if (state != 2
+	  || info->conflict_rela[i].r_addend < info->dso->base
+	  || info->conflict_rela[i].r_addend >= info->dso->end
+	  || binsymtab == NULL)
+	continue;
+
+      maxndx = binsymtab->d_size / info->dso->shdr[binsymtabsec].sh_entsize;
+      for (ndx = 0; ndx < maxndx; ++ndx)
+	{
+	  GElf_Sym sym;
+
+	  gelfx_getsym (info->dso->elf, binsymtab, ndx, &sym);
+	  if (sym.st_value == info->conflict_rela[i].r_addend)
+	    {
+	      if (sym.st_shndx == SHN_UNDEF && sym.st_value)
+		{
+		  struct prelink_symbol *s;
+
+		  if (verbose > 4)
+		    error (0, 0, "Possible C++ conflict removal due to reference to binary's .plt at %s:%s+%d",
+			   fcs1.dso->filename, name,
+			   (int) (info->conflict_rela[i].r_offset
+				  - fcs1.sym.st_value));
+
+		  for (s = &info->symbols[ndx]; s; s = s->next)
+		    if (s->reloc_class == RTYPE_CLASS_PLT)
+		      {
+			for (conflict = info->conflicts[fcs1.n]; conflict;
+			     conflict = conflict->next)
+			  if (conflict->lookup.ent->base + conflict->lookupval
+			      == info->conflict_rela[i].r_addend
+			      && (conflict->conflict.ent->base
+				  + conflict->conflictval
+				  == s->u.ent->base + s->value)
+			      && conflict->reloc_class == RTYPE_CLASS_VALID)
+			    {
+			      if (verbose > 3)
+				error (0, 0, "Removing C++ conflict due to reference to binary's .plt at %s:%s+%d",
+				       fcs1.dso->filename, name,
+				       (int) (info->conflict_rela[i].r_offset
+					      - fcs1.sym.st_value));
+
+			      info->conflict_rela[i].r_info =
+				GELF_R_INFO (1, GELF_R_TYPE (info->conflict_rela[i].r_info));
+			      ++removed;
+			    }
+			break;
+		      }
+		}
+	      break;
+	    }
+	}
     }
 
   if (removed)

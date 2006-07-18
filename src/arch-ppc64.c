@@ -143,8 +143,8 @@ ppc64_fixup_plt (struct prelink_info *info, GElf_Rela *rela, GElf_Addr value)
       rec = info->ent->depends[i]->opd->table[n];
     }
   write_be64 (dso, rela->r_offset, rec.fn);
-  write_be64 (dso, rela->r_offset, rec.toc);
-  write_be64 (dso, rela->r_offset, rec.chain);
+  write_be64 (dso, rela->r_offset + 8, rec.toc);
+  write_be64 (dso, rela->r_offset + 16, rec.chain);
   return 0;
 }
 
