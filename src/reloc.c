@@ -30,6 +30,7 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
 {
   int first, last, rela, i;
   GElf_Addr start, end, pltstart, pltend;
+  const char *name;
 
   memset (rinfo, 0, sizeof (*rinfo));
 
@@ -136,10 +137,10 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
       --last;
     }
 
-  if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-			dso->shdr[first].sh_name),
-		".gnu.reloc"))
-    rinfo->gnureloc = 1;
+  name = strptr (dso, dso->ehdr.e_shstrndx,
+		 dso->shdr[first].sh_name);
+  if (! strcmp (name, ".rel.dyn") || ! strcmp (name, ".rela.dyn"))
+    rinfo->reldyn = 1;
   rinfo->first = first;
   rinfo->last = last;
   if (! rela
@@ -151,25 +152,25 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
 
 static struct PLArch *arch;
 
-struct sort_gnu_reloc {
+struct sort_rel_dyn {
   GElf_Rela rela;
   GElf_Addr offset;
 };
 
 static int
-gnu_reloc_cmp1 (const void *A, const void *B)
+rel_dyn_cmp1 (const void *A, const void *B)
 {
-  struct sort_gnu_reloc *a = (struct sort_gnu_reloc *)A;
-  struct sort_gnu_reloc *b = (struct sort_gnu_reloc *)B;
+  struct sort_rel_dyn *a = (struct sort_rel_dyn *)A;
+  struct sort_rel_dyn *b = (struct sort_rel_dyn *)B;
   int relativea, relativeb;
 
   relativea = GELF_R_TYPE (a->rela.r_info) == arch->R_RELATIVE;
   relativeb = GELF_R_TYPE (b->rela.r_info) == arch->R_RELATIVE;
 
   if (relativea < relativeb)
-    return -1;
-  if (relativea > relativeb)
     return 1;
+  if (relativea > relativeb)
+    return -1;
   if (GELF_R_SYM (a->rela.r_info) < GELF_R_SYM (b->rela.r_info))
     return -1;
   if (GELF_R_SYM (a->rela.r_info) > GELF_R_SYM (b->rela.r_info))
@@ -182,10 +183,10 @@ gnu_reloc_cmp1 (const void *A, const void *B)
 }
 
 static int
-gnu_reloc_cmp2 (const void *A, const void *B)
+rel_dyn_cmp2 (const void *A, const void *B)
 {
-  struct sort_gnu_reloc *a = (struct sort_gnu_reloc *)A;
-  struct sort_gnu_reloc *b = (struct sort_gnu_reloc *)B;
+  struct sort_rel_dyn *a = (struct sort_rel_dyn *)A;
+  struct sort_rel_dyn *b = (struct sort_rel_dyn *)B;
   int plta, pltb;
 
   if (a->offset < b->offset)
@@ -208,7 +209,7 @@ gnu_reloc_cmp2 (const void *A, const void *B)
 }
 
 int
-build_gnu_reloc (DSO *dso, Elf_Data *data, struct reloc_info *rinfo)
+build_rel_dyn (DSO *dso, Elf_Data *data, struct reloc_info *rinfo)
 {
   int first = rinfo->first, last = rinfo->last;
   int i, j, count, rela;
@@ -217,18 +218,18 @@ build_gnu_reloc (DSO *dso, Elf_Data *data, struct reloc_info *rinfo)
   off_t offset;
   size_t size;
   char *ptr;
-  struct sort_gnu_reloc *array, *a;
+  struct sort_rel_dyn *array, *a;
 
   size = dso->shdr[last].sh_addr + dso->shdr[last].sh_size
 	 - dso->shdr[first].sh_addr;
   count = size / dso->shdr[first].sh_entsize;
-  array = alloca (count * sizeof (struct sort_gnu_reloc));
-  memset (array, 0, count * sizeof (struct sort_gnu_reloc));
+  array = alloca (count * sizeof (struct sort_rel_dyn));
+  memset (array, 0, count * sizeof (struct sort_rel_dyn));
   ptr = calloc (1, size);
   rela = dso->shdr[first].sh_type == SHT_RELA;
   if (ptr == NULL)
     {
-      error (0, ENOMEM, "%s: Cannot build .gnu.reloc section",
+      error (0, ENOMEM, "%s: Cannot build .rel*.dyn section",
 	     dso->filename);
       return 1;
     }
@@ -261,8 +262,15 @@ build_gnu_reloc (DSO *dso, Elf_Data *data, struct reloc_info *rinfo)
   /* First sort so that R_*_RELATIVE records come last, then so that
      relocs with the same symbol are together and within the same symbol
      according to r_offset.  */
-  qsort (array, count, sizeof (struct sort_gnu_reloc), gnu_reloc_cmp1);
-  for (i = 0, j = 0;
+  qsort (array, count, sizeof (struct sort_rel_dyn), rel_dyn_cmp1);
+  for (i = 0;
+       i < count && GELF_R_TYPE (array[i].rela.r_info) != arch->R_RELATIVE;
+       ++i);
+  
+  /* Number of R_*_RELATIVE relocs.  */
+  rinfo->relcount = i;
+
+  for (j = i;
        i < count && GELF_R_TYPE (array[i].rela.r_info) != arch->R_RELATIVE;
        i++)
     {
@@ -272,12 +280,10 @@ build_gnu_reloc (DSO *dso, Elf_Data *data, struct reloc_info *rinfo)
       array[i].offset = array[j].rela.r_offset;
     }
 
-  /* Number of R_*_RELATIVE relocs.  */
-  rinfo->relcount = count - i;
-
   /* Now second sort, which will sort things by increasing r_offset, with
      the exception that relocs against the same symbol will be together.  */
-  qsort (array, i, sizeof (struct sort_gnu_reloc), gnu_reloc_cmp2);
+  qsort (array + rinfo->relcount, count - rinfo->relcount,
+	 sizeof (struct sort_rel_dyn), rel_dyn_cmp2);
   data->d_buf = ptr;
   data->d_off = 0;
   data->d_size = size;

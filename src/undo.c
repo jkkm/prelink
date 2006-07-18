@@ -32,10 +32,12 @@ prelink_undo (DSO *dso)
 {
   GElf_Shdr *shdr;
   int undo, shnum, i, j, k;
-  int gnureloc_first = 0, gnureloc_last = 0;
+  int reldyn_first = 0, reldyn_last = 0;
+  int rel_to_rela = 0, rel_to_rela_plt = 0;
   Elf_Data src, dst, *d;
   Elf_Scn *scn;
   struct section_move *move;
+  const char *p;
 
   for (undo = 1; undo < dso->ehdr.e_shnum; ++undo)
     if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[undo].sh_name),
@@ -136,9 +138,7 @@ prelink_undo (DSO *dso)
 	  continue;
 
 	if ((! strcmp (name, ".dynstr") && dso->ehdr.e_type == ET_EXEC)
-	    || i == dso->ehdr.e_shstrndx
-	    || ! strcmp (name, ".rel.plt")
-	    || ! strcmp (name, ".rela.plt"))
+	    || i == dso->ehdr.e_shstrndx)
 	  {
 	    for (j = 1; j < move->new_shnum; ++j)
 	      if (dso->shdr[i].sh_name == shdr[j].sh_name
@@ -158,7 +158,7 @@ prelink_undo (DSO *dso)
 	      }
 	  }
 
-	if (! strcmp (name, ".gnu.reloc"))
+	if (! strcmp (name, ".rel.dyn") || ! strcmp (name, ".rela.dyn"))
 	  {
 	    for (j = 1; j < move->new_shnum; ++j)
 	      if (move->new_to_old[j] == -1
@@ -196,10 +196,12 @@ prelink_undo (DSO *dso)
 			&& shdr[j].sh_type == SHT_REL
 			&& dso->shdr[i].sh_size * 2 == size * 3))
 		  {
+		    if (dso->shdr[i].sh_size > size)
+		      rel_to_rela = 1;
 		    move->old_to_new[i] = j;
 		    move->new_to_old[j] = i;
-		    gnureloc_first = j;
-		    gnureloc_last = k - 1;
+		    reldyn_first = j;
+		    reldyn_last = k - 1;
 		    continue;
 		  }
 	      }
@@ -213,7 +215,7 @@ prelink_undo (DSO *dso)
 
   for (i = 1; i < move->new_shnum; ++i)
     if (move->new_to_old[i] == -1
-	&& (i <= gnureloc_first || i > gnureloc_last))
+	&& (i <= reldyn_first || i > reldyn_last))
       {
 	const char *name = strptr (dso, dso->ehdr.e_shstrndx, shdr[i].sh_name);
 
@@ -227,6 +229,12 @@ prelink_undo (DSO *dso)
     {
       free (move);
       return 1;
+    }
+
+  p = strptr (dso, dso->ehdr.e_shstrndx, shdr[reldyn_first].sh_name);
+  if (reldyn_last > reldyn_first
+      || (strcmp (p, ".rel.dyn") && strcmp (p, ".rela.dyn")))
+    {
     }
 
   free (move);      

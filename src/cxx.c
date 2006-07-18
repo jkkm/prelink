@@ -228,8 +228,7 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
       for (conflict = info->conflicts[fcs1.n]; conflict;
 	   conflict = conflict->next)
 	if (conflict->symoff == symoff
-	    && conflict->reloc_type != fcs1.dso->arch->R_COPY
-	    && conflict->reloc_type != fcs1.dso->arch->R_JMP_SLOT)
+	    && conflict->reloc_class == RTYPE_CLASS_VALID)
 	  break;
 
       if (conflict == NULL)

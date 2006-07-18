@@ -429,6 +429,17 @@ i386_reloc_size (int reloc_type)
   return 4;
 }
 
+static int
+i386_reloc_class (int reloc_type)
+{
+  switch (reloc_type)
+    {
+    case R_386_COPY: return RTYPE_CLASS_COPY;
+    case R_386_JMP_SLOT: return RTYPE_CLASS_PLT;
+    default: return RTYPE_CLASS_VALID;
+    }
+}
+
 PL_ARCH = {
   .class = ELFCLASS32,
   .machine = EM_386,
@@ -448,6 +459,7 @@ PL_ARCH = {
   .rel_to_rela = i386_rel_to_rela,
   .need_rel_to_rela = i386_need_rel_to_rela,
   .reloc_size = i386_reloc_size,
+  .reloc_class = i386_reloc_class,
   .max_reloc_size = 4,
   .arch_prelink = i386_arch_prelink,
   /* Although TASK_UNMAPPED_BASE is 0x40000000, we leave some

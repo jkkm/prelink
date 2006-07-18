@@ -2,4 +2,4 @@
 
 AUTOMAKE_OPTIONS = 1.4 gnu
 
-EXTRA_DIST = glibc.patch binutils.patch
+EXTRA_DIST = glibc.patch

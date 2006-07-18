@@ -43,6 +43,7 @@ int dry_run;
 int dereference;
 int one_file_system;
 int enable_cxx_optimizations = 1;
+int undo;
 const char *dynamic_linker;
 const char *ld_library_path;
 const char *prelink_conf = PRELINK_CONF;
@@ -72,6 +73,7 @@ static struct argp_option options[] = {
   {"print-cache",	'p', 0,	0,  "Print prelink cache" },
   {"random",		'R', 0, 0,  "Choose random base for libraries" },
   {"reloc-only",	'r', "BASE_ADDRESS", 0,  "Relocate library to given address, don't prelink" },
+  {"undo",		'u', 0, 0,  "Undo prelink" },
   {"verbose",		'v', 0, 0,  "Produce verbose output" },
   {"dynamic-linker",	OPT_DYNAMIC_LINKER, "DYNAMIC_LINKER",
 			        0,  "Special dynamic linker path" },
@@ -131,6 +133,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'c':
       prelink_conf = arg;
       break;
+    case 'u':
+      undo = 1;
+      break;
     case OPT_DYNAMIC_LINKER:
       dynamic_linker = arg;
       break;
@@ -171,6 +176,9 @@ main (int argc, char *argv[])
   if (all && reloc_only)
     error (EXIT_FAILURE, 0, "--all and --reloc-only options are incompatible");
 
+  if (undo && reloc_only)
+    error (EXIT_FAILURE, 0, "--undo and --reloc-only options are incompatible");
+
   prelink_init_cache ();
 
   if (print_cache)
@@ -183,11 +191,12 @@ main (int argc, char *argv[])
   if (remaining == argc && ! all)
     error (EXIT_FAILURE, 0, "no files given and --all not used");
 
-  if (reloc_only)
+  if (reloc_only || (undo && ! all))
     {
       while (remaining < argc)
 	{
 	  DSO *dso = open_dso (argv[remaining++]);
+	  int ret;
 
 	  if (dso == NULL)
 	    {
@@ -195,14 +204,20 @@ main (int argc, char *argv[])
 	      continue;
 	    }
 
-	  if (dso->ehdr.e_type != ET_DYN)
+	  if (dso->ehdr.e_type != ET_DYN
+	      && (reloc_only || dso->ehdr.e_type != ET_EXEC))
 	    {
 	      ++failures;
 	      error (0, 0, "%s is not a shared library", dso->filename);
 	      continue;
 	    }
 
-	  if (relocate_dso (dso, reloc_base))
+	  if (undo)
+	    ret = prelink_undo (dso);
+	  else
+	    ret = relocate_dso (dso, reloc_base);
+
+	  if (ret)
 	    {
 	      ++failures;
 	      close_dso (dso);

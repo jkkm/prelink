@@ -107,6 +107,10 @@ struct PLArch
   int (*need_rel_to_rela) (DSO *dso, int first, int last);
   /* Return reloc size in bytes for given non-COPY reloc type.  */
   int (*reloc_size) (int);
+#define RTYPE_CLASS_VALID	8
+#define RTYPE_CLASS_PLT		(8|1)
+#define RTYPE_CLASS_COPY	(8|2)
+  int (*reloc_class) (int);
   int (*arch_prelink) (DSO *dso);
   GElf_Addr mmap_base, mmap_end, page_size;
 };
@@ -239,7 +243,7 @@ struct prelink_symbol
   struct prelink_entry *ent;
   struct prelink_symbol *next;
   GElf_Addr value;
-  int reloc_type;
+  int reloc_class;
 };
 
 struct prelink_conflict
@@ -255,7 +259,7 @@ struct prelink_conflict
   GElf_Addr lookupval;
   /* Value it has in conflictent.  */
   GElf_Addr conflictval;
-  int reloc_type;
+  int reloc_class;
   int used;
 };
 
@@ -298,6 +302,8 @@ int prelink_exec (struct prelink_info *info);
 int prelink_set_checksum (DSO *dso);
 int is_ldso_soname (const char *soname);
 
+int prelink_undo (DSO *dso);
+
 int gather_object (const char *dir, int deref, int onefs);
 int gather_config (const char *config);
 int gather_check_libs (void);
@@ -325,5 +331,6 @@ extern int verbose;
 extern int dry_run;
 extern int libs_only;
 extern int enable_cxx_optimizations;
+extern int undo;
 
 #endif /* PRELINK_H */

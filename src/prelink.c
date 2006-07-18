@@ -47,9 +47,10 @@ resolve_dso (struct prelink_info *info, GElf_Word r_sym,
 	     int reloc_type)
 {
   struct prelink_symbol *s;
+  int reloc_class = info->dso->arch->reloc_class (reloc_type);
 
   for (s = & info->symbols[r_sym]; s; s = s->next)
-    if (s->reloc_type == reloc_type)
+    if (s->reloc_class == reloc_class)
       break;
 
   if (s == NULL || s->ent == NULL)
@@ -175,11 +176,11 @@ prelink_prepare (DSO *dso)
   if (find_reloc_sections (dso, &rinfo))
     return 1;
 
-  if (rinfo.gnureloc && liblist && libstr && undo
+  if (rinfo.reldyn && liblist && libstr && undo
       && ! rinfo.rel_to_rela && ! rinfo.rel_to_rela_plt)
       return 0;
 
-  if (! liblist || ! libstr || ! undo || (rinfo.first && ! rinfo.gnureloc))
+  if (! liblist || ! libstr || ! undo || (rinfo.first && ! rinfo.reldyn))
     {
       Elf_Data data, *d;
       GElf_Shdr shdr;
@@ -189,9 +190,9 @@ prelink_prepare (DSO *dso)
       if (move == NULL)
 	return 1;
 
-      if (rinfo.first && ! rinfo.gnureloc)
+      if (rinfo.first && ! rinfo.reldyn)
 	{
-	  if (build_gnu_reloc (dso, &data, &rinfo))
+	  if (build_rel_dyn (dso, &data, &rinfo))
 	    {
 	      free (move);
 	      return 1;
@@ -238,7 +239,7 @@ prelink_prepare (DSO *dso)
 	}
 
       free (move);
-      if (rinfo.first && ! rinfo.gnureloc)
+      if (rinfo.first && ! rinfo.reldyn)
 	{
 	  dso->shdr[rinfo.first] = shdr;
 	  d = elf_getdata (elf_getscn (dso->elf, rinfo.first), NULL);
@@ -247,7 +248,9 @@ prelink_prepare (DSO *dso)
 	  if (rinfo.plt)
 	    rinfo.plt -= rinfo.last - rinfo.first;
 	  rinfo.last = rinfo.first;
-	  dso->shdr[rinfo.first].sh_name = shstrtabadd (dso, ".gnu.reloc");
+	  dso->shdr[rinfo.first].sh_name
+	    = shstrtabadd (dso, data.d_type == ELF_T_REL
+				? ".rel.dyn" : ".rela.dyn");
 	  if (dso->shdr[rinfo.first].sh_name == 0)
 	    return 1;
 	}
@@ -411,7 +414,7 @@ prelink_prepare (DSO *dso)
 	return 1;
     }
 
-  if (rinfo.first && ! rinfo.gnureloc && rinfo.relcount)
+  if (rinfo.first && ! rinfo.reldyn && rinfo.relcount)
     set_dynamic (dso, dso->shdr[rinfo.first].sh_type == SHT_RELA
 		      ? DT_RELACOUNT : DT_RELCOUNT, rinfo.relcount, 0);
 

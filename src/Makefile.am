@@ -12,7 +12,7 @@ prelink_SYSDEPS = arch-i386.c
 prelink_SOURCES = cache.c cxx.c data.c doit.c dso.c dwarf2.c dwarf2.h exec.c \
 		  execle_open.c get.c gather.c hashtab.c hashtab.h layout.c  \
 		  main.c prelink.c prelink.h prelinktab.h reloc.c reloc.h    \
-		  stabs.c crc32.c \
+		  stabs.c undo.c crc32.c \
 		  $(prelink_SYSDEPS)
 prelink_LDADD = @LIBGELF@
 

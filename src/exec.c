@@ -31,9 +31,10 @@ prelink_conflict (struct prelink_info *info, GElf_Word r_sym,
 {
   GElf_Word symoff = info->symtab_start + r_sym * info->symtab_entsize;
   struct prelink_conflict *conflict;
+  int reloc_class = info->dso->arch->reloc_class (reloc_type);
 
   for (conflict = info->curconflicts; conflict; conflict = conflict->next)
-    if (conflict->symoff == symoff && conflict->reloc_type == reloc_type)
+    if (conflict->symoff == symoff && conflict->reloc_class == reloc_class)
       {
 	conflict->used = 1;
 	return conflict;
@@ -908,11 +909,14 @@ prelink_build_conflicts (struct prelink_info *info)
 	{
 	  struct prelink_symbol *s;
 	  DSO *ndso = NULL;
-	  int j;
-  
+	  int j, reloc_class;
+
+	  reloc_class
+	    = dso->arch->reloc_class (GELF_R_TYPE (cr.rela[i].r_info));
+
 	  for (s = & info->symbols[GELF_R_SYM (cr.rela[i].r_info)]; s;
 	       s = s->next)
-	    if (s->reloc_type == GELF_R_TYPE (cr.rela[i].r_info))
+	    if (s->reloc_class == reloc_class)
               break;
 
 	  if (s == NULL || s->ent == NULL)
@@ -989,14 +993,14 @@ prelink_exec (struct prelink_info *info)
   struct reloc_info rinfo;
   DSO *dso = info->dso;
   GElf_Ehdr ehdr;
-  Elf_Data gnu_reloc_data;
+  Elf_Data rel_dyn_data;
   GElf_Phdr phdr[dso->ehdr.e_phnum + 1];
   GElf_Shdr shdr[dso->ehdr.e_shnum + 20], add[5];
   Elf32_Lib *liblist = NULL;
   struct readonly_adjust adjust;
   struct section_move *move = NULL;
 
-  memset (&gnu_reloc_data.d_buf, 0, sizeof (gnu_reloc_data));
+  memset (&rel_dyn_data.d_buf, 0, sizeof (rel_dyn_data));
 
   if (prelink_build_conflicts (info))
     return 1;
@@ -1090,9 +1094,9 @@ prelink_exec (struct prelink_info *info)
   memset (old, 0, sizeof (old));
   memset (new, 0, sizeof (new));
 
-  if (rinfo.first && ! rinfo.gnureloc)
+  if (rinfo.first && ! rinfo.reldyn)
     {
-      if (build_gnu_reloc (dso, &gnu_reloc_data, &rinfo))
+      if (build_rel_dyn (dso, &rel_dyn_data, &rinfo))
 	goto error_out;
     }
 
@@ -1228,7 +1232,7 @@ prelink_exec (struct prelink_info *info)
 
   if (readonly_space_adjust (dso, &adjust))
     goto error_out;
-  /* Create .gnu.reloc if necessary.  */
+  /* Create .rel*.dyn if necessary.  */
   rinfo.first = move->old_to_new[rinfo.first];
   if (new_reloc != -1)
     {
@@ -1237,17 +1241,18 @@ prelink_exec (struct prelink_info *info)
       dso->shdr[rinfo.first].sh_offset = shdr[rinfo.first].sh_offset;
     }
 
-  if (rinfo.first && ! rinfo.gnureloc)
+  if (rinfo.first && ! rinfo.reldyn)
     {
       Elf_Data *data;
 
       i = rinfo.first;
       data = elf_getdata (elf_getscn (dso->elf, i), NULL);
       free (data->d_buf);
-      memcpy (data, &gnu_reloc_data, sizeof (gnu_reloc_data));
-      gnu_reloc_data.d_buf = NULL;
+      memcpy (data, &rel_dyn_data, sizeof (rel_dyn_data));
+      rel_dyn_data.d_buf = NULL;
       dso->shdr[i].sh_info = 0;
-      dso->shdr[i].sh_name = shstrtabadd (dso, ".gnu.reloc");
+      dso->shdr[i].sh_name = shstrtabadd (dso, data->d_type == ELF_T_REL
+					       ? ".rel.dyn" : ".rela.dyn");
       if (dso->shdr[i].sh_name == 0)
 	goto error_out;
     }
@@ -1258,7 +1263,7 @@ prelink_exec (struct prelink_info *info)
 	goto error_out;
       dso->shdr[rinfo.first].sh_size = shdr[rinfo.first].sh_size;
     }
-  else if (rinfo.first && ! rinfo.gnureloc)
+  else if (rinfo.first && ! rinfo.reldyn)
     dso->shdr[rinfo.first].sh_size = shdr[rinfo.first].sh_size;
 
   /* Adjust .rel*.plt if necessary.  */
@@ -1474,7 +1479,7 @@ prelink_exec (struct prelink_info *info)
 	goto error_out;
     }
 
-  if (rinfo.first && ! rinfo.gnureloc && rinfo.relcount)
+  if (rinfo.first && ! rinfo.reldyn && rinfo.relcount)
     set_dynamic (dso, dso->shdr[rinfo.first].sh_type == SHT_RELA
 		      ? DT_RELACOUNT : DT_RELCOUNT, rinfo.relcount, 0);
 
@@ -1515,7 +1520,7 @@ prelink_exec (struct prelink_info *info)
   return 0;
 
 error_out:
-  free (gnu_reloc_data.d_buf);
+  free (rel_dyn_data.d_buf);
   free (liblist);
   free (move);
   return 1;

@@ -167,7 +167,8 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
   do
     {
       unsigned long long symstart, symoff, valstart[3], value[3];
-      int reloc_type, len;
+      int reloc_class, len, type = 1;
+      char *symname;
 
       r = strchr (buffer, '\n');
       if (r)
@@ -176,13 +177,33 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	{
 	  struct prelink_symbol *s;
 
-	  if (sscanf (buffer, "lookup 0x%llx 0x%llx -> 0x%llx 0x%llx %d %n",
-		      &symstart, &symoff, &valstart[0], &value[0],
-		      &reloc_type, &len) != 5 || reloc_type == 0)
+	  if (sscanf (buffer, "lookup 0x%llx 0x%llx -> 0x%llx 0x%llx %n",
+		      &symstart, &symoff, &valstart[0], &value[0], &len) != 4)
 	    {
 	      error (0, 0, "%s: Could not parse `%s'", info->ent->filename, buffer);
 	      goto error_out;
 	    }
+
+	  if (buffer[len] == '/')
+	    {
+	      ++len;
+	      type = 0;
+	    }
+
+	  reloc_class = strtoul (buffer + len, &symname, 16);
+	  if (buffer + len == symname || (reloc_class == 0 && type)
+	      || (*symname != ' ' && *symname != '\t'))
+	    {
+	      error (0, 0, "%s: Could not parse `%s'", info->ent->filename, buffer);
+	      goto error_out;
+	    }
+
+	  if (type)
+	    reloc_class = dso->arch->reloc_class (reloc_class);
+	  else
+	    reloc_class |= RTYPE_CLASS_VALID;
+
+	  while (*symname == ' ' || *symname == '\t') ++symname;
 
 	  if (symstart != deps[0].start)
 	    continue;
@@ -191,7 +212,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	  if (symoff < info->symtab_start || symoff >= info->symtab_end)
 	    {
 	      error (0, 0, "%s: Symbol `%s' offset 0x%08llx does not point into .dynsym section",
-		     info->ent->filename, buffer + len, symoff);
+		     info->ent->filename, symname, symoff);
 	      goto error_out;
 	    }
 	  for (i = 0, ent = NULL; i < ndeps; i++)
@@ -217,16 +238,16 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 
 	  s = &info->symbols[(symoff - info->symtab_start)
 			      / info->symtab_entsize];
-	  if (s->reloc_type)
+	  if (s->reloc_class)
 	    {
-	      while (s->reloc_type != reloc_type && s->next != NULL)
+	      while (s->reloc_class != reloc_class && s->next != NULL)
 		s = s->next;
-	      if (s->reloc_type == reloc_type)
+	      if (s->reloc_class == reloc_class)
 		{
 		  if (s->ent != ent || s->value != value[0])
 		    {
 		      error (0, 0, "%s: Symbol `%s' with the same reloc type resolves to different values each time",
-			     info->ent->filename, buffer + len);
+			     info->ent->filename, symname);
 		      goto error_out;
 		    }
 		  s = NULL;
@@ -247,20 +268,40 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	    {
 	      s->ent = ent;
 	      s->value = value[0];
-	      s->reloc_type = reloc_type;
+	      s->reloc_class = reloc_class;
 	      s->next = NULL;
 	    }
 	}
       else if (strncmp (buffer, "conflict ", sizeof ("conflict ") - 1) == 0)
 	{
-	  if (sscanf (buffer, "conflict 0x%llx 0x%llx -> 0x%llx 0x%llx x 0x%llx 0x%llx %d %n",
+	  if (sscanf (buffer, "conflict 0x%llx 0x%llx -> 0x%llx 0x%llx x 0x%llx 0x%llx %n",
 		      &symstart, &symoff, &valstart[0], &value[0],
-		      &valstart[1], &value[1], &reloc_type, &len) != 7
-	      || reloc_type == 0)
+		      &valstart[1], &value[1], &len) != 6)
 	    {
 	      error (0, 0, "%s: Could not parse `%s'", info->ent->filename, buffer);
 	      goto error_out;
 	    }
+
+	  if (buffer[len] == '/')
+	    {
+	      ++len;
+	      type = 0;
+	    }
+
+	  reloc_class = strtoul (buffer + len, &symname, 16);
+	  if (buffer + len == symname || (reloc_class == 0 && type)
+	      || (*symname != ' ' && *symname != '\t'))
+	    {
+	      error (0, 0, "%s: Could not parse `%s'", info->ent->filename, buffer);
+	      goto error_out;
+	    }
+
+	  if (type)
+	    reloc_class = dso->arch->reloc_class (reloc_class);
+	  else
+	    reloc_class |= RTYPE_CLASS_VALID;
+
+	  while (*symname == ' ' || *symname == '\t') ++symname;
 
 	  if (symstart == deps[0].start)
 	    {
@@ -307,7 +348,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	      for (conflict = info->conflicts[symowner]; conflict;
 		   conflict = conflict->next)
 		if (conflict->symoff == symoff
-		    && conflict->reloc_type == reloc_type)
+		    && conflict->reloc_class == reloc_class)
 		  {
 		    if (conflict->lookupent != ents[0]
 			|| conflict->conflictent != ents[1]
@@ -315,7 +356,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 			|| conflict->conflictval != value[1])
 		      {
 			error (0, 0, "%s: Symbol `%s' with the same reloc type resolves to different values each time",
-			       info->ent->filename, buffer + len);
+			       info->ent->filename, symname);
 			goto error_out;
 		      }
 		    break;
@@ -336,7 +377,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		  conflict->lookupval = value[0];
 		  conflict->conflictval = value[1];
 		  conflict->symoff = symoff;
-		  conflict->reloc_type = reloc_type;
+		  conflict->reloc_class = reloc_class;
 		  conflict->used = 0;
 		}
 	    }
