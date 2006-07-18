@@ -436,8 +436,8 @@ s390x_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 	  Elf64_Addr data = read_ube64 (dso, dso->shdr[sec].sh_addr + 8);
 
 	  assert (rela->r_offset >= dso->shdr[sec].sh_addr + 24);
-	  assert (((rela->r_offset - dso->shdr[sec].sh_addr) & 3) == 0);
-	  write_be32 (dso, rela->r_offset,
+	  assert (((rela->r_offset - dso->shdr[sec].sh_addr) & 7) == 0);
+	  write_be64 (dso, rela->r_offset,
 		      4 * (rela->r_offset - dso->shdr[sec].sh_addr - 24)
 		      + data);
 	}

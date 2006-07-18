@@ -316,7 +316,7 @@ x86_64_arch_undo_prelink (DSO *dso)
     {
       /* Clear got[1] if it contains address of .plt + 0x16.  */
       int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
-      Elf32_Addr data;
+      Elf64_Addr data;
 
       if (sec == -1)
 	return 1;
@@ -360,7 +360,7 @@ x86_64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 	}
       else
 	{
-	  Elf32_Addr data = read_ule64 (dso, dso->shdr[sec].sh_addr + 8);
+	  Elf64_Addr data = read_ule64 (dso, dso->shdr[sec].sh_addr + 8);
 
 	  assert (rela->r_offset >= dso->shdr[sec].sh_addr + 24);
 	  assert (((rela->r_offset - dso->shdr[sec].sh_addr) & 7) == 0);
