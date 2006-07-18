@@ -18,7 +18,7 @@ common_SOURCES = checksum.c data.c dso.c dwarf2.c dwarf2.h fptr.c fptr.h     \
 prelink_SOURCES = cache.c conflict.c cxx.c doit.c exec.c execle_open.c get.c \
 		  gather.c layout.c main.c prelink.c     \
 		  prelinktab.h reloc.c reloc.h space.c undo.c undoall.c      \
-		  verify.c md5.c md5.h sha.c sha.h			     \
+		  verify.c canonicalize.c md5.c md5.h sha.c sha.h 	     \
 		  $(common_SOURCES) $(arch_SOURCES)
 prelink_LDADD = @LIBGELF@
 prelink_LDFLAGS = -all-static

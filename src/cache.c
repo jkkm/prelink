@@ -92,23 +92,35 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
 		    int insert)
 {
   struct prelink_entry e, *ent = NULL;
-  void **filename_slot;
-  void **devino_slot;
+  void **filename_slot, *dummy = NULL;
+  void **devino_slot = NULL;
   struct stat64 st;
+  char *canon_filename = NULL;
 
   e.filename = filename;
-  filename_slot = htab_find_slot (prelink_filename_htab, &e, INSERT);
+  filename_slot = htab_find_slot (prelink_filename_htab, &e,
+				  insert ? INSERT : NO_INSERT);
   if (filename_slot == NULL)
-    goto error_out;
+    {
+      if (insert)
+	goto error_out;
+      filename_slot = &dummy;
+    }
 
   if (*filename_slot != NULL)
     return (struct prelink_entry *) *filename_slot;
 
   if (! stp)
     {
-      if (stat64 (filename, &st) < 0)
+      canon_filename = prelink_canonicalize (filename, &st);
+      if (canon_filename == NULL && stat64 (filename, &st) < 0)
 	{
 	  error (0, errno, "Could not stat %s", filename);
+	  if (insert)
+	    {
+	      *filename_slot = &dummy;
+	      htab_clear_slot (prelink_filename_htab, filename_slot);
+	    }
 	  return NULL;
 	}
       stp = &st;
@@ -116,43 +128,30 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
 
   e.dev = stp->st_dev;
   e.ino = stp->st_ino;
-  devino_slot = htab_find_slot (prelink_devino_htab, &e, INSERT);
+  devino_slot = htab_find_slot (prelink_devino_htab, &e,
+				insert ? INSERT : NO_INSERT);
   if (devino_slot == NULL)
-    goto error_out;
+    {
+      if (insert)
+	goto error_out;
+      free (canon_filename);
+      return NULL;
+    }
 
   if (*devino_slot != NULL)
     {
-      char *canon_filename;
-
       ent = (struct prelink_entry *) *devino_slot;
-      canon_filename = canonicalize_file_name (filename);
+      if (canon_filename == NULL)
+	canon_filename = prelink_canonicalize (filename, NULL);
       if (canon_filename == NULL)
 	{
 	  error (0, 0, "Could not canonicalize filename %s", filename);
-	  return NULL;
+	  goto error_out2;
 	}
 
       if (strcmp (canon_filename, ent->canon_filename) != 0)
 	{
 	  struct prelink_link *hardlink;
-
-	  if (ent->flags & PCF_VERIFY_CANONFNAME)
-	    {
-	      char *canon_ent_filename
-		= canonicalize_file_name (ent->canon_filename);
-
-	      ent->flags &= ~PCF_VERIFY_CANONFNAME;
-	      if (canon_ent_filename == NULL
-		  || strcmp (canon_ent_filename, ent->canon_filename) != 0)
-		{
-		  free (canon_ent_filename);
-		  canon_ent_filename = (char *) ent->canon_filename;
-		  ent->canon_filename = canon_filename;
-		  free (canon_ent_filename);
-		  return ent;
-		}
-	      free (canon_ent_filename);
-	    }
 
 	  hardlink = (struct prelink_link *)
 		     malloc (sizeof (struct prelink_link));
@@ -160,8 +159,7 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
 	    {
 	      error (0, ENOMEM, "Could not record hardlink %s to %s",
 		     canon_filename, ent->canon_filename);
-	      free (canon_filename);
-	      return NULL;
+	      goto error_out2;
 	    }
 
 	  hardlink->canon_filename = canon_filename;
@@ -174,7 +172,11 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
     }
 
   if (! insert)
-    return NULL;
+    {
+      if (canon_filename != NULL)
+	free (canon_filename);
+      return NULL;
+    }
 
   ent = (struct prelink_entry *) calloc (sizeof (struct prelink_entry), 1);
   if (ent == NULL)
@@ -184,11 +186,16 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
   if (ent->filename == NULL)
     goto error_out;
 
-  ent->canon_filename = canonicalize_file_name (filename);
+  if (canon_filename != NULL)
+    ent->canon_filename = canon_filename;
+  else
+    ent->canon_filename = prelink_canonicalize (filename, NULL);
   if (ent->canon_filename == NULL)
     {
       error (0, 0, "Could not canonicalize filename %s", filename);
-      return NULL;
+      free ((char *) ent->filename);
+      free (ent);
+      goto error_out2;
     }
 
   ent->dev = stp->st_dev;
@@ -204,6 +211,22 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
 error_out:
   free (ent);
   error (0, ENOMEM, "Could not insert %s into hash table", filename);
+error_out2:
+  if (insert)
+    {
+      if (filename_slot != NULL)
+	{
+	  assert (*filename_slot == NULL);
+	  *filename_slot = &dummy;
+	  htab_clear_slot (prelink_filename_htab, filename_slot);
+	}
+      if (devino_slot != NULL && *devino_slot == NULL)
+	{
+	  *devino_slot = &dummy;
+	  htab_clear_slot (prelink_devino_htab, devino_slot);
+	}
+    }
+  free (canon_filename);
   return NULL;
 }
 
@@ -211,10 +234,11 @@ static struct prelink_entry *
 prelink_load_entry (const char *filename)
 {
   struct prelink_entry e, *ent = NULL;
-  void **filename_slot;
-  void **devino_slot, *dummy = NULL;
+  void **filename_slot, *dummy = NULL;
+  void **devino_slot = &dummy;
   struct stat64 st;
   uint32_t ctime = 0, mtime = 0;
+  char *canon_filename = NULL;
 
   e.filename = filename;
   filename_slot = htab_find_slot (prelink_filename_htab, &e, INSERT);
@@ -224,11 +248,32 @@ prelink_load_entry (const char *filename)
   if (*filename_slot != NULL)
     return (struct prelink_entry *) *filename_slot;
 
-  if (stat64 (filename, &st) < 0)
+  canon_filename = prelink_canonicalize (filename, &st);
+  if (canon_filename == NULL)
+    goto error_out2;
+  if (strcmp (canon_filename, filename) != 0)
     {
-      e.dev = 0;
-      e.ino = 0;
-      devino_slot = &dummy;
+      *filename_slot = &dummy;
+      htab_clear_slot (prelink_filename_htab, filename_slot);
+
+      e.filename = canon_filename;
+      filename_slot = htab_find_slot (prelink_filename_htab, &e, INSERT);
+      if (filename_slot == NULL)
+	goto error_out;
+
+      if (*filename_slot != NULL)
+	{
+	  free (canon_filename);
+	  return (struct prelink_entry *) *filename_slot;
+	}
+    }
+
+  if (! S_ISREG (st.st_mode))
+    {
+      free (canon_filename);
+      *filename_slot = &dummy;
+      htab_clear_slot (prelink_filename_htab, filename_slot);
+      return NULL;
     }
   else
     {
@@ -242,7 +287,12 @@ prelink_load_entry (const char *filename)
     }
 
   if (*devino_slot != NULL)
-    return (struct prelink_entry *) *devino_slot;
+    {
+      free (canon_filename);
+      *filename_slot = &dummy;
+      htab_clear_slot (prelink_filename_htab, filename_slot);
+      return (struct prelink_entry *) *devino_slot;
+    }
 
   ent = (struct prelink_entry *) calloc (sizeof (struct prelink_entry), 1);
   if (ent == NULL)
@@ -252,13 +302,7 @@ prelink_load_entry (const char *filename)
   if (ent->filename == NULL)
     goto error_out;
 
-  ent->canon_filename = strdup (filename);
-  if (ent->canon_filename == NULL)
-    {
-      free ((char *) ent->filename);
-      goto error_out;
-    }
-
+  ent->canon_filename = canon_filename;
   ent->dev = e.dev;
   ent->ino = e.ino;
   ent->ctime = ctime;
@@ -271,6 +315,18 @@ prelink_load_entry (const char *filename)
 error_out:
   free (ent);
   error (0, ENOMEM, "Could not insert %s into hash table", filename);
+error_out2:
+  if (filename_slot != NULL)
+    {
+      *filename_slot = &dummy;
+      htab_clear_slot (prelink_filename_htab, filename_slot);
+    }
+  if (devino_slot != NULL && devino_slot != &dummy)
+    {
+      *devino_slot = &dummy;
+      htab_clear_slot (prelink_devino_htab, devino_slot);
+    }
+  free (canon_filename);
   return NULL;
 }
 
@@ -365,9 +421,9 @@ prelink_load_cache (void)
       ents[i]->end = cache->entry[i].end;
       ents[i]->type = (ents[i]->base == 0 && ents[i]->end == 0)
 		      ? ET_CACHE_EXEC : ET_CACHE_DYN;
-      ents[i]->flags = cache->entry[i].flags | PCF_VERIFY_CANONFNAME;
+      ents[i]->flags = cache->entry[i].flags;
 
-      if (ents[i]->flags == (PCF_UNPRELINKABLE | PCF_VERIFY_CANONFNAME))
+      if (ents[i]->flags == PCF_UNPRELINKABLE)
 	ents[i]->type = (quick || print_cache) ? ET_UNPRELINKABLE : ET_NONE;
 
       /* If mtime is equal to ctime, assume the filesystem does not store
@@ -575,8 +631,7 @@ prelink_save_cache (int do_warn)
       data[i].filename = (strings - (char *) data) + sizeof (cache);
       strings = stpcpy (strings, l.ents[i]->canon_filename) + 1;
       data[i].checksum = l.ents[i]->checksum;
-      data[i].flags = l.ents[i]->flags
-		      & ~(PCF_PRELINKED | PCF_VERIFY_CANONFNAME);
+      data[i].flags = l.ents[i]->flags & ~PCF_PRELINKED;
       data[i].ctime = l.ents[i]->ctime;
       data[i].mtime = l.ents[i]->mtime;
       if (l.ents[i]->type == ET_EXEC || l.ents[i]->type == ET_CACHE_EXEC)

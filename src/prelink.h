@@ -226,7 +226,6 @@ struct prelink_cache_entry
   uint32_t filename;
   uint32_t depends;
   uint32_t checksum;
-#define PCF_VERIFY_CANONFNAME	0x80000
 #define PCF_UNPRELINKABLE	0x40000
 #define PCF_PRELINKED		0x20000
 #define PCF_ELF64		0x10000
@@ -405,6 +404,8 @@ int layout_libs (void);
 void prelink_all (void);
 
 int undo_all (void);
+
+char *prelink_canonicalize (const char *name, struct stat64 *stp);
 
 extern const char *dynamic_linker;
 extern const char *ld_library_path;

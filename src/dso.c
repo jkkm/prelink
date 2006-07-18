@@ -1462,7 +1462,6 @@ recompute_nonalloc_offsets (DSO *dso)
   first_nonalloc = i;
   if (dso->ehdr.e_shoff < dso->shdr[i].sh_offset)
     {
-      assert (dso->shdr[i - 1].sh_offset < dso->ehdr.e_shoff);
       dso->ehdr.e_shoff = (last_offset + shdralign - 1) & ~(shdralign - 1);
       last_offset = dso->ehdr.e_shoff + shdrsize;
     }

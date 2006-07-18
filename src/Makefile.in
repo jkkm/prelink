@@ -115,7 +115,7 @@ common_SOURCES = checksum.c data.c dso.c dwarf2.c dwarf2.h fptr.c fptr.h     \
 prelink_SOURCES = cache.c conflict.c cxx.c doit.c exec.c execle_open.c get.c \
 		  gather.c layout.c main.c prelink.c     \
 		  prelinktab.h reloc.c reloc.h space.c undo.c undoall.c      \
-		  verify.c md5.c md5.h sha.c sha.h			     \
+		  verify.c canonicalize.c md5.c md5.h sha.c sha.h 	     \
 		  $(common_SOURCES) $(arch_SOURCES)
 
 prelink_LDADD = @LIBGELF@
@@ -150,8 +150,9 @@ am_prelink_OBJECTS = cache.$(OBJEXT) conflict.$(OBJEXT) cxx.$(OBJEXT) \
 	doit.$(OBJEXT) exec.$(OBJEXT) execle_open.$(OBJEXT) \
 	get.$(OBJEXT) gather.$(OBJEXT) layout.$(OBJEXT) main.$(OBJEXT) \
 	prelink.$(OBJEXT) reloc.$(OBJEXT) space.$(OBJEXT) \
-	undo.$(OBJEXT) undoall.$(OBJEXT) verify.$(OBJEXT) md5.$(OBJEXT) \
-	sha.$(OBJEXT) $(am__objects_1) $(am__objects_2)
+	undo.$(OBJEXT) undoall.$(OBJEXT) verify.$(OBJEXT) \
+	canonicalize.$(OBJEXT) md5.$(OBJEXT) sha.$(OBJEXT) \
+	$(am__objects_1) $(am__objects_2)
 prelink_OBJECTS = $(am_prelink_OBJECTS)
 prelink_DEPENDENCIES =
 DEFAULT_INCLUDES =  -I. -I$(srcdir) -I$(top_builddir)
@@ -168,20 +169,20 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/arch-sparc.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/arch-sparc64.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/arch-x86_64.Po ./$(DEPDIR)/cache.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/checksum.Po ./$(DEPDIR)/conflict.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/crc32.Po ./$(DEPDIR)/cxx.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/data.Po ./$(DEPDIR)/doit.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/dso.Po ./$(DEPDIR)/dwarf2.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/exec.Po ./$(DEPDIR)/execle_open.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/execstack.Po ./$(DEPDIR)/fptr.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/gather.Po ./$(DEPDIR)/get.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/hashtab.Po ./$(DEPDIR)/layout.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/main.Po ./$(DEPDIR)/md5.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/mdebug.Po ./$(DEPDIR)/prelink.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/reloc.Po ./$(DEPDIR)/sha.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/space.Po ./$(DEPDIR)/stabs.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/undo.Po ./$(DEPDIR)/undoall.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/verify.Po
+@AMDEP_TRUE@	./$(DEPDIR)/canonicalize.Po ./$(DEPDIR)/checksum.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/conflict.Po ./$(DEPDIR)/crc32.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/cxx.Po ./$(DEPDIR)/data.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/doit.Po ./$(DEPDIR)/dso.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/dwarf2.Po ./$(DEPDIR)/exec.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/execle_open.Po ./$(DEPDIR)/execstack.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/fptr.Po ./$(DEPDIR)/gather.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/get.Po ./$(DEPDIR)/hashtab.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/layout.Po ./$(DEPDIR)/main.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/md5.Po ./$(DEPDIR)/mdebug.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/prelink.Po ./$(DEPDIR)/reloc.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/sha.Po ./$(DEPDIR)/space.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/stabs.Po ./$(DEPDIR)/undo.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/undoall.Po ./$(DEPDIR)/verify.Po
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 LTCOMPILE = $(LIBTOOL) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) \
@@ -287,6 +288,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/arch-sparc64.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/arch-x86_64.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cache.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/canonicalize.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/checksum.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/conflict.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/crc32.Po@am__quote@

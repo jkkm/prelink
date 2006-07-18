@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -587,7 +587,7 @@ add_dir_to_dirlist (const char *name, dev_t dev, int flags)
   struct prelink_dir *dir;
   size_t len;
 
-  canon_name = canonicalize_file_name (name);
+  canon_name = prelink_canonicalize (name, NULL);
   if (canon_name == NULL)
     {
       if (! all && implicit)
@@ -1226,7 +1226,7 @@ add_to_blacklist (const char *name, int deref, int onefs)
       return 0;
     }
 
-  canon_name = canonicalize_file_name (name);
+  canon_name = prelink_canonicalize (name, NULL);
   if (canon_name == NULL)
     {
       if (implicit)
