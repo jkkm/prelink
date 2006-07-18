@@ -331,6 +331,7 @@ prelink_exec (struct prelink_info *info)
   addcnt = i;
   memset (&adjust, 0, sizeof (adjust));
   adjust.new = new;
+  adjust.move = move;
 
   for (i = 0; i < addcnt; ++i)
     {

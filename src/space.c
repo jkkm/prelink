@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -604,10 +604,12 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	  else
 	    {
 	      GElf_Shdr moveshdr;
-	      int newidx, ret, movedidx;
+	      int newidx, ret, movedidx, oldidx;
 
 	      moveshdr = shdr[movesec];
 	      newidx = remove_readonly_section (ehdr, shdr, movesec, adjust);
+	      oldidx = adjust->move->new_to_old[movesec];
+	      remove_section (adjust->move, movesec);
 	      ret = find_readonly_space (dso, add, ehdr, phdr, shdr, adjust);
 	      if (ret == 0)
 		return 0;
@@ -617,6 +619,14 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		return 0;
 	      if (newidx != -1)
 		adjust->new[newidx] = movedidx;
+	      add_section (adjust->move, movedidx);
+	      if (oldidx != -1)
+		{
+		  adjust->move->old_to_new[oldidx] = movedidx;
+		  adjust->move->new_to_old[movedidx] = oldidx;
+		}
+	      if (movedidx <= ret)
+		++ret;
 	      return ret;
 	    }
 	}
