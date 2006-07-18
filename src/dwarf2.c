@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -188,7 +188,8 @@ struct abbrev_tag
 
 struct cu_data
   {
-    GElf_Addr cur_entry_pc;
+    GElf_Addr cu_entry_pc;
+    GElf_Addr cu_low_pc;
   };
 
 static hashval_t
@@ -254,7 +255,6 @@ no_memory:
 	  htab_delete (h);
 	  return NULL;
 	}
-      *slot = t;
       t->tag = read_uleb128 (ptr);
       ++ptr; /* skip children flag.  */
       while ((attr = read_uleb128 (ptr)) != 0)
@@ -264,10 +264,7 @@ no_memory:
 	      size += 10;
 	      t = realloc (t, sizeof (*t) + size * sizeof (struct abbrev_attr));
 	      if (t == NULL)
-	        {
-		  *slot = NULL;
-		  goto no_memory;
-	        }
+		goto no_memory;
 	    }
 	  form = read_uleb128 (ptr);
 	  if (form == 2 || form > DW_FORM_indirect)
@@ -287,6 +284,7 @@ no_memory:
 	  htab_delete (h);
 	  return NULL;
         }
+      *slot = t;
     }
 
   return h;
@@ -387,6 +385,118 @@ adjust_location_list (DSO *dso, unsigned char *ptr, size_t len,
   return 0;
 }
 
+static int
+adjust_dwarf2_ranges (DSO *dso, GElf_Addr offset, GElf_Addr base,
+		      GElf_Addr start, GElf_Addr adjust)
+{
+  unsigned char *ptr, *endsec;
+  GElf_Addr low, high;
+  int adjusted_base;
+
+  ptr = debug_sections[DEBUG_RANGES].data;
+  if (ptr == NULL)
+    {
+      error (0, 0, "%s: DW_AT_ranges attribute, yet no .debug_ranges section",
+	     dso->filename);
+      return 1;
+    }
+  if (offset >= debug_sections[DEBUG_RANGES].size)
+    {
+      error (0, 0,
+	     "%s: DW_AT_ranges offset %Ld outside of .debug_ranges section",
+	     dso->filename, (long long) offset);
+      return 1;
+    }
+  endsec = ptr + debug_sections[DEBUG_RANGES].size;
+  ptr += offset;
+  adjusted_base = (base && base >= start && addr_to_sec (dso, base) != -1);
+  while (ptr < endsec)
+    {
+      low = read_ptr (ptr);
+      high = read_ptr (ptr);
+      if (low == 0 && high == 0)
+	break;
+
+      if (low == ~ (GElf_Addr) 0 || (ptr_size == 4 && low == 0xffffffff))
+	{
+	  base = high;
+	  adjusted_base = (base && base >= start
+			   && addr_to_sec (dso, base) != -1);
+	  if (adjusted_base)
+	    write_ptr (ptr - ptr_size, base + adjust);
+	}
+      else if (! adjusted_base)
+	{
+	  if (base + low >= start && addr_to_sec (dso, base + low) != -1)
+	    write_ptr (ptr - 2 * ptr_size, low + adjust);
+	  if (base + high >= start && addr_to_sec (dso, base + high) != -1)
+	    write_ptr (ptr - ptr_size, high + adjust);
+	}
+    }
+
+  elf_flagscn (dso->scn[debug_sections[DEBUG_RANGES].sec], ELF_C_SET,
+	       ELF_F_DIRTY);
+  return 0;
+}
+
+static int
+adjust_dwarf2_loc (DSO *dso, GElf_Addr offset, GElf_Addr base,
+		   GElf_Addr start, GElf_Addr adjust)
+{
+  unsigned char *ptr, *endsec;
+  GElf_Addr low, high;
+  int adjusted_base;
+  size_t len;
+
+  ptr = debug_sections[DEBUG_LOC].data;
+  if (ptr == NULL)
+    {
+      error (0, 0, "%s: loclistptr attribute, yet no .debug_loc section",
+	     dso->filename);
+      return 1;
+    }
+  if (offset >= debug_sections[DEBUG_LOC].size)
+    {
+      error (0, 0,
+	     "%s: loclistptr offset %Ld outside of .debug_loc section",
+	     dso->filename, (long long) offset);
+      return 1;
+    }
+  endsec = ptr + debug_sections[DEBUG_LOC].size;
+  ptr += offset;
+  adjusted_base = (base && base >= start && addr_to_sec (dso, base) != -1);
+  error (0, 0, "%s: .debug_loc adjusting unfinished", dso->filename);
+  return 1;
+  while (ptr < endsec)
+    {
+      low = read_ptr (ptr);
+      high = read_ptr (ptr);
+      if (low == 0 && high == 0)
+	break;
+
+      if (low == ~ (GElf_Addr) 0 || (ptr_size == 4 && low == 0xffffffff))
+	{
+	  base = high;
+	  adjusted_base = (base && base >= start
+			   && addr_to_sec (dso, base) != -1);
+	  if (adjusted_base)
+	    write_ptr (ptr - ptr_size, base + adjust);
+	  continue;
+	}
+      len = read_16 (ptr);
+      assert (ptr + len <= endsec);
+
+      if (adjust_location_list (dso, ptr, len, start, adjust))
+	return 1;
+
+      ptr += len;
+    }
+
+  elf_flagscn (dso->scn[debug_sections[DEBUG_LOC].sec], ELF_C_SET,
+	       ELF_F_DIRTY);
+  return 0;
+}
+
 static unsigned char *
 adjust_attributes (DSO *dso, unsigned char *ptr, struct abbrev_tag *t,
 		   struct cu_data *cu,
@@ -402,6 +512,45 @@ adjust_attributes (DSO *dso, unsigned char *ptr, struct abbrev_tag *t,
 
       while (1)
 	{
+	  switch (t->attr[i].attr)
+	    {
+	    case DW_AT_location:
+	    case DW_AT_string_length:
+	    case DW_AT_return_addr:
+	    case DW_AT_data_member_location:
+	    case DW_AT_frame_base:
+	    case DW_AT_static_link:
+	    case DW_AT_use_location:
+	    case DW_AT_vtable_elem_location:
+	    case DW_AT_ranges:
+	      if (form == DW_FORM_data4)
+		addr = read_32 (ptr), ptr -= 4;
+	      else if (form == DW_FORM_data8)
+		addr = read_64 (ptr), ptr -= 8;
+	      else
+		break;
+	      {
+		GElf_Addr base;
+
+		if (cu->cu_entry_pc != ~ (GElf_Addr) 0)
+		  base = cu->cu_entry_pc;
+		else if (cu->cu_low_pc != ~ (GElf_Addr) 0)
+		  base = cu->cu_low_pc;
+	  	else
+		  base = 0;
+		if (t->attr[i].attr == DW_AT_ranges)
+		  {
+		    if (adjust_dwarf2_ranges (dso, addr, base, start, adjust))
+		      return NULL;
+		  }
+		else
+		  {
+		    if (adjust_dwarf2_loc (dso, addr, base, start, adjust))
+		      return NULL;
+		  }
+	      }
+	      break;
+	    }
 	  switch (form)
 	    {
 	    case DW_FORM_addr:
@@ -409,9 +558,10 @@ adjust_attributes (DSO *dso, unsigned char *ptr, struct abbrev_tag *t,
 	      if (t->tag == DW_TAG_compile_unit
 		  || t->tag == DW_TAG_partial_unit)
 		{
-		  if (t->attr[i].attr == DW_AT_entry_pc
-		      || t->attr[i].attr == DW_AT_low_pc)
-		    cu->cur_entry_pc = addr;
+		  if (t->attr[i].attr == DW_AT_entry_pc)
+		    cu->cu_entry_pc = addr;
+		  else if (t->attr[i].attr == DW_AT_low_pc)
+		    cu->cu_low_pc = addr;
 		  if (addr == 0)
 		    break;
 		}
@@ -442,7 +592,7 @@ adjust_attributes (DSO *dso, unsigned char *ptr, struct abbrev_tag *t,
 	      break;
 	    case DW_FORM_ref_addr:
 	    case DW_FORM_strp:
-	      ptr += ptr_size;
+	      ptr += 4;
 	      break;
 	    case DW_FORM_string:
 	      ptr = strchr (ptr, '\0') + 1;
@@ -652,39 +802,6 @@ adjust_dwarf2_aranges (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 }
 
 static int
-adjust_dwarf2_loc (DSO *dso, GElf_Addr start, GElf_Addr adjust)
-{
-  unsigned char *ptr = debug_sections[DEBUG_LOC].data;
-  unsigned char *endsec = ptr + debug_sections[DEBUG_LOC].size;
-  GElf_Addr low, high;
-  size_t len;
-
-  error (0, 0, "%s: .debug_loc adjusting unfinished", dso->filename);
-  return 1;
-  while (ptr < endsec)
-    {
-      low = read_ptr (ptr);
-      high = read_ptr (ptr);
-      if (low == 0 && high == 0)
-        continue;
-
-      /* FIXME: Handle low == ~0 and propagate here DW_AT_entry_pc
-	 DW_AT_low_pc setting of referring CU too.  */
-      len = read_16 (ptr);
-      assert (ptr + len <= endsec);
-
-      if (adjust_location_list (dso, ptr, len, start, adjust))
-	return 1;
-
-      ptr += len;
-    }
-
-  elf_flagscn (dso->scn[debug_sections[DEBUG_LOC].sec], ELF_C_SET,
-	       ELF_F_DIRTY);
-  return 0;
-}
-
-static int
 adjust_dwarf2_frame (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 {
   unsigned char *ptr = debug_sections[DEBUG_FRAME].data;
@@ -802,29 +919,6 @@ adjust_dwarf2_frame (DSO *dso, GElf_Addr start, GElf_Addr adjust)
     }
 
   elf_flagscn (dso->scn[debug_sections[DEBUG_FRAME].sec], ELF_C_SET,
-	       ELF_F_DIRTY);
-  return 0;
-}
-
-static int
-adjust_dwarf2_ranges (DSO *dso, GElf_Addr start, GElf_Addr adjust)
-{
-  unsigned char *ptr = debug_sections[DEBUG_RANGES].data;
-  unsigned char *endsec = ptr + debug_sections[DEBUG_RANGES].size;
-  GElf_Addr low, high;
-
-  while (ptr < endsec)
-    {
-      low = read_ptr (ptr);
-      high = read_ptr (ptr);
-      if (low == 0 && high == 0)
-        continue;
-
-      /* FIXME: Handle low == ~0 and propagate here DW_AT_entry_pc
-	 DW_AT_low_pc setting of referring CU too.  */
-    }
-
-  elf_flagscn (dso->scn[debug_sections[DEBUG_RANGES].sec], ELF_C_SET,
 	       ELF_F_DIRTY);
   return 0;
 }
@@ -992,6 +1086,9 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 	  if (abbrev == NULL)
 	    return 1;
 
+	  cu.cu_entry_pc = ~ (GElf_Addr) 0;
+	  cu.cu_low_pc = ~ (GElf_Addr) 0;
+
 	  while (ptr < endcu)
 	    {
 	      tag.entry = read_uleb128 (ptr);
@@ -1030,22 +1127,16 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
       && adjust_dwarf2_aranges (dso, start, adjust))
     return 1;
 
-  if (debug_sections[DEBUG_LOC].data != NULL
-      && adjust_dwarf2_loc (dso, start, adjust))
-    return 1;
-
   if (debug_sections[DEBUG_FRAME].data != NULL
       && adjust_dwarf2_frame (dso, start, adjust))
-    return 1;
-
-  if (debug_sections[DEBUG_RANGES].data != NULL
-      && adjust_dwarf2_ranges (dso, start, adjust))
     return 1;
 
   /* .debug_abbrev requires no adjustement.  */
   /* .debug_pubnames requires no adjustement.  */
   /* .debug_macinfo requires no adjustement.  */
   /* .debug_str requires no adjustement.  */
+  /* .debug_ranges adjusted for each DW_AT_ranges pointing into it.  */
+  /* .debug_loc adjusted for each loclistptr pointing into it.  */
 
   elf_flagscn (dso->scn[n], ELF_C_SET, ELF_F_DIRTY);
   return 0;
