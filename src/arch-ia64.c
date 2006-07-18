@@ -344,6 +344,7 @@ ia64_reloc_class (int reloc_type)
 PL_ARCH = {
   .class = ELFCLASS64,
   .machine = EM_IA64,
+  .alternate_machine = { EM_NONE },
   .R_JMP_SLOT = R_IA64_IPLTLSB,
   .R_COPY = -1,
   .R_RELATIVE = R_IA64_REL64LSB,

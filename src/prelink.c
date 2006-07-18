@@ -144,6 +144,12 @@ prelink_prepare (DSO *dso)
 	libstr = i;
       else if (! strcmp (name, ".gnu.prelink_undo"))
 	undo = i;
+      else if (! strcmp (name, ".mdebug")
+	       && ((dso->arch->machine == EM_ALPHA
+		    && dso->shdr[i].sh_type == SHT_ALPHA_DEBUG)
+		   || (dso->arch->machine == EM_MIPS
+		       && dso->shdr[i].sh_type == SHT_MIPS_DEBUG)))
+	dso->mdebug_orig_offset = dso->shdr[i].sh_offset;
     }
 
   if (undo == 0)

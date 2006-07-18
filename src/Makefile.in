@@ -83,11 +83,11 @@ INCLUDES = @GELFINCLUDE@
 
 sbin_PROGRAMS = prelink
 
-prelink_SYSDEPS = arch-i386.c
+prelink_SYSDEPS = arch-i386.c arch-alpha.c arch-sparc.c
 prelink_SOURCES = cache.c conflict.c cxx.c data.c doit.c dso.c dwarf2.c	     \
 		  dwarf2.h exec.c execle_open.c get.c gather.c hashtab.c     \
-		  hashtab.h layout.c main.c prelink.c prelink.h prelinktab.h \
-		  reloc.c reloc.h stabs.c undo.c crc32.c \
+		  hashtab.h layout.c main.c mdebug.c prelink.c prelink.h     \
+		  prelinktab.h reloc.c reloc.h stabs.c undo.c crc32.c	     \
 		  $(prelink_SYSDEPS)
 
 prelink_LDADD = @LIBGELF@
@@ -102,8 +102,9 @@ CPPFLAGS = @CPPFLAGS@
 LDFLAGS = @LDFLAGS@
 LIBS = @LIBS@
 prelink_OBJECTS =  cache.o conflict.o cxx.o data.o doit.o dso.o dwarf2.o \
-exec.o execle_open.o get.o gather.o hashtab.o layout.o main.o prelink.o \
-reloc.o stabs.o undo.o crc32.o arch-i386.o
+exec.o execle_open.o get.o gather.o hashtab.o layout.o main.o mdebug.o \
+prelink.o reloc.o stabs.o undo.o crc32.o arch-i386.o arch-alpha.o \
+arch-sparc.o
 prelink_DEPENDENCIES = 
 prelink_LDFLAGS = 
 CFLAGS = @CFLAGS@
@@ -118,10 +119,11 @@ DISTFILES = $(DIST_COMMON) $(SOURCES) $(HEADERS) $(TEXINFOS) $(EXTRA_DIST)
 
 TAR = gtar
 GZIP_ENV = --best
-DEP_FILES =  .deps/arch-i386.P .deps/cache.P .deps/conflict.P \
-.deps/crc32.P .deps/cxx.P .deps/data.P .deps/doit.P .deps/dso.P \
-.deps/dwarf2.P .deps/exec.P .deps/execle_open.P .deps/gather.P \
-.deps/get.P .deps/hashtab.P .deps/layout.P .deps/main.P .deps/prelink.P \
+DEP_FILES =  .deps/arch-alpha.P .deps/arch-i386.P .deps/arch-sparc.P \
+.deps/cache.P .deps/conflict.P .deps/crc32.P .deps/cxx.P .deps/data.P \
+.deps/doit.P .deps/dso.P .deps/dwarf2.P .deps/exec.P \
+.deps/execle_open.P .deps/gather.P .deps/get.P .deps/hashtab.P \
+.deps/layout.P .deps/main.P .deps/mdebug.P .deps/prelink.P \
 .deps/reloc.P .deps/stabs.P .deps/undo.P
 SOURCES = $(prelink_SOURCES)
 OBJECTS = $(prelink_OBJECTS)

@@ -121,9 +121,36 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
       write_le32 (dso, rel->r_offset, value);
       break;
     case R_386_32:
+      {
+	int relsec;
+	GElf_Addr reloff;
+	Elf_Data *data = NULL;
+
+	if (read_ule32 (dso, rel->r_offset))
+	  {
+	    error (0, 0, "%s: R_386_32 relocs with non-zero addend should not be present in prelinked REL sections",
+		   dso->filename);
+	    return 1;
+	  }
+
+	relsec = addr_to_sec (dso, reladdr);
+	assert (relsec != -1);
+	reloff = reladdr - dso->shdr[relsec].sh_addr;
+	while ((data = elf_getdata (elf_getscn (dso->elf, relsec), data))
+	       != NULL)
+	  if (data->d_off <= reloff && data->d_off + data->d_size > reloff)
+	    break;
+	assert (data != NULL);
+	reloff -= data->d_off;
+	reloff /= dso->shdr[relsec].sh_entsize;
+	rel->r_info = GELF_R_INFO (GELF_R_SYM (rel->r_info), R_386_GLOB_DAT);
+	gelfx_update_rel (dso->elf, data, reloff, rel);
+	write_le32 (dso, rel->r_offset, value);
+	break;
+      }
     case R_386_PC32:
-      error (0, 0, "%s: R_386_%s32 relocs should not be present in prelinked REL sections",
-	     dso->filename, GELF_R_TYPE (rel->r_info) == R_386_32 ? "" : "PC");
+      error (0, 0, "%s: R_386_PC32 relocs should not be present in prelinked REL sections",
+	     dso->filename);
       return 1;
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
@@ -373,6 +400,7 @@ i386_need_rel_to_rela (DSO *dso, int first, int last)
   Elf_Data *data;
   Elf_Scn *scn;
   Elf32_Rel *rel, *relend;
+  unsigned int val;
 
   while (first <= last)
     {
@@ -386,6 +414,13 @@ i386_need_rel_to_rela (DSO *dso, int first, int last)
 	    switch (ELF32_R_TYPE (rel->r_info))
 	      {
 	      case R_386_32:
+		val = read_ule32 (dso, rel->r_offset);
+		/* R_386_32 with addend 0 can be converted
+		   to R_386_GLOB_DAT and we don't have to convert
+		   to RELA because of that.  */
+		if (val == 0)
+		  break;
+		/* FALLTHROUGH */
 	      case R_386_PC32:
 		return 1;
 	      }
@@ -445,6 +480,7 @@ i386_reloc_class (int reloc_type)
 PL_ARCH = {
   .class = ELFCLASS32,
   .machine = EM_386,
+  .alternate_machine = { EM_NONE },
   .R_JMP_SLOT = R_386_JMP_SLOT,
   .R_COPY = R_386_COPY,
   .R_RELATIVE = R_386_RELATIVE,

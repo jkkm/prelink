@@ -76,6 +76,8 @@ typedef struct
   const char *filename;
   struct PLArch *arch;
   struct PLAdjust *adjust;
+  /* .mdebug has absolute file offsets in it.  */
+  GElf_Off mdebug_orig_offset;
   Elf_Data undo;
   int nadjust;
   GElf_Shdr shdr[0];
@@ -87,6 +89,7 @@ struct PLArch
 {
   int class;
   int machine;
+  int alternate_machine[3];
   int max_reloc_size;
   int R_COPY;
   int R_JMP_SLOT;
@@ -147,6 +150,8 @@ int adjust_dso_nonalloc (DSO *dso, int first, GElf_Addr start,
 			 GElf_Addr adjust);
 int adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
 int adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
+int adjust_mdebug (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
+int finalize_mdebug (DSO *dso);
 int relocate_dso (DSO *dso, GElf_Addr base);
 int update_dso (DSO *dso);
 int close_dso (DSO *dso);

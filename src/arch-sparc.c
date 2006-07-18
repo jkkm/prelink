@@ -55,7 +55,7 @@ sparc_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 	}
       else
 	{
-	  GElf_Addr val = read_be32 (dso, rela->r_offset);
+	  GElf_Addr val = read_ube32 (dso, rela->r_offset);
 
 	  if (val >= start)
 	    write_be32 (dso, rela->r_offset, val + adjust);
@@ -131,12 +131,12 @@ sparc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       break;
     case R_SPARC_LO10:
       write_be32 (dso, rela->r_offset,
-		  (value & 0x3ff) | (read_be32 (dso, rela->r_offset) & ~0x3ff));
+		  (value & 0x3ff) | (read_ube32 (dso, rela->r_offset) & ~0x3ff));
       break;
     case R_SPARC_HI22:
       write_be32 (dso, rela->r_offset,
 		  ((value >> 10) & 0x3fffff)
-		  | (read_be32 (dso, rela->r_offset) & 0xffc00000));
+		  | (read_ube32 (dso, rela->r_offset) & 0xffc00000));
       break;
     case R_SPARC_DISP8:
       write_8 (dso, rela->r_offset, value - rela->r_offset);
@@ -150,7 +150,7 @@ sparc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_SPARC_WDISP30:
       write_be32 (dso, rela->r_offset,
 		  (((value - rela->r_offset) >> 2) & 0x3fffffff)
-		  | (read_be32 (dso, rela->r_offset) & 0xc0000000));
+		  | (read_ube32 (dso, rela->r_offset) & 0xc0000000));
       break;
     default:
       error (0, 0, "%s: Unknown sparc relocation type %d", dso->filename,
@@ -221,19 +221,19 @@ sparc_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
       buf_write_8 (buf, value);
       break;
     case R_SPARC_LO10:
-      buf_write_32 (buf, (buf_read_ube32 (buf, rela->r_offset) & ~0x3ff)
-			  | (value & 0x3ff));
+      buf_write_be32 (buf, (buf_read_ube32 (buf) & ~0x3ff) | (value & 0x3ff));
       break;
     case R_SPARC_HI22:
-      buf_write_32 (buf, (buf_read_ube32 (buf, rela->r_offset) & 0xffc00000)
-			  | ((value >> 10) & 0x3fffff));
+      buf_write_be32 (buf, (buf_read_ube32 (buf) & 0xffc00000)
+			   | ((value >> 10) & 0x3fffff));
       break;
     case R_SPARC_WDISP30:
-      buf_write_32 (buf, (buf_read_ube32 (buf, rela->r_offset) & 0xc0000000)
-			  | (((value - rela->r_offset) >> 2) & 0x3fffffff));
+      buf_write_be32 (buf, (buf_read_ube32 (buf) & 0xc0000000)
+			   | (((value - rela->r_offset) >> 2) & 0x3fffffff));
       break;
     case R_SPARC_RELATIVE:
-      error (0, 0, "%s: R_SPARC_RELATIVE in ET_EXEC object?", info->dso->filename);
+      error (0, 0, "%s: R_SPARC_RELATIVE in ET_EXEC object?",
+	     info->dso->filename);
       return 1;
     default:
       return 1;
@@ -372,6 +372,7 @@ sparc_reloc_class (int reloc_type)
 PL_ARCH = {
   .class = ELFCLASS32,
   .machine = EM_SPARC,
+  .alternate_machine = { EM_SPARC32PLUS },
   .R_JMP_SLOT = R_SPARC_JMP_SLOT,
   .R_COPY = R_SPARC_COPY,
   .R_RELATIVE = R_SPARC_RELATIVE,

@@ -252,6 +252,23 @@ rela_cmp (const void *A, const void *B)
   return 0;
 }
 
+static int
+conflict_rela_cmp (const void *A, const void *B)
+{
+  GElf_Rela *a = (GElf_Rela *)A;
+  GElf_Rela *b = (GElf_Rela *)B;
+
+  if (GELF_R_SYM (a->r_info) < GELF_R_SYM (b->r_info))
+    return -1;
+  if (GELF_R_SYM (a->r_info) > GELF_R_SYM (b->r_info))
+    return 1;
+  if (a->r_offset < b->r_offset)
+    return -1;
+  if (a->r_offset > b->r_offset)
+    return 1;
+  return 0;
+}
+
 int
 get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
 		   char *buf, GElf_Word size)
@@ -319,6 +336,8 @@ get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
 	     Punt if not.  */
 	  if (off < 0 || size - off < reloc_size)
 	    return 2;
+	  /* Note that apply_conflict_rela shouldn't rely on R_SYM
+	     field of conflict to be 0.  */
 	  dso->arch->apply_conflict_rela (info, info->conflict_rela + j,
 					  buf + off);
 	}
@@ -480,6 +499,11 @@ prelink_build_conflicts (struct prelink_info *info)
 		ret = 1;
 	      }
 
+	  /* Record library's position in search scope into R_SYM field.  */
+	  for (j = first_conflict; j < info->conflict_rela_size; ++j)
+	    info->conflict_rela[j].r_info
+	      = GELF_R_INFO (i, GELF_R_TYPE (info->conflict_rela[j].r_info));
+
 	  if (dynamic_info_is_set (dso, DT_TEXTREL)
 	      && info->conflict_rela_size > first_conflict)
 	    {
@@ -607,7 +631,13 @@ prelink_build_conflicts (struct prelink_info *info)
   if (info->conflict_rela_size)
     {
       qsort (info->conflict_rela, info->conflict_rela_size, sizeof (GElf_Rela),
-	     rela_cmp);
+	     conflict_rela_cmp);
+
+      /* Now make sure all conflict RELA's are against absolute 0 symbol.  */
+      for (i = 0; i < info->conflict_rela_size; ++i)
+	info->conflict_rela[i].r_info
+	  = GELF_R_INFO (0, GELF_R_TYPE (info->conflict_rela[i].r_info));
+
       if (enable_cxx_optimizations && remove_redundant_cxx_conflicts (info))
 	goto error_out;
     }

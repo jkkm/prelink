@@ -338,10 +338,13 @@ fdopen_dso (int fd, const char *name)
 
   for (plarch = __start_pl_arch; plarch < __stop_pl_arch; plarch++)
     if (plarch->class == ehdr.e_ident[EI_CLASS]
-	&& plarch->machine == ehdr.e_machine)
+	&& (plarch->machine == ehdr.e_machine
+	    || plarch->alternate_machine[0] == ehdr.e_machine
+	    || plarch->alternate_machine[1] == ehdr.e_machine
+	    || plarch->alternate_machine[2] == ehdr.e_machine))
       break;
 
-  if (plarch == __stop_pl_arch)
+  if (plarch == __stop_pl_arch || ehdr.e_machine == EM_NONE)
     {
       error (0, 0, "\"%s\"'s architecture is not supported", name);
       goto error_out;
@@ -1083,6 +1086,12 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 	    return 1;
 	  break;
 	}
+      if ((dso->arch->machine == EM_ALPHA
+	   && dso->shdr[i].sh_type == SHT_ALPHA_DEBUG)
+	  || (dso->arch->machine == EM_MIPS
+	      && dso->shdr[i].sh_type == SHT_MIPS_DEBUG))
+	if (adjust_mdebug (dso, i, start, adjust))
+	  return 1;
     }
 
   for (i = 0; i < dso->ehdr.e_shnum; i++)
@@ -1288,7 +1297,8 @@ update_dso (DSO *dso)
       struct stat64 st;
       int i;
 
-      if (check_dso (dso))
+      if (check_dso (dso)
+	  || (dso->mdebug_orig_offset && finalize_mdebug (dso)))
 	{
 	  close_dso (dso);
 	  return 1;

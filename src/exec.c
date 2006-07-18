@@ -260,6 +260,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	  && (shdr[moveend].sh_flags & (SHF_ALLOC | SHF_WRITE)))
 	{
 	  int k = moveend;
+	  GElf_Addr adj = addr;
 
 	  if (add->sh_addr && ! adjust->move2
 	      && phdr[i].p_vaddr <= add->sh_addr
@@ -291,10 +292,10 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		  assert (add->sh_addralign <= phdr[i].p_align);
 		  a = (add->sh_size - a + phdr[i].p_align - 1)
 		      & ~(phdr[i].p_align - 1);
-		  if (a < addr)
+		  if (a < adj)
 		    {
 		      adjust->move2 = 1;
-		      addr = a;
+		      adj = a;
 		    }
 		  else
 		    k = moveend;
@@ -304,11 +305,11 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    }
 
 	  for (j = 1; j < k; ++j)
-	    shdr[j].sh_addr -= addr;
-	  phdr[i].p_vaddr -= addr;
-	  phdr[i].p_paddr -= addr;
-	  phdr[i].p_filesz += addr;
-	  phdr[i].p_memsz += addr;
+	    shdr[j].sh_addr -= adj;
+	  phdr[i].p_vaddr -= adj;
+	  phdr[i].p_paddr -= adj;
+	  phdr[i].p_filesz += adj;
+	  phdr[i].p_memsz += adj;
 	  for (j = 0; j < ehdr->e_phnum; ++j)
 	    {
 	      if (j == i)
@@ -316,13 +317,13 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	      if (phdr[j].p_vaddr
 		  < adjust->basemove_end - adjust->basemove_adjust)
 		{
-		  phdr[j].p_vaddr -= addr;
-		  phdr[j].p_paddr -= addr;
+		  phdr[j].p_vaddr -= adj;
+		  phdr[j].p_paddr -= adj;
 		}
 	      else
-		phdr[j].p_offset += addr;
+		phdr[j].p_offset += adj;
 	    }
-	  adjust->basemove_adjust += addr;
+	  adjust->basemove_adjust += adj;
 	  insert_readonly_section (ehdr, shdr, k, adjust);
 	  shdr[k] = *add;
 	  if (k == moveend)
@@ -338,7 +339,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	  
 	  shdr[k].sh_addr = addr;
 	  shdr[k].sh_offset = (addr - phdr[i].p_vaddr) + phdr[i].p_offset;
-	  adjust_nonalloc (dso, ehdr, shdr, 0, 0, addr);
+	  adjust_nonalloc (dso, ehdr, shdr, 0, 0, adj);
 	  return k;
 	}
     }
@@ -856,7 +857,6 @@ prelink_exec (struct prelink_info *info)
 		    last_offset = dso->phdr[i].p_offset
 				  + dso->phdr[i].p_filesz;
 		  dso->shdr[j].sh_offset = last_offset;
-		  shdr[j].sh_offset = last_offset;
 		}
 	      else if (dso->shdr[j].sh_addr + dso->shdr[j].sh_size
 		       > dso->phdr[i].p_vaddr + dso->phdr[i].p_filesz)
@@ -870,7 +870,6 @@ prelink_exec (struct prelink_info *info)
 		  dso->shdr[j].sh_offset
 		    = dso->phdr[i].p_offset + dso->shdr[j].sh_addr
 		      - dso->phdr[i].p_vaddr;
-		  shdr[j].sh_offset = dso->shdr[j].sh_offset;
 		  last_offset = dso->shdr[j].sh_offset + dso->shdr[j].sh_size;
 		}
 	    }
@@ -980,6 +979,8 @@ prelink_exec (struct prelink_info *info)
 
 	  if (dso->shdr[new_dynbss + 1].sh_type == SHT_NOBITS)
 	    {
+	      GElf_Addr last_offset;
+
 	      for (i = 0; i < dso->ehdr.e_phnum; ++i)
 		if (dso->phdr[i].p_type == PT_LOAD
 		    && dso->phdr[i].p_vaddr <= dso->shdr[new_dynbss].sh_addr
@@ -988,13 +989,16 @@ prelink_exec (struct prelink_info *info)
 		  break;
 	      assert (i < dso->ehdr.e_phnum);
 
-	      if (dso->shdr[new_dynbss].sh_offset
-		  != dso->phdr[i].p_offset + dso->shdr[new_dynbss].sh_addr
-		     - dso->phdr[i].p_vaddr)
+	      for (j = new_dynbss - 1; j; --j)
 		{
-		  error (0, 0, "%s: COPY relocs not present at start of first SHT_NOBITS section",
-			 dso->filename);
-		  goto error_out;
+		  if (dso->shdr[j].sh_addr < dso->phdr[i].p_vaddr)
+		    break;
+		  if (dso->shdr[j].sh_type == SHT_NOBITS)
+		    {
+		      error (0, 0, "%s: COPY relocs not present at start of first SHT_NOBITS section",
+			     dso->filename);
+		      goto error_out;
+		    }
 		}
 
 	      if (dso->phdr[i].p_filesz
@@ -1007,32 +1011,57 @@ prelink_exec (struct prelink_info *info)
 		  assert (dso->phdr[i].p_filesz <= dso->phdr[i].p_memsz);
 		}
 
-	      adj = dso->shdr[new_dynbss].sh_size;
+	      adj = dso->phdr[i].p_offset + dso->shdr[new_dynbss].sh_addr
+		    - dso->phdr[i].p_vaddr - dso->shdr[new_dynbss].sh_offset;
+
+	      dso->shdr[new_dynbss].sh_offset += adj;
+	      dso->shdr[new_dynbss + 1].sh_offset += adj;
+
+	      adj += dso->shdr[new_dynbss].sh_size;
+
 	      for (j = new_dynbss + 2;
 		   j < dso->ehdr.e_shnum
 		   && (dso->shdr[j].sh_flags
 		       & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR));
 		   ++j)
-		adj = (adj + dso->shdr[new_dynbss].sh_addralign - 1)
-		      & ~(dso->shdr[new_dynbss].sh_addralign - 1);
+		if (dso->shdr[j].sh_addr >= dso->phdr[i].p_vaddr
+					    + dso->phdr[i].p_memsz)
+		  adj = (adj + dso->shdr[new_dynbss].sh_addralign - 1)
+			& ~(dso->shdr[new_dynbss].sh_addralign - 1);
 
-	      for (++i; i < dso->ehdr.e_phnum; ++i)
-		if (dso->phdr[i].p_type == PT_LOAD
-		    && dso->phdr[i].p_vaddr >= dso->shdr[new_dynbss].sh_addr)
+	      for (j = i + 1; j < dso->ehdr.e_phnum; ++j)
+		if (dso->phdr[j].p_type == PT_LOAD
+		    && dso->phdr[j].p_vaddr >= dso->shdr[new_dynbss].sh_addr)
 		  {
-		    dso->phdr[i].p_vaddr += adj;
-		    dso->phdr[i].p_paddr += adj;
-		    dso->phdr[i].p_offset += adj;
+		    dso->phdr[j].p_vaddr += adj;
+		    dso->phdr[j].p_paddr += adj;
+		    dso->phdr[j].p_offset += adj;
 		  }
 
-	      for (j = new_dynbss + 2;
-		   j < dso->ehdr.e_shnum
-		   && (dso->shdr[j].sh_flags
-		       & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR));
-		   ++j)
+	      last_offset = dso->shdr[new_dynbss + 1].sh_offset;
+	      for (j = new_dynbss + 2; j < dso->ehdr.e_shnum; ++j)
+		if (dso->shdr[j].sh_type != SHT_NOBITS
+		    || dso->shdr[j].sh_addr < dso->phdr[i].p_vaddr
+		    || dso->shdr[j].sh_addr + dso->shdr[j].sh_size
+		       > dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz)
+		  break;
+		else
+		  {
+		    last_offset += dso->shdr[j].sh_addralign - 1;
+		    last_offset &= ~(dso->shdr[j].sh_addralign - 1);
+		    if (last_offset > dso->phdr[i].p_offset
+				      + dso->phdr[i].p_filesz)
+		      last_offset = dso->phdr[i].p_offset
+				    + dso->phdr[i].p_filesz;
+		    dso->shdr[j].sh_offset = last_offset;
+		  }
+
+	      while (j < dso->ehdr.e_shnum
+		     && (dso->shdr[j].sh_flags
+			 & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR)))
 		{
 		  dso->shdr[j].sh_offset += adj;
-		  dso->shdr[j].sh_addr += adj;
+		  dso->shdr[j++].sh_addr += adj;
 		}
 
 	      if (adjust_dso_nonalloc (dso, new_dynbss + 2,
@@ -1074,7 +1103,9 @@ prelink_exec (struct prelink_info *info)
 
   /* Create the liblist.  */
   i = new[new_liblist];
-  dso->shdr[i] = shdr[i];
+  dso->shdr[i].sh_flags = shdr[i].sh_flags;
+  dso->shdr[i].sh_addralign = shdr[i].sh_addralign;
+  dso->shdr[i].sh_entsize = shdr[i].sh_entsize;
   dso->shdr[i].sh_name = shstrtabadd (dso, ".gnu.liblist");
   if (dso->shdr[i].sh_name == 0)
     goto error_out;
@@ -1123,7 +1154,9 @@ prelink_exec (struct prelink_info *info)
       free (info->conflict_rela);
       info->conflict_rela = NULL;
 
-      dso->shdr[i] = shdr[i];
+      dso->shdr[i].sh_flags = shdr[i].sh_flags;
+      dso->shdr[i].sh_addralign = shdr[i].sh_addralign;
+      dso->shdr[i].sh_entsize = shdr[i].sh_entsize;
       for (j = 1; j < dso->ehdr.e_shnum; ++j)
 	if (dso->shdr[j].sh_type == SHT_DYNSYM)
 	  break;

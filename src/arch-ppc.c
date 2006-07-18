@@ -306,6 +306,7 @@ ppc_reloc_class (int reloc_type)
 PL_ARCH = {
   .class = ELFCLASS32,
   .machine = EM_PPC,
+  .alternate_machine = { EM_NONE },
   .R_JMP_SLOT = R_PPC_JMP_SLOT /* R_PPC_REL24, R_PPC_ADDR24 */,
   .R_COPY = R_PPC_COPY,
   .R_RELATIVE = R_PPC_RELATIVE,

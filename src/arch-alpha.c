@@ -49,7 +49,7 @@ alpha_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
   if (GELF_R_TYPE (rela->r_info) == R_ALPHA_RELATIVE
       || GELF_R_TYPE (rela->r_info) == R_ALPHA_JMP_SLOT)
     {
-      GElf_Addr val = read_le64 (dso, rela->r_offset);
+      GElf_Addr val = read_ule64 (dso, rela->r_offset);
 
       if (val >= start)
 	{
@@ -113,23 +113,23 @@ alpha_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr,
     }
 }
 
-static void
+static int
 alpha_is_indirect_plt (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 {
-  Elf64_Addr plt;
+  Elf64_Addr pltaddr;
   uint32_t plt[3];
   int32_t hi, lo;
 
   relaaddr -= dso->info[DT_JMPREL];
   relaaddr /= sizeof (Elf64_Rela);
   relaaddr *= 12;
-  plt = dso->info[DT_PLTGOT] + 32 + relaaddr;
-  hi = rela->r_offset - plt;
+  pltaddr = dso->info[DT_PLTGOT] + 32 + relaaddr;
+  hi = rela->r_offset - pltaddr;
   lo = (int16_t) hi;
   hi = (hi - lo) >> 16;
-  plt[0] = read_le32 (dso, plt);
-  plt[1] = read_le32 (dso, plt + 4);
-  plt[2] = read_le32 (dso, plt + 8);
+  plt[0] = read_ule32 (dso, pltaddr);
+  plt[1] = read_ule32 (dso, pltaddr + 4);
+  plt[2] = read_ule32 (dso, pltaddr + 8);
   if (plt[0] == (0x277b0000 | (hi & 0xffff))
       && plt[1] == (0xa77b0000 | (lo & 0xffff))
       && plt[2] == 0x6bfb0000)
@@ -174,7 +174,7 @@ static int
 alpha_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info) & 0xff)
     {
     case R_ALPHA_GLOB_DAT:
     case R_ALPHA_REFQUAD:
@@ -259,6 +259,18 @@ alpha_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       ret->r_addend = value + rela->r_addend;
       if (alpha_is_indirect_plt (dso, rela, relaaddr))
 	ret->r_info = GELF_R_INFO (0, R_ALPHA_GLOB_DAT);
+      else
+	{
+	  relaaddr -= dso->info[DT_JMPREL];
+	  relaaddr /= sizeof (Elf64_Rela);
+	  if (relaaddr > 0xffffff)
+	    {
+	      error (0, 0, "%s: Cannot create R_ALPHA_JMP_SLOT conflict against .rel.plt with more than 16M entries",
+		     dso->filename);
+	      return 1;
+	    }
+	  ret->r_info = GELF_R_INFO (0, (relaaddr << 8) | R_ALPHA_JMP_SLOT);
+	}
       break;
     default:
       error (0, 0, "%s: Unknown Alpha relocation type %d", dso->filename,
@@ -306,6 +318,7 @@ alpha_reloc_class (int reloc_type)
 PL_ARCH = {
   .class = ELFCLASS64,
   .machine = EM_ALPHA,
+  .alternate_machine = { EM_FAKE_ALPHA },
   .R_JMP_SLOT = R_ALPHA_JMP_SLOT,
   .R_COPY = -1,
   .R_RELATIVE = R_ALPHA_RELATIVE,

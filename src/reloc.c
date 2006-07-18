@@ -421,7 +421,8 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 	}
 
       assert (dso->info[dt_RELENT]
-	      == gelf_fsize (dso->elf, ELF_T_REL, 1, EV_CURRENT));
+	      == gelf_fsize (dso->elf, rinfo->reldyn_rela
+			     ? ELF_T_RELA : ELF_T_REL, 1, EV_CURRENT));
       assert (dso->info[dt_REL] != 0);
       assert (dso->info[dt_RELSZ] != 0);
 
