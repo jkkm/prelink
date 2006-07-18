@@ -61,12 +61,15 @@ find_libs (void **p, void *info)
   struct layout_libs *l = (struct layout_libs *) info;
   struct prelink_entry *e = * (struct prelink_entry **) p;
 
-  if (e->type == ET_DYN || e->type == ET_EXEC)
+  if (e->type == ET_DYN || e->type == ET_EXEC
+      || e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC)
     l->binlibs[l->nbinlibs++] = e;
-  if (e->type == ET_DYN)
+  if (e->type == ET_DYN || e->type == ET_CACHE_DYN)
     l->libs[l->nlibs++] = e;
   if (force)
     e->done = 0;
+  if (e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC)
+    e->done = 2;
 
   return 1;
 }
@@ -93,9 +96,12 @@ refs_cmp (const void *A, const void *B)
     return -1;
   if (a->end - a->base < b->end - b->base)
     return 1;
-  i = strcmp (a->soname, b->soname);
-  if (i)
-    return i;
+  if (a->refs)
+    {
+      i = strcmp (a->soname, b->soname);
+      if (i)
+	return i;
+    }
   return strcmp (a->filename, b->filename);
 }
 
@@ -152,7 +158,8 @@ layout_libs (void)
 
   /* Make sure there is some room between libraries.  */
   for (i = 0; i < l.nlibs; ++i)
-    l.libs[i]->end = (l.libs[i]->end + 8 * page_size) & ~(page_size - 1);
+    if (l.libs[i]->type == ET_DYN)
+      l.libs[i]->end = (l.libs[i]->end + 8 * page_size) & ~(page_size - 1);
 
   /* Put the already prelinked libs into double linked list.  */
   qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), addr_cmp);
@@ -227,7 +234,7 @@ layout_libs (void)
     }
 
   for (i = 0; i < l.nlibs; ++i)
-    l.libs[i]->tmp = -1;
+    l.libs[i]->u.tmp = -1;
   m = -1;
 
   for (i = 0; i < l.nlibs; ++i)
@@ -245,7 +252,7 @@ layout_libs (void)
 		  if (l.binlibs[j]->depends[k] == l.libs[i])
 		    {
 		      for (k = 0; k < l.binlibs[j]->ndepends; ++k)
-			l.binlibs[j]->depends[k]->tmp = m;
+			l.binlibs[j]->depends[k]->u.tmp = m;
 		      break;
 		    }
 	      }
@@ -257,7 +264,7 @@ layout_libs (void)
 	if ((e = list) != NULL)
 	  do
 	    {
-	      if (e->tmp == m)
+	      if (e->u.tmp == m)
 		{
 		  if (e->end < mmap_start && ! j)
 		    {
@@ -292,7 +299,7 @@ layout_libs (void)
 	    if (base + size > mmap_start)
 	      goto not_found;
 
-	    if (list && list->tmp == m && base + size > list->base)
+	    if (list && list->u.tmp == m && base + size > list->base)
 	      goto not_found;
 	  }
 

@@ -150,8 +150,9 @@ struct prelink_cache_entry
 {
   uint32_t filename;
   uint32_t depends;
-  uint32_t timestamp;
   uint32_t checksum;
+#define PCF_EXEC 1
+  uint32_t flags;
   uint64_t base;
   uint64_t end;
 };
@@ -159,7 +160,7 @@ struct prelink_cache_entry
 struct prelink_cache
 {
 #define PRELINK_CACHE_NAME "prelink-ELF"
-#define PRELINK_CACHE_VER "0.0.0"
+#define PRELINK_CACHE_VER "0.1.0"
 #define PRELINK_CACHE_MAGIC PRELINK_CACHE_NAME PRELINK_CACHE_VER
   const char magic [sizeof (PRELINK_CACHE_MAGIC) - 1];
   uint32_t nlibs;
@@ -188,9 +189,26 @@ struct prelink_entry
   GElf_Addr base, end;
   dev_t dev;
   ino64_t ino;
-  int type, done, ndepends, refs, tmp;
+#define ET_BAD		(ET_NUM)
+#define ET_CACHE_EXEC	(ET_NUM + 1)
+#define ET_CACHE_DYN	(ET_NUM + 2)
+  int type, done, ndepends, refs;
+  union
+    {
+      int explicit;
+      int tmp;
+    } u;
   struct prelink_entry **depends;
   struct prelink_entry *prev, *next;
+};
+
+struct prelink_dir
+{
+  dev_t dev;
+  struct prelink_dir *next;
+  size_t len;
+  int flags;
+  char dir[0];
 };
 
 struct prelink_symbol
@@ -244,7 +262,7 @@ int prelink (DSO *dso, struct prelink_entry *ent);
 int prelink_init_cache (void);
 int prelink_load_cache (void);
 int prelink_print_cache (void);
-int prelink_save_cache (void);
+int prelink_save_cache (int do_warn);
 struct prelink_entry *
   prelink_find_entry (const char *filename, dev_t dev, ino64_t ino,
 		      int insert);
@@ -252,13 +270,14 @@ struct prelink_conflict *
   prelink_conflict (struct prelink_info *info, GElf_Word r_sym,
 		    int reloc_type);
 GElf_Rela *prelink_conflict_add_rela (struct prelink_info *info);
-GElf_Addr prelink_find_base (DSO *dso);
 int prelink_get_relocations (struct prelink_info *info);
 int prelink_exec (struct prelink_info *info);
+uint32_t prelink_set_checksum (DSO *dso);
 int is_ldso_soname (const char *soname);
 
-int gather_dir (const char *dir, int deref, int onefs);
+int gather_object (const char *dir, int deref, int onefs);
 int gather_config (const char *config);
+int gather_check_libs (void);
 
 FILE *execve_open (const char *path, char *const argv[], char *const envp[]);
 int execve_close (FILE *f);
@@ -272,6 +291,7 @@ extern const char *dynamic_linker;
 extern const char *ld_library_path;
 extern const char *prelink_cache;
 extern const char *prelink_conf;
+extern int all;
 extern int force;
 extern int random_base;
 extern int conserve_memory;

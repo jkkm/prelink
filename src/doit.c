@@ -93,22 +93,20 @@ prelink_ent (struct prelink_entry *ent)
     }
 
   if (dry_run)
+    close_dso (dso);
+  else
     {
-      close_dso (dso);
-      ent->done = 2;
-      return 0;
-    }
-
-  if (prelink_prepare (dso))
-    goto error_out;
-  if (ent->type == ET_DYN && relocate_dso (dso, ent->base))
-    goto error_out;
-  if (prelink (dso, ent))
-    goto error_out;
-  if (update_dso (dso))
-    {
-      dso = NULL;
-      goto error_out;
+      if (prelink_prepare (dso))
+	goto error_out;
+      if (ent->type == ET_DYN && relocate_dso (dso, ent->base))
+	goto error_out;
+      if (prelink (dso, ent))
+	goto error_out;
+      if (update_dso (dso))
+	{
+	  dso = NULL;
+	  goto error_out;
+	}
     }
   ent->done = 2;
 
@@ -130,6 +128,19 @@ prelink_ent (struct prelink_entry *ent)
 		 hardlink->canon_filename, ent->canon_filename);
 	  continue;
         }
+
+      if (verbose)
+	{
+	  if (dry_run)
+	    printf ("Would link %s to %s\n", hardlink->canon_filename,
+		    ent->canon_filename);
+	  else
+	    printf ("Linking %s to %s\n", hardlink->canon_filename,
+		    ent->canon_filename);
+	}
+
+      if (dry_run)
+	continue;
 
       len = strlen (hardlink->canon_filename);
       if (len + sizeof (".#prelink#") > movelen)
@@ -175,7 +186,7 @@ prelink_ent (struct prelink_entry *ent)
     }
   free (move);
 
-  if (stat64 (ent->canon_filename, &st) >= 0)
+  if (! dry_run && stat64 (ent->canon_filename, &st) >= 0)
     {
       ent->dev = st.st_dev;
       ent->ino = st.st_ino;

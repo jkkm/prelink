@@ -60,4 +60,5 @@ AC_OUTPUT([Makefile
 	   gelfx32/Makefile
 	   gelf/Makefile
 	   m4/Makefile
-	   patches/Makefile])
+	   patches/Makefile
+	   doc/Makefile])

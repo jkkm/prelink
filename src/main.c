@@ -34,11 +34,14 @@ int force;
 int verbose;
 int print_cache;
 int reloc_only;
+GElf_Addr reloc_base;
 int no_update;
 int random_base;
 int conserve_memory;
 int libs_only;
 int dry_run;
+int dereference;
+int one_file_system;
 const char *dynamic_linker;
 const char *ld_library_path;
 const char *prelink_conf = PRELINK_CONF;
@@ -59,12 +62,14 @@ static struct argp_option options[] = {
   {"cache-file",	'C', "CACHE", 0, "Use CACHE as cache file" },
   {"config-file",	'c', "CONF", 0, "Use CONF as configuration file" },
   {"force",		'f', 0, 0,  "Force prelinking" },
+  {"dereference",	'h', 0, 0,  "Follow symlinks when processing directory trees from command line" },
+  {"one-file-system",	'l', 0, 0,  "Stay in local file system when processing directories from command line" },
   {"conserve-memory",	'm', 0, 0,  "Allow libraries to overlap as long as they never appear in the same program" },
   {"no-update-cache",	'N', 0, 0,  "Don't update prelink cache" },
   {"dry-run",		'n', 0, 0,  "Don't actually prelink anything" },
   {"print-cache",	'p', 0,	0,  "Print prelink cache" },
   {"random",		'R', 0, 0,  "Choose random base for libraries" },
-  {"reloc-only",	'r', 0, 0,  "Relocate only, don't prelink" },
+  {"reloc-only",	'r', "BASE_ADDRESS", 0,  "Relocate library to given address, don't prelink" },
   {"verbose",		'v', 0, 0,  "Produce verbose output" },
   {"dynamic-linker",	OPT_DYNAMIC_LINKER, "DYNAMIC_LINKER",
 			        0,  "Special dynamic linker path" },
@@ -77,6 +82,8 @@ static struct argp_option options[] = {
 static error_t
 parse_opt (int key, char *arg, struct argp_state *state)
 {
+  char *endarg;
+
   switch (key)
     {
     case 'a':
@@ -96,6 +103,15 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
     case 'r':
       reloc_only = 1;
+      reloc_base = strtoull (arg, &endarg, 0);
+      if (endarg != strchr (arg, '\0'))
+	error (EXIT_FAILURE, 0, "-r option requires numberic argument");
+      break;
+    case 'h':
+      dereference = 1;
+      break;
+    case 'l':
+      one_file_system = 1;
       break;
     case 'm':
       conserve_memory = 1;
@@ -133,7 +149,6 @@ int
 main (int argc, char *argv[])
 {
   int remaining, failures = 0;
-  DSO *dso;
 
   setlocale (LC_ALL, "");
 
@@ -147,60 +162,75 @@ main (int argc, char *argv[])
   if (ld_library_path == NULL)
     ld_library_path = getenv ("LD_LIBRARY_PATH");
 
-  if (all)
-    {
-      prelink_init_cache ();
-      if (gather_config (prelink_conf))
-        return EXIT_FAILURE;
-      layout_libs ();
-      prelink_all ();
-      return 0;
-    }
+  if (all && reloc_only)
+    error (EXIT_FAILURE, 0, "--all and --reloc-only options are incompatible");
 
-  /* FIXME */
-  error (EXIT_FAILURE, 0, "prelinking without -a not supported yet");
-
-  prelink_load_cache ();
+  prelink_init_cache ();
 
   if (print_cache)
     {
+      prelink_load_cache ();
       prelink_print_cache ();
       return 0;
     }
 
-  if (remaining >= argc)
-    error (1, 0, "No files given\n");
+  if (remaining == argc && ! all)
+    error (EXIT_FAILURE, 0, "no files given and --all not used");
 
-  while (remaining < argc)
+  if (reloc_only)
     {
-      dso = open_dso (argv[remaining++]);
-      if (dso == NULL)
-	continue;
-      if (! reloc_only)
-	if (prelink_prepare (dso))
-	  {
-	    close_dso (dso);
-	    ++failures;
-	    continue;
-	  }
-      if (dso->ehdr.e_type == ET_DYN
-	  && relocate_dso (dso, prelink_find_base (dso)))
+      while (remaining < argc)
 	{
-	  close_dso (dso);
-	  ++failures;
-	  continue;
-	}
-      if (! reloc_only)
-	if (prelink (dso, NULL))
-	  {
-	    close_dso (dso);
+	  DSO *dso = open_dso (argv[remaining++]);
+
+	  if (dso == NULL)
+	    {
+	      ++failures;
+	      continue;
+	    }
+
+	  if (dso->ehdr.e_type != ET_DYN)
+	    {
+	      ++failures;
+	      error (0, 0, "%s is not a shared library", dso->filename);
+	      continue;
+	    }
+
+	  if (relocate_dso (dso, reloc_base))
+	    {
+	      ++failures;
+	      close_dso (dso);
+	      continue;
+	    }
+
+	  if (dso->info_DT_CHECKSUM && ! prelink_set_checksum (dso))
+	    {
+	      ++failures;
+	      close_dso (dso);
+	      continue;
+	    }
+
+	  if (update_dso (dso))
 	    ++failures;
-	    continue;
-	  }
-      update_dso (dso);
+	}
+
+      return failures;
     }
 
-  if (! no_update && ! failures)
-    prelink_save_cache ();
+  if (gather_config (prelink_conf))
+    return EXIT_FAILURE;
+
+  while (remaining < argc)
+    if (gather_object (argv[remaining++], dereference, one_file_system))
+      return EXIT_FAILURE;
+
+  if (! all)
+    prelink_load_cache ();
+
+  layout_libs ();
+  prelink_all ();
+
+  if (! no_update && ! dry_run)
+    prelink_save_cache (all);
   return 0;
 }

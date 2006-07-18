@@ -26,10 +26,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "prelink.h"
+#include "prelinktab.h"
 #include "reloc.h"
 
 static int gather_lib (struct prelink_entry *ent);
+static int implicit;
+
+struct prelink_dir *dirs;
 
 static int
 gather_deps (DSO *dso, struct prelink_entry *ent)
@@ -179,7 +182,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	goto error_out;
 
       if (ent->depends[i]->type != ET_NONE
-	  && ent->depends[i]->type != ET_NUM
+	  && ent->depends[i]->type != ET_BAD
 	  && ent->depends[i]->type != ET_DYN)
 	{
 	  error (0, 0, "%s is not a shared library", depends [i]);
@@ -221,15 +224,8 @@ error_out:
 }
 
 static int
-gather_lib (struct prelink_entry *ent)
+gather_dso (DSO *dso, struct prelink_entry *ent)
 {
-  DSO *dso;
-
-  ent->type = ET_NUM;
-  dso = open_dso (ent->filename);
-  if (dso == NULL)
-    return 1;
-
   if (dso->ehdr.e_type != ET_DYN)
     {
       error (0, 0, "%s is not a shared library", ent->filename);
@@ -295,6 +291,19 @@ gather_lib (struct prelink_entry *ent)
 }
 
 static int
+gather_lib (struct prelink_entry *ent)
+{
+  DSO *dso;
+
+  ent->type = ET_BAD;
+  dso = open_dso (ent->filename);
+  if (dso == NULL)
+    return 1;
+
+  return gather_dso (dso, ent);
+}
+
+static int
 gather_exec (DSO *dso, const struct stat64 *st)
 {
   int i, j;
@@ -344,6 +353,7 @@ gather_exec (DSO *dso, const struct stat64 *st)
     goto error_out;
 
   assert (ent->type == ET_NONE);
+  ent->u.explicit = 1;
 
   if (gather_deps (dso, ent))
     return 0;
@@ -361,6 +371,40 @@ error_out:
 }
 
 static int
+add_dir_to_dirlist (const char *name, dev_t dev, int flags)
+{
+  const char *canon_name;
+  struct prelink_dir *dir;
+  size_t len;
+
+  canon_name = canonicalize_file_name (name);
+  if (canon_name == NULL)
+    {
+      if (! all && implicit)
+	return 0;
+      error (0, errno, "Could not record directory %s", name);
+    }
+
+  len = strlen (canon_name);
+  dir = malloc (sizeof (struct prelink_dir) + len + 1);
+  if (dir == NULL)
+    {
+      error (0, ENOMEM, "Could not record directory %s", name);
+      free ((char *) canon_name);
+      return 1;
+    }
+
+  dir->next = dirs;
+  dir->flags = flags;
+  dir->dev = dev;
+  dir->len = len;
+  strcpy (dir->dir, canon_name);
+  free ((char *) canon_name);
+  dirs = dir;
+  return 0;
+}
+
+static int
 gather_func (const char *name, const struct stat64 *st, int type,
 	     struct FTW *ftwp)
 {
@@ -370,9 +414,14 @@ gather_func (const char *name, const struct stat64 *st, int type,
     {
       int fd;
       DSO *dso;
+      struct prelink_entry *ent;
 
-      if (prelink_find_entry (name, st->st_dev, st->st_ino, 0))
-	return 0;
+      ent = prelink_find_entry (name, st->st_dev, st->st_ino, 0);
+      if (ent != NULL)
+	{
+	  ent->u.explicit = 1;
+	  return 0;
+	}
 
       fd = open (name, O_RDONLY);
       if (fd == -1)
@@ -410,19 +459,143 @@ close_it:
 
       gather_exec (dso, st);
     }
+  else if (type == FTW_D && ! all)
+    return add_dir_to_dirlist (name, st->st_dev, FTW_CHDIR);
 
   return 0;
 }
 
-int
-gather_dir (const char *dir, int deref, int onefs)
+static int
+gather_binlib (const char *name, const struct stat64 *st)
 {
-  int flags = 0, ret;
+  unsigned char e_ident [EI_NIDENT + 2];
+  int fd, type;
+  DSO *dso;
+  struct prelink_entry *ent;
 
-  if (! deref) flags |= FTW_PHYS;
-  if (onefs) flags |= FTW_MOUNT;
-  ret = nftw64 (dir, gather_func, 20, flags);
-  return ret;
+  if (! S_ISREG (st->st_mode))
+    {
+      error (0, 0, "%s is not a regular file", name);
+      return 1;
+    }
+
+  ent = prelink_find_entry (name, st->st_dev, st->st_ino, 0);
+  if (ent != NULL)
+    {
+      ent->u.explicit = 1;
+      return 0;
+    }
+
+  fd = open (name, O_RDONLY);
+  if (fd == -1)
+    {
+      error (0, errno, "Could not open %s", name);
+      return 1;
+    }
+
+  if (read (fd, e_ident, sizeof (e_ident)) != sizeof (e_ident))
+    {
+      error (0, errno, "Could not read ELF header from %s", name);
+      close (fd);
+      return 1;
+    }
+
+  /* Quickly find ET_EXEC/ET_DYN ELF binaries/libraries only.  */
+
+  if (memcmp (e_ident, ELFMAG, SELFMAG) != 0)
+    {
+      error (0, 0, "%s is not an ELF object", name);
+      close (fd);
+      return 1;
+    }
+
+  switch (e_ident [EI_DATA])
+    {
+    case ELFDATA2LSB:
+      if (e_ident [EI_NIDENT + 1] != 0)
+	goto unsupported_type;
+      type = e_ident [EI_NIDENT];
+      break;
+    case ELFDATA2MSB:
+      if (e_ident [EI_NIDENT] != 0)
+	goto unsupported_type;
+      type = e_ident [EI_NIDENT + 1];
+      break;
+    default:
+      goto unsupported_type;
+    }
+
+  if (type != ET_EXEC && type != ET_DYN)
+    {
+unsupported_type:
+      error (0, 0, "%s is neither ELF executable nor ELF shared library", name);
+      close (fd);
+      return 1;
+    }
+
+  dso = fdopen_dso (fd, name);
+  if (dso == NULL)
+    return 0;
+
+  if (type == ET_EXEC)
+    {
+      int i;
+
+      for (i = 0; i < dso->ehdr.e_phnum; ++i)
+	if (dso->phdr[i].p_type == PT_INTERP)
+      break;
+
+      /* If there are no PT_INTERP segments, it is statically linked.  */
+      if (i == dso->ehdr.e_phnum)
+	{
+	  error (0, 0, "%s is statically linked", name);
+	  close_dso (dso);
+	  return 1;
+	}
+
+      return gather_exec (dso, st);
+    }
+
+  ent = prelink_find_entry (name, st->st_dev, st->st_ino, 1);
+  if (ent == NULL)
+    {
+      close_dso (dso);
+      return 1;
+    }
+
+  assert (ent->type == ET_NONE);
+  ent->type = ET_BAD;
+  return gather_dso (dso, ent);
+}
+
+int
+gather_object (const char *name, int deref, int onefs)
+{
+  struct stat64 st;
+
+  if (stat64 (name, &st) < 0)
+    {
+      if (implicit)
+        return 0;
+      error (0, errno, "Could not stat %s", name);
+      return 1;
+    }
+
+  if (S_ISDIR (st.st_mode))
+    {
+      int flags = 0, ret;
+      if (! deref) flags |= FTW_PHYS;
+      if (onefs) flags |= FTW_MOUNT;
+
+      if (! all && implicit && ! deref)
+	return add_dir_to_dirlist (name, st.st_dev, flags);
+      ++implicit;
+      ret = nftw64 (name, gather_func, 20, flags);
+      --implicit;
+      return ret;
+    }
+  else
+    return gather_binlib (name, &st);
 }
 
 int
@@ -439,6 +612,7 @@ gather_config (const char *config)
       return 1;
     }
 
+  implicit = 1;
   do
     {
       ssize_t i = getline (&line, &len, file);
@@ -474,9 +648,7 @@ gather_config (const char *config)
       if (*p == '\0')
 	continue;
 
-      ret = gather_dir (p, deref, onefs);
-      if (ret == -1 && errno == ENOENT)
-	ret = 0;
+      ret = gather_object (p, deref, onefs);
       if (ret)
 	{
 	  ret = 1;
@@ -487,5 +659,79 @@ gather_config (const char *config)
 
   free (line);
   fclose (file);
+  implicit = 0;
   return ret;
+}
+
+static int
+gather_check_lib (void **p, void *info)
+{
+  struct prelink_entry *e = * (struct prelink_entry **) p;
+    
+  if (e->type != ET_DYN)
+    return 1;
+
+  if (! e->u.explicit)
+    {
+      struct prelink_dir *dir;
+      const char *name;
+      size_t len;
+
+      if (all)
+	{
+	  error (0, 0, "%s is not present in any config file directories, nor was specified on command line",
+		 e->canon_filename);
+	  e->type = ET_BAD;
+	  return 1;
+	}
+
+      name = strrchr (e->canon_filename, '/');
+      if (name)
+	--name;
+      else
+	name = e->canon_filename;
+      len = name - e->canon_filename;
+
+      for (dir = dirs; dir; dir = dir->next)
+	if (((dir->flags == FTW_CHDIR && len >= dir->len)
+	     || (dir->flags != FTW_CHDIR && len == dir->len))
+	    && strncmp (dir->dir, e->canon_filename, len) == 0)
+	  {
+	    if (dir->flags == FTW_CHDIR)
+	      break;
+	    if ((dir->flags & FTW_MOUNT) && dir->dev != e->dev)
+	      continue;
+	    break;
+	  }
+
+      if (dir == NULL)
+	{
+	  error (0, 0, "%s is not present in any config file directories, nor was specified on command line",
+		 e->canon_filename);
+	  e->type = ET_BAD;
+	  return 1;
+	}
+    }
+
+  return 1;
+}
+
+int
+gather_check_libs (void)
+{
+  struct prelink_dir *dir;
+  void *f;
+
+  htab_traverse (prelink_filename_htab, gather_check_lib, NULL);
+
+  dir = dirs;
+  while (dir != NULL)
+    {
+      f = dir;
+      dir = dir->next;
+      free (f);
+    }
+
+  dirs = NULL;
+  return 0;
 }

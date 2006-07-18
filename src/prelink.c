@@ -472,22 +472,18 @@ error_out:
   return 1;
 }
 
-static int
-prelink_set_checksum (struct prelink_info *info)
+uint32_t
+prelink_set_checksum (DSO *dso)
 {
   extern uint32_t crc32 (uint32_t crc, unsigned char *buf, size_t len);
-  DSO *dso = info->dso;
   uint32_t crc;
   int i, cvt;
 
-  info->ent->timestamp = (GElf_Word) time (NULL);
-  /* Simplify handling by making sure it is never 0.  */
-  if (info->ent->timestamp == 0)
-    info->ent->timestamp = 1;
+  if (dso->info_DT_GNU_PRELINKED && set_dynamic (dso, DT_GNU_PRELINKED, 0, 1))
+    return 0;
 
-  if (set_dynamic (dso, DT_GNU_PRELINKED, 0, 1)
-      || set_dynamic (dso, DT_CHECKSUM, 0, 1))
-    return 1;
+  if (set_dynamic (dso, DT_CHECKSUM, 0, 1))
+    return 0;
 
   cvt = ! ((__BYTE_ORDER == __LITTLE_ENDIAN
 	    && dso->ehdr.e_ident[EI_DATA] == ELFDATA2LSB)
@@ -527,10 +523,27 @@ prelink_set_checksum (struct prelink_info *info)
 
   if (set_dynamic (dso, DT_CHECKSUM, crc, 1))
     abort ();
-  if (set_dynamic (dso, DT_GNU_PRELINKED, info->ent->timestamp, 1))
+  if (dso->info_DT_GNU_PRELINKED
+      && set_dynamic (dso, DT_GNU_PRELINKED, dso->info_DT_GNU_PRELINKED, 1))
     abort ();
 
-  info->ent->checksum = crc;
+  return crc;
+}
+
+static int
+prelink_set_timestamp (struct prelink_info *info)
+{
+  DSO *dso = info->dso;
+
+  info->ent->timestamp = (GElf_Word) time (NULL);
+  /* Simplify handling by making sure it is never 0.  */
+  if (info->ent->timestamp == 0)
+    info->ent->timestamp = 1;
+
+  dso->info_DT_GNU_PRELINKED = info->ent->timestamp;
+  info->ent->checksum = prelink_set_checksum (dso);
+  if (! info->ent->checksum)
+    return 1;
   return 0;
 }
 
@@ -681,7 +694,7 @@ prelink (DSO *dso, struct prelink_entry *ent)
 
   /* Must be last.  */
   if (dso->ehdr.e_type == ET_DYN
-      && prelink_set_checksum (&info))
+      && prelink_set_timestamp (&info))
     goto error_out;
 
   free_info (&info);

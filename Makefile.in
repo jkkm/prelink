@@ -79,7 +79,7 @@ MAINT_CHARSET = latin1
 
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = gelfx gelfx32 gelf src patches
+SUBDIRS = gelfx gelfx32 gelf src patches doc
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = config.h

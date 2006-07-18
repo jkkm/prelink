@@ -27,8 +27,6 @@
 #include <sys/mman.h>
 #include "prelinktab.h"
 
-struct prelink_entry *prelinked;
-
 htab_t prelink_devino_htab, prelink_filename_htab;
 
 int prelink_entry_count;
@@ -188,13 +186,75 @@ error_out:
   return NULL;
 }
 
+struct prelink_entry *
+prelink_load_entry (const char *filename)
+{
+  struct prelink_entry e, *ent = NULL;
+  void **filename_slot;
+  void **devino_slot, *dummy = NULL;
+  struct stat64 st;
+
+  e.filename = filename;
+  filename_slot = htab_find_slot (prelink_filename_htab, &e, INSERT);
+  if (filename_slot == NULL)
+    goto error_out;
+
+  if (*filename_slot != NULL)
+    return (struct prelink_entry *) *filename_slot;
+
+  if (stat64 (filename, &st) < 0)
+    {
+      e.dev = 0;
+      e.ino = 0;
+      devino_slot = &dummy;
+    }
+  else
+    {
+      e.dev = st.st_dev;
+      e.ino = st.st_ino;
+      devino_slot = htab_find_slot (prelink_devino_htab, &e, INSERT);
+      if (devino_slot == NULL)
+	goto error_out;
+    }
+
+  if (*devino_slot != NULL)
+    return (struct prelink_entry *) *devino_slot;
+
+  ent = (struct prelink_entry *) calloc (sizeof (struct prelink_entry), 1);
+  if (ent == NULL)
+    goto error_out;
+
+  ent->filename = strdup (filename);
+  if (ent->filename == NULL)
+    goto error_out;
+
+  ent->canon_filename = strdup (filename);
+  if (ent->canon_filename == NULL)
+    {
+      free ((char *) ent->filename);
+      goto error_out;
+    }
+
+  ent->dev = e.dev;
+  ent->ino = e.ino;
+  *filename_slot = ent;
+  *devino_slot = ent;
+  ++prelink_entry_count;
+  return ent;
+
+error_out:
+  free (ent);
+  error (0, ENOMEM, "Could not insert %s into hash table", filename);
+  return NULL;
+}
+
 int
 prelink_load_cache (void)
 {
-  int fd, i, j, changed = 1;
+  int fd, i, j;
   struct stat64 st;
   struct prelink_cache *cache;
-  struct prelink_entry **depends, *ent;
+  struct prelink_entry **ents;
   size_t cache_size;
   uint32_t string_start, *dep;
 
@@ -217,15 +277,12 @@ prelink_load_cache (void)
 	      sizeof (PRELINK_CACHE_MAGIC) - 1))
     error (EXIT_FAILURE, 0, "%s: is not prelink cache file",
 	   prelink_cache);
-  ent = (struct prelink_entry *)
-	calloc (sizeof (struct prelink_entry) * cache->nlibs
-		+ sizeof (struct prelink_entry *) * cache->ndeps, 1);
-  if (ent == NULL)
-    error (EXIT_FAILURE, ENOMEM, "Could not allocate memory for cache file");
-  depends = (struct prelink_entry **) & ent[cache->nlibs];
   dep = (uint32_t *) & cache->entry[cache->nlibs];
   string_start = ((long) dep) - ((long) cache)
 		 + cache->ndeps * sizeof (uint32_t);
+  ents = (struct prelink_entry **)
+	 alloca (cache->nlibs * sizeof (struct prelink_entry *));
+  memset (ents, 0, cache->nlibs * sizeof (struct prelink_entry *));
   for (i = 0; i < cache->nlibs; i++)
     {
       /* Sanity checks.  */
@@ -235,95 +292,150 @@ prelink_load_cache (void)
 	error (EXIT_FAILURE, 0, "%s: bogus prelink cache file",
 	       prelink_cache);
 
-      ent[i].filename = ((char *) cache) + cache->entry[i].filename;
-      ent[i].timestamp = cache->entry[i].timestamp;
-      ent[i].checksum = cache->entry[i].checksum;
-      ent[i].base = cache->entry[i].base;
-      ent[i].end = cache->entry[i].end;
-      if (stat64 (ent[i].filename, &st) < 0)
-	ent[i].filename = NULL;
-      else
-	{
-	  ent[i].dev = st.st_dev;
-	  ent[i].ino = st.st_ino;
-	}
+      ents[i] = prelink_load_entry (((char *) cache)
+				    + cache->entry[i].filename);
+      if (ents[i] == NULL)
+	error (EXIT_FAILURE, ENOMEM, "Cannot read cache file %s",
+	       prelink_cache);
     }
 
   for (i = 0; i < cache->nlibs; i++)
     {
-      ent[i].depends = depends;
-      for (j = cache->entry[i].depends; dep[j] != i; j++)
+      if (ents[i]->type != ET_NONE)
+	continue;
+
+      ents[i]->checksum = cache->entry[i].checksum;
+      ents[i]->base = cache->entry[i].base;
+      ents[i]->end = cache->entry[i].end;
+      ents[i]->type = (ents[i]->base == 0 && ents[i]->end == 0)
+		      ? ET_CACHE_EXEC : ET_CACHE_DYN;
+
+      for (j = cache->entry[i].depends; dep[j] != i; ++j)
+	if (dep[j] >= cache->nlibs)
+	  error (EXIT_FAILURE, 0, "%s: bogus prelink cache file",
+		 prelink_cache);
+
+      ents[i]->ndepends = j - cache->entry[i].depends;
+      if (ents[i]->ndepends)
 	{
-	  if (dep[j] >= cache->nlibs)
-	    error (EXIT_FAILURE, 0, "%s: bogus prelink cache file",
+	  ents[i]->depends =
+	    (struct prelink_entry **)
+	    malloc (ents[i]->ndepends * sizeof (struct prelink_entry *));
+	  if (ents[i]->depends == NULL)
+	    error (EXIT_FAILURE, ENOMEM, "Cannot read cache file %s",
 		   prelink_cache);
-	  *depends++ = & ent[dep[j]];
+
+	  for (j = 0; j < ents[i]->ndepends; ++j)
+	    ents[i]->depends[j] = ents[dep[cache->entry[i].depends + j]];
 	}
-      ent[i].ndepends = j - cache->entry[i].depends;
-      if (! ent[i].ndepends)
-	ent[i].depends = NULL;
     }
-  while (changed)
-    {
-      changed = 0;
-      for (i = 0; i < cache->nlibs; i++)
-	for (j = 0; j < ent[i].ndepends; j++)
-	  if (ent[i].depends[j]->filename == NULL)
-	    {
-	      ent[i].filename = NULL;
-	      changed = 1;
-	      break;
-	    }
-    }
-  for (i = 0; i < cache->nlibs; i++)
-    if (ent[i].filename)
-      ent[i].filename = strdup (ent[i].filename);
-  for (i = 0; i < cache->nlibs; i++)
-    if (ent[i].filename != NULL)
-      break;
-  if (i != cache->nlibs)
-    {
-      /* Build a chain.  */
-      prelinked = ent + i;
-      for (j = i + 1; j < cache->nlibs; j++)
-	if (ent[j].filename != NULL)
-	  {
-	    ent[i].next = & ent[j];
-	    i = j;
-	  }
-    }
+
   munmap (cache, cache_size);
   close (fd);
   return 0;
 }
 
-int
-prelink_print_cache (void)
+static int
+prelink_print_cache_size (void **p, void *info)
 {
-  struct prelink_entry *ent;
-  int nlibs = 0, i;
+  struct prelink_entry *e = * (struct prelink_entry **) p;
+  int *psize = (int *) info;
 
-  for (ent = prelinked; ent; ent = ent->next)
-    nlibs++;
-
-  printf ("%d libs found in prelink cache `%s'\n", nlibs, prelink_cache);
-  for (ent = prelinked; ent; ent = ent->next)
+  if ((e->base & 0xffffffff) != e->base
+      || (e->end & 0xffffffff) != e->end)
     {
-      printf ("%s [0x%08x 0x%08x] 0x%08llx-0x%08llx%s\n", ent->filename,
-	      ent->checksum, ent->timestamp, (unsigned long long) ent->base,
-	      (unsigned long long) ent->end, ent->ndepends ? ":" : "");
-      for (i = 0; i < ent->ndepends; i++)
-	printf ("    %s [0x%08x 0x%08x]\n", ent->depends[i]->filename,
-		ent->depends[i]->checksum, ent->depends[i]->timestamp);
+      *psize = 16;
+      return 0;
     }
-  return 0;
+
+  return 1;
+}  
+
+static int
+prelink_print_cache_object (void **p, void *info)
+{
+  struct prelink_entry *e = * (struct prelink_entry **) p;
+  int *psize = (int *) info, i;
+
+  if (e->type == ET_CACHE_DYN)
+    printf ("%s [0x%08x] 0x%0*llx-0x%0*llx%s\n", e->filename, e->checksum,
+	    *psize, (long long) e->base, *psize, (long long) e->end,
+	    e->ndepends ? ":" : "");
+  else
+    printf ("%s%s\n", e->filename, e->ndepends ? ":" : "");
+  for (i = 0; i < e->ndepends; i++)
+    printf ("    %s [0x%08x]\n", e->depends[i]->filename,
+	    e->depends[i]->checksum);
+  return 1;
 }
 
 int
-prelink_save_cache (void)
+prelink_print_cache (void)
+{
+  int size = 8;
+
+  printf ("%d objects found in prelink cache `%s'\n", prelink_entry_count,
+	  prelink_cache);
+
+  htab_traverse (prelink_filename_htab, prelink_print_cache_size, &size);
+  htab_traverse (prelink_filename_htab, prelink_print_cache_object, &size);
+  return 0;
+}
+
+struct collect_ents
+{
+  struct prelink_entry **ents;
+  size_t len_strings;
+  int nents;
+  int ndeps;
+};
+
+static int
+prelink_save_cache_check (struct prelink_entry *ent)
+{
+  int i;
+
+  for (i = 0; i < ent->ndepends; ++i)
+    switch (ent->depends[i]->type)
+      {
+      case ET_DYN:
+	if (ent->depends[i]->done < 2)
+	  return 1;
+	break;
+      case ET_CACHE_DYN:
+	if (prelink_save_cache_check (ent->depends[i]))
+	  return 1;
+	break;
+      default:
+	return 1;
+      }
+
+  return 0;
+}
+
+static int
+find_ents (void **p, void *info)
+{
+  struct collect_ents *l = (struct collect_ents *) info;
+  struct prelink_entry *e = * (struct prelink_entry **) p;
+
+  if (((e->type == ET_DYN || (conserve_memory && e->type == ET_EXEC))
+       && e->done == 2)
+      || ((e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC)
+	  && ! prelink_save_cache_check (e)))
+    {
+      l->ents[l->nents++] = e;
+      l->ndeps += e->ndepends + 1;
+      l->len_strings += strlen (e->canon_filename) + 1;
+    }
+  return 1;
+}
+
+int
+prelink_save_cache (int do_warn)
 {
   struct prelink_cache cache;
-  struct prelink_entry *ent, **ents;
+  struct collect_ents l;
   struct prelink_cache_entry *data;
   uint32_t *deps, ndeps = 0, i, j, k;
   char *strings;
@@ -332,38 +444,47 @@ prelink_save_cache (void)
   memset (&cache, 0, sizeof (cache));
   memcpy ((char *) & cache, PRELINK_CACHE_MAGIC,
 	  sizeof (PRELINK_CACHE_MAGIC) - 1);
-  for (ent = prelinked; ent; ent = ent->next)
-    {
-      cache.nlibs++;
-      cache.ndeps += ent->ndepends + 1;
-      cache.len_strings += strlen (ent->filename) + 1;
-    }
+  l.ents =
+    (struct prelink_entry **) alloca (prelink_entry_count
+				      * sizeof (struct prelink_entry *));
+  l.nents = 0;
+  l.ndeps = 0;
+  l.len_strings = 0;
+  htab_traverse (prelink_filename_htab, find_ents, &l);
+  cache.nlibs = l.nents;
+  cache.ndeps = l.ndeps;
+  cache.len_strings = l.len_strings;  
 
   len = cache.nlibs * sizeof (struct prelink_cache_entry)
 	+ cache.ndeps * sizeof (uint32_t) + cache.len_strings;
   data = alloca (len);
-  ents = alloca (cache.nlibs * sizeof (struct prelink_entry *));
   deps = (uint32_t *) & data[cache.nlibs];
   strings = (char *) & deps[cache.ndeps];
 
-  for (i = 0, ent = prelinked; ent; ent = ent->next, i++)
+  for (i = 0; i < l.nents; ++i)
     {
       data[i].filename = (strings - (char *) data) + sizeof (cache);
-      strings = stpcpy (strings, ent->filename) + 1;
-      ents[i] = ent;
-      data[i].timestamp = ent->timestamp;
-      data[i].checksum = ent->checksum;
-      data[i].base = ent->base;
-      data[i].end = ent->end;
+      strings = stpcpy (strings, l.ents[i]->canon_filename) + 1;
+      data[i].checksum = l.ents[i]->checksum;
+      if (l.ents[i]->type == ET_EXEC || l.ents[i]->type == ET_CACHE_EXEC)
+	{
+	  data[i].base = 0;
+	  data[i].end = 0;
+	}
+      else
+	{
+	  data[i].base = l.ents[i]->base;
+	  data[i].end = l.ents[i]->end;
+	}
     }
 
   for (i = 0; i < cache.nlibs; i++)
     {
       data[i].depends = ndeps;
-      for (j = 0; j < ents[i]->ndepends; j++)
+      for (j = 0; j < l.ents[i]->ndepends; j++)
 	{
 	  for (k = 0; k < cache.nlibs; k++)
-	    if (ents[k] == ents[i]->depends[j])
+	    if (l.ents[k] == l.ents[i]->depends[j])
 	      break;
 	  if (k == cache.nlibs)
 	    abort ();
@@ -388,46 +509,3 @@ prelink_save_cache (void)
     }
   return 0;
 }
-
-int prelink_find_cmp (const void *pa, const void *pb)
-{
-  struct prelink_entry **a = (struct prelink_entry **) pa;
-  struct prelink_entry **b = (struct prelink_entry **) pb;
-
-  if ((*a)->base < (*b)->base)
-    return -1;
-  if ((*a)->base > (*b)->base)
-    return 1;
-  return 0;
-}
-
-GElf_Addr
-prelink_find_base (DSO *dso)
-{
-  int nlibs, i;
-  struct prelink_entry *ent, **ents;
-  GElf_Addr last, end;
-
-  if (! prelinked)
-    return dso->arch->mmap_base;
-
-  for (nlibs = 0, ent = prelinked; ent; ent = ent->next)
-    nlibs++;
-
-  ents = alloca (nlibs * sizeof (struct prelink_entry *));
-  for (i = 0, ent = prelinked; ent; ent = ent->next)
-    ents[i++] = ent;
-  qsort (ents, nlibs, sizeof (struct prelink_entry *), prelink_find_cmp);
-  last = dso->arch->mmap_base;
-  for (i = 0; i < nlibs; i++)
-    {
-      last = (last + dso->align - 1) & ~(dso->align - 1);
-      end = last + dso->end - dso->base;
-      if (end + 32768 <= ents[i]->base)
-	return last;
-      last = ents[i]->end + 32768;
-    }
-  last = (last + dso->align - 1) & ~(dso->align - 1);
-  return last;
-}
-

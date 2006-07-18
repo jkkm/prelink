@@ -1,13 +1,8 @@
 - undo mode
-- hack up other modes of operation than -a, allow specifying of
-  files/binaries on the command line rather than in config file
-- check all libraries brought in because of dependencies, if they would
-  be in the prelinking directories (so that one can e.g. disallow prelinking
-  libraries on NFS mounted filesystems etc.)
+- verify mode
 - security audit:
   - should we only limit prelinking in non-world writeable directories
   - or should it use O_EXCL for creation of *.#prelink# files
-- dwarf2 (and perhaps dwarf) support for adjust_dso
 - more ports
 - hack support for multi-ABI arches
 - more testing
