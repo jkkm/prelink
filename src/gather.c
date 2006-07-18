@@ -21,6 +21,7 @@
 #include <error.h>
 #include <fcntl.h>
 #include <ftw.h>
+#include <glob.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -768,13 +769,38 @@ gather_config (const char *config)
       if (*p == '\0')
 	continue;
 
-      ret = gather_object (p, deref, onefs);
-      if (ret)
+      if (strpbrk (p, "*?[{") == NULL)
 	{
-	  ret = 1;
-	  break;
+	  ret = gather_object (p, deref, onefs);
+	  if (ret)
+	    {
+	      ret = 1;
+	      break;
+	    }
 	}
+      else
+	{
+	  glob_t g;
 
+	  if (!glob (p, GLOB_BRACE, NULL, &g))
+	    {
+	      size_t n;
+
+	      for (n = 0; n < g.gl_pathc; ++n)
+		{
+		  ret = gather_object (g.gl_pathv[n], deref, onefs);
+		  if (ret)
+		    {
+		      ret = 1;
+		      break;
+		    }
+		}
+
+	      globfree (&g);
+	      if (ret)
+		break;
+	    }
+	}
     } while (!feof (file));
 
   free (line);

@@ -1067,7 +1067,7 @@ adjust_dynamic (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 		  }
 		break;
 	      default:
-		if (dyn.d_tag < DT_VALRNGLO || dyn.d_tag > DT_VALRNGHI)
+		if (dyn.d_tag < DT_ADDRRNGLO || dyn.d_tag > DT_ADDRRNGHI)
 		  break;
 		/* FALLTHROUGH */
 	      case DT_INIT:
@@ -1238,6 +1238,10 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 
   for (i = 0; i < dso->ehdr.e_phnum; i++)
     {
+      /* Leave STACK segment alone, it has
+	 p_vaddr == p_paddr == p_offset == p_filesz == p_memsz == 0.  */
+      if (dso->phdr[i].p_type == PT_GNU_STACK)
+	continue;
       if (! start)
 	{
 	  dso->phdr[i].p_vaddr += adjust;

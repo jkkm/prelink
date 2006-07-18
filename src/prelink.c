@@ -528,7 +528,7 @@ prelink_prepare (DSO *dso)
 	  }
 
       /* Adjust all addresses pointing into remaining sections.  */
-      if (adjust_dso (dso, start, adjust))
+      if (adjust_dso (dso, start - 1, adjust))
 	return 1;
 
       if (rinfo.rel_to_rela)

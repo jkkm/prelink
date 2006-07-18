@@ -450,8 +450,9 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    {
 	      if (j == i)
 		continue;
-	      /* Don't break PT_GNU_STACK which has zero vaddr.  */
-	      if (!phdr[j].p_vaddr)
+	      /* Leave STACK segment alone, it has p_vaddr == p_paddr == 0
+		 and p_offset == p_filesz == p_memsz == 0.  */
+	      if (phdr[j].p_type == PT_GNU_STACK)
 		continue;
 	      if (phdr[j].p_vaddr
 		  < adjust->basemove_end - adjust->basemove_adjust)
@@ -578,7 +579,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    }
 
 	  for (e = 0; e < ehdr->e_phnum; ++e)
-	    if (phdr[e].p_type != PT_LOAD)
+	    if (phdr[e].p_type != PT_LOAD
+		&& phdr[e].p_type != PT_GNU_STACK)
 	      for (k = 1; k < movesec; ++k)
 		if (old_addr[k] == phdr[e].p_vaddr)
 		  {
