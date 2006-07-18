@@ -37,7 +37,7 @@ struct opd_rec
 struct opd_lib
 {
   GElf_Addr start, size;
-  struct opd_rec table[1];
+  GElf_Addr table[1];
 };
 
 static int
@@ -138,14 +138,16 @@ ppc64_fixup_plt (struct prelink_info *info, GElf_Rela *rela, GElf_Addr value)
 		 dso->filename);
 	  return 1;
 	}
-      if ((value - info->ent->depends[i]->opd->start) % 24)
+      if ((value - info->ent->depends[i]->opd->start) % 8)
 	{
 	  error (0, 0, "%s: R_PPC64_JMP_SLOT doesn't resolve to valid .opd section location",
 		 dso->filename);
 	  return 1;
 	}
-      n = (value - info->ent->depends[i]->opd->start) / 24;
-      rec = info->ent->depends[i]->opd->table[n];
+      n = (value - info->ent->depends[i]->opd->start) / 8;
+      rec.fn = info->ent->depends[i]->opd->table[n];
+      rec.toc = info->ent->depends[i]->opd->table[n + 1];
+      rec.chain = info->ent->depends[i]->opd->table[n + 2];
     }
   write_be64 (dso, rela->r_offset, rec.fn);
   write_be64 (dso, rela->r_offset + 8, rec.toc);
@@ -799,12 +801,8 @@ ppc64_read_opd (DSO *dso, struct prelink_entry *ent)
   if (ent->opd == NULL)
     return 0;
   s = dso->shdr[opd].sh_addr;
-  for (n = 0; n < dso->shdr[opd].sh_size / 24; ++n, s += 24)
-    {
-      ent->opd->table[n].fn = read_ube64 (dso, s);
-      ent->opd->table[n].toc = read_ube64 (dso, s + 8);
-      ent->opd->table[n].chain = read_ube64 (dso, s + 16);
-    }
+  for (n = 0; n < dso->shdr[opd].sh_size / 8; ++n, s += 8)
+    ent->opd->table[n] = read_ube64 (dso, s);
   ent->opd->start = dso->shdr[opd].sh_addr;
   ent->opd->size = dso->shdr[opd].sh_size;
   return 0;
