@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -29,11 +29,38 @@
 #include "prelink.h"
 #include "layout.h"
 
+#ifndef DT_PPC_GOT
+# define DT_PPC_GOT	(DT_LOPROC + 0)
+#endif
+
+#define DT_PPC_GOT_BIT	DT_LOPROC_BIT
+
 static int
 ppc_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		 GElf_Addr adjust)
 {
-  if (dyn->d_tag == DT_PLTGOT)
+  if (dyn->d_tag == DT_PPC_GOT)
+    {
+      Elf32_Addr data;
+
+      data = read_ube32 (dso, dyn->d_un.d_ptr);
+      /* DT_PPC_GOT[0] points to _DYNAMIC, it needs to be adjusted.  */
+      if (data == dso->shdr[n].sh_addr && data >= start)
+	write_be32 (dso, dyn->d_un.d_ptr, data + adjust);
+
+      data = read_ube32 (dso, dyn->d_un.d_ptr + 4);
+      /* DT_PPC_GOT[1] points to .glink in prelinked libs.  */
+      if (data && data >= start)
+	write_be32 (dso, dyn->d_un.d_ptr + 4, data + adjust);
+
+      if (dyn->d_un.d_ptr >= start)
+	{
+	  dyn->d_un.d_ptr += adjust;
+	  return 1;
+	}
+    }
+  else if (dyn->d_tag == DT_PLTGOT
+	   && !dynamic_info_is_set (dso, DT_PPC_GOT_BIT))
     {
       int i;
 
@@ -70,6 +97,13 @@ ppc_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
     {
       if ((Elf32_Word) rela->r_addend >= start)
 	rela->r_addend += (Elf32_Sword) adjust;
+    }
+  if (GELF_R_TYPE (rela->r_info) == R_PPC_JMP_SLOT
+      && dynamic_info_is_set (dso, DT_PPC_GOT_BIT))
+    {
+      Elf32_Addr data = read_ube32 (dso, rela->r_offset);
+      if (data >= start)
+	write_be32 (dso, rela->r_offset, data + adjust);
     }
   return 0;
 }
@@ -160,7 +194,10 @@ ppc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       write_be32 (dso, rela->r_offset, value - 0x8000);
       break;
     case R_PPC_JMP_SLOT:
-      ppc_fixup_plt (dso, rela, value);
+      if (dynamic_info_is_set (dso, DT_PPC_GOT_BIT))
+	write_be32 (dso, rela->r_offset, value);
+      else
+	ppc_fixup_plt (dso, rela, value);
       break;
     case R_PPC_ADDR16:
     case R_PPC_UADDR16:
@@ -422,6 +459,8 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_PPC_UADDR32:
       break;
     case R_PPC_JMP_SLOT:
+      if (dynamic_info_is_set (dso, DT_PPC_GOT_BIT))
+	r_type = R_PPC_ADDR32;
       break;
     case R_PPC_ADDR16_HA:
       value += 0x8000;
@@ -546,11 +585,61 @@ ppc_need_rel_to_rela (DSO *dso, int first, int last)
 }
 
 static int
+ppc_arch_pre_prelink (DSO *dso)
+{
+  Elf_Data *data = NULL;
+  Elf_Scn *scn;
+  GElf_Dyn dyn;
+  Elf32_Addr val;
+  int i;
+
+  if (!dynamic_info_is_set (dso, DT_PPC_GOT_BIT))
+    return 0;
+
+  assert (dso->shdr[dso->dynamic].sh_type == SHT_DYNAMIC);
+
+  scn = dso->scn[dso->dynamic];
+  while ((data = elf_getdata (scn, data)) != NULL)
+    {
+      int ndx, maxndx;
+
+      maxndx = data->d_size / dso->shdr[dso->dynamic].sh_entsize;
+      for (ndx = 0; ndx < maxndx; ++ndx)
+	{
+	  gelfx_getdyn (dso->elf, data, ndx, &dyn);
+	  assert (dyn.d_tag != DT_NULL);
+	  if (dyn.d_tag == DT_PPC_GOT)
+	    break;
+	}
+      if (ndx < maxndx)
+	break;
+    }
+
+  /* DT_PPC_GOT[1] should point to .glink in prelinked libs.  */
+  val = read_ube32 (dso, dyn.d_un.d_ptr + 4);
+  if (val)
+    return 0;
+
+  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+    if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			  dso->shdr[i].sh_name), ".plt"))
+      break;
+
+  if (i == dso->ehdr.e_shnum)
+    return 0;
+
+  val = read_ube32 (dso, dso->shdr[i].sh_addr);
+  write_be32 (dso, dyn.d_un.d_ptr + 4, val);
+
+  return 0;
+}
+
+static int
 ppc_arch_prelink (DSO *dso)
 {
   Elf32_Addr plt = dso->info[DT_PLTGOT];
 
-  if (plt)
+  if (plt && !dynamic_info_is_set (dso, DT_PPC_GOT_BIT))
     {
       Elf32_Word count = dso->info[DT_PLTRELSZ] / sizeof (Elf32_Rela);
       Elf32_Addr data;
@@ -571,6 +660,61 @@ ppc_arch_prelink (DSO *dso)
 }
 
 static int
+ppc_arch_undo_prelink (DSO *dso)
+{
+  Elf_Data *data = NULL;
+  Elf_Scn *scn;
+  GElf_Dyn dyn;
+  Elf32_Addr val, addr, endaddr;
+  int i;
+
+  if (!dynamic_info_is_set (dso, DT_PPC_GOT_BIT))
+    return 0;
+
+  assert (dso->shdr[dso->dynamic].sh_type == SHT_DYNAMIC);
+
+  scn = dso->scn[dso->dynamic];
+  while ((data = elf_getdata (scn, data)) != NULL)
+    {
+      int ndx, maxndx;
+
+      maxndx = data->d_size / dso->shdr[dso->dynamic].sh_entsize;
+      for (ndx = 0; ndx < maxndx; ++ndx)
+	{
+	  gelfx_getdyn (dso->elf, data, ndx, &dyn);
+	  assert (dyn.d_tag != DT_NULL);
+	  if (dyn.d_tag == DT_PPC_GOT)
+	    break;
+	}
+      if (ndx < maxndx)
+	break;
+    }
+
+  /* DT_PPC_GOT[1] should point to .glink in prelinked libs.  */
+  val = read_ube32 (dso, dyn.d_un.d_ptr + 4);
+  if (!val)
+    return 0;
+
+  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+    if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			  dso->shdr[i].sh_name), ".plt"))
+      break;
+
+  if (i == dso->ehdr.e_shnum || (dso->shdr[i].sh_size & 3))
+    return 0;
+
+  addr = dso->shdr[i].sh_addr;
+  endaddr = addr + dso->shdr[i].sh_size;
+  for (; addr < endaddr; addr += 4, val += 4)
+    write_be32 (dso, addr, val);
+
+  write_be32 (dso, dyn.d_un.d_ptr + 4, 0);
+
+  return 0;
+}
+
+
+static int
 ppc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 {
   switch (GELF_R_TYPE (rela->r_info))
@@ -588,7 +732,9 @@ ppc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
       write_be32 (dso, rela->r_offset, 0);
       break;
     case R_PPC_JMP_SLOT:
-      /* .plt section will become SHT_NOBITS.  */
+      /* .plt section will become SHT_NOBITS if DT_PPC_GOT is not present,
+	 otherwise .plt section will be unprelinked in
+	 ppc_arch_undo_prelink.  */
       return 0;
     case R_PPC_ADDR16:
     case R_PPC_UADDR16:
@@ -632,6 +778,7 @@ ppc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     }
   return 0;
 }
+
 static int
 ppc_reloc_size (int reloc_type)
 {
@@ -957,7 +1104,9 @@ PL_ARCH = {
   .reloc_size = ppc_reloc_size,
   .reloc_class = ppc_reloc_class,
   .max_reloc_size = 4,
+  .arch_pre_prelink = ppc_arch_pre_prelink,
   .arch_prelink = ppc_arch_prelink,
+  .arch_undo_prelink = ppc_arch_undo_prelink,
   .undo_prelink_rela = ppc_undo_prelink_rela,
   .layout_libs_pre = ppc_layout_libs_pre,
   .layout_libs_post = ppc_layout_libs_post,

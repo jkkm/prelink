@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,8 @@ is_ldso_soname (const char *soname)
 }
 
 static int
-prelink_record_relocations (struct prelink_info *info, FILE *f)
+prelink_record_relocations (struct prelink_info *info, FILE *f,
+			    const char *ent_filename)
 {
   char buffer[8192];
   DSO *dso = info->dso;
@@ -122,6 +123,8 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       tdeps = ndeps - seen + 1;
       if (! seen
 	  && (strcmp (info->ent->filename, filename) == 0
+	      || (info->ent->filename != ent_filename
+		  && strcmp (ent_filename, filename) == 0)
 	      || strcmp (info->ent->canon_filename, filename) == 0))
 	{
 	  seen = 1;
@@ -563,6 +566,7 @@ prelink_get_relocations (struct prelink_info *info)
   int i, ret, status;
   char *p;
   const char *dl = dynamic_linker ?: dso->arch->dynamic_linker;
+  const char *ent_filename;
 
   if (info->ent->type == ET_DYN)
     {
@@ -593,7 +597,17 @@ prelink_get_relocations (struct prelink_info *info)
       argv[i++] = "--library-path";
       argv[i++] = ld_library_path;
     }
-  argv[i++] = info->ent->filename;
+  if (strchr (info->ent->filename, '/') != NULL)
+    ent_filename = info->ent->filename;
+  else
+    {
+      size_t flen = strlen (info->ent->filename);
+      char *p = alloca (2 + flen + 1);
+      memcpy (p, "./", 2);
+      memcpy (p + 2, info->ent->filename, flen + 1);
+      ent_filename = p;
+    }
+  argv[i++] = ent_filename;
   argv[i] = NULL;
   envp[0] = "LD_TRACE_LOADED_OBJECTS=1";
   envp[1] = "LD_BIND_NOW=1";
@@ -611,7 +625,7 @@ prelink_get_relocations (struct prelink_info *info)
       return 0;
     }
 
-  if (prelink_record_relocations (info, f))
+  if (prelink_record_relocations (info, f, ent_filename))
     ret = 0;
 
   if ((status = execve_close (f)))

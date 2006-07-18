@@ -116,7 +116,13 @@ prelink_exec (struct prelink_info *info)
       Elf_Data *data;
 
       if (undo_sections (dso, undo, move, &rinfo, &ehdr, phdr, shdr))
-	goto error_out;
+	{
+error_out:
+	  free (liblist);
+	  free (move);
+	  return 1;
+	}
+
       data = elf_getdata (dso->scn[undo], NULL);
       assert (data->d_buf != NULL);
       assert (data->d_off == 0);
@@ -1053,9 +1059,4 @@ prelink_exec (struct prelink_info *info)
 
   free (move);
   return 0;
-
-error_out:
-  free (liblist);
-  free (move);
-  return 1;
 }

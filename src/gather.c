@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -73,6 +73,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   Elf32_Lib *liblist = NULL;
   int nliblist = 0;
   const char *dl;
+  const char *ent_filename;
 
   if (check_dso (dso))
     {
@@ -147,7 +148,17 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
       argv[i++] = "--library-path";
       argv[i++] = ld_library_path;
     }
-  argv[i++] = ent->filename;
+  if (strchr (ent->filename, '/') != NULL)
+    ent_filename = ent->filename;
+  else
+    {
+      size_t flen = strlen (ent->filename);
+      char *tp = alloca (2 + flen + 1);
+      memcpy (tp, "./", 2);
+      memcpy (tp + 2, ent->filename, flen + 1);
+      ent_filename = tp;
+    }
+  argv[i++] = ent_filename;
   argv[i] = NULL;
   envp[0] = "LD_TRACE_LOADED_OBJECTS=1";
   envp[1] = "LD_TRACE_PRELINKING=1";
@@ -205,7 +216,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
       *p = '\0';
       p += sizeof " => " - 1;
       *q = '\0';
-      if (! strcmp (p, ent->filename))
+      if (! strcmp (p, ent_filename))
 	{
 	  ++seen;
 	  continue;

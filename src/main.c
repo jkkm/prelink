@@ -360,18 +360,18 @@ main (int argc, char *argv[])
 		  continue;
 		}
 	      if (dso->filename != dso->soname)
-	        orig_filename = dso->filename;
-              else
-                orig_filename = strdup (dso->filename);
-              if (!orig_filename)
-                {
-                  ++failures;
-                  close_dso (dso);
-                  continue;
-                }
+		orig_filename = dso->filename;
+	      else
+		orig_filename = strdup (dso->filename);
+	      if (!orig_filename)
+		{
+		  ++failures;
+		  close_dso (dso);
+		  continue;
+		}
 	      dso->filename = output;
 	      if (update_dso (dso, orig_filename))
-	        ++failures;
+		++failures;
 	      free ((char *) orig_filename);
 	      continue;
 	    }

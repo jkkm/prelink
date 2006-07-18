@@ -82,6 +82,7 @@ typedef struct
 #define DT_VERSYM_BIT 54
 #define DT_FILTER_BIT 55
 #define DT_AUXILIARY_BIT 56
+#define DT_LOPROC_BIT 57
   uint64_t info_set_mask;
   int fd, fdro;
   int lastscn, dynamic;
@@ -146,6 +147,7 @@ struct PLArch
 #define RTYPE_CLASS_COPY	(8|2)
 #define RTYPE_CLASS_TLS		(8|4)
   int (*reloc_class) (int);
+  int (*arch_pre_prelink) (DSO *dso);
   int (*arch_prelink) (DSO *dso);
   int (*arch_undo_prelink) (DSO *dso);
   int (*undo_prelink_rel) (DSO *dso, GElf_Rel *rel, GElf_Addr reladdr);

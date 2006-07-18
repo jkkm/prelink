@@ -1,5 +1,7 @@
 #!/bin/bash
 . `dirname $0`/functions.sh
+# Disable this test under SELinux
+test -x /usr/sbin/getenforce -a "`/usr/sbin/getenforce`" = Enforcing && exit 77
 rm -f reloc9 reloc9lib*.so reloc9.log
 rm -f prelink.cache
 NOCOPYRELOC=-Wl,-z,nocopyreloc

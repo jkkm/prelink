@@ -908,6 +908,9 @@ prelink (DSO *dso, struct prelink_entry *ent)
       break;
     }
 
+  if (dso->arch->arch_pre_prelink && dso->arch->arch_pre_prelink (dso))
+    goto error_out;
+
   if (dso->ehdr.e_type == ET_EXEC)
     {
       if (prelink_exec (&info))

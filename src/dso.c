@@ -65,7 +65,7 @@ read_dynamic (DSO *dso)
 		gelfx_getdyn (dso->elf, data, ndx, &dyn);
 		if (dyn.d_tag == DT_NULL)
 		  break;
-		else if (dyn.d_tag < DT_NUM)
+		else if ((GElf_Xword) dyn.d_tag < DT_NUM)
 		  {
 		    dso->info[dyn.d_tag] = dyn.d_un.d_val;
 		    if (dyn.d_tag < 50)
@@ -100,6 +100,8 @@ read_dynamic (DSO *dso)
 		  dso->info_set_mask |= (1ULL << DT_FILTER_BIT);
 		else if (dyn.d_tag == DT_AUXILIARY)
 		  dso->info_set_mask |= (1ULL << DT_AUXILIARY_BIT);
+		else if (dyn.d_tag == DT_LOPROC)
+		  dso->info_set_mask |= (1ULL << DT_LOPROC_BIT);
 	      }
 	    if (ndx < maxndx)
 	      break;
@@ -727,7 +729,7 @@ int
 reopen_dso (DSO *dso, struct section_move *move, const char *temp_base)
 {
   char filename[strlen (temp_base ? temp_base : dso->filename)
-                + sizeof ("/dev/shm/.#prelink#.XXXXXX")];
+		+ sizeof ("/dev/shm/.#prelink#.XXXXXX")];
   int adddel = 0;
   int free_move = 0;
   Elf *elf = NULL;

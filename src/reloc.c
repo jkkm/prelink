@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2005 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -301,7 +301,7 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 		gelfx_getdyn (dso->elf, data, ndx, dynamic + loc);
 		if (dynamic[loc].d_tag == DT_NULL)
 		  break;
-		else if (dynamic[loc].d_tag < DT_NUM)
+		else if ((GElf_Xword) dynamic[loc].d_tag < DT_NUM)
 		  info[dynamic[loc].d_tag] = dynamic + loc;
 		else if (dynamic[loc].d_tag == DT_RELCOUNT)
 		  info_DT_RELCOUNT = dynamic + loc;
@@ -409,7 +409,7 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 
       maxndx = data->d_size / dso->shdr[dynsec].sh_entsize;
       for (ndx = 0; ndx < maxndx && loc < count; ++ndx, ++loc)
-	if (dynamic[loc].d_tag < DT_NUM
+	if ((GElf_Xword) dynamic[loc].d_tag < DT_NUM
 	    || dynamic[loc].d_tag == DT_RELCOUNT
 	    || dynamic[loc].d_tag == DT_RELACOUNT)
 	  gelfx_update_dyn (dso->elf, data, ndx, dynamic + loc);
