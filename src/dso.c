@@ -1662,7 +1662,7 @@ set_security_context (DSO *dso, const char *temp_name, const char *name)
   static int selinux_enabled = -1;
   if (selinux_enabled == -1)
     selinux_enabled = is_selinux_enabled ();
-  if (selinux_enabled)
+  if (selinux_enabled > 0)
     {
       security_context_t scontext;
       if (getfilecon (name, &scontext) < 0)

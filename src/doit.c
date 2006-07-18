@@ -55,17 +55,18 @@ clear_ent_marks (struct prelink_entry *ent)
     clear_ent_marks (ent->depends[i]);
 }
 
-static int
-zero_ent_marks (struct prelink_entry *ent)
+static struct prelink_entry *
+find_unlisted_dependency (struct prelink_entry *ent)
 {
   int i;
+  struct prelink_entry *ret;
 
   if (ent->u.tmp == 0)
-    return 1;
+    return ent;
   for (i = 0; i < ent->ndepends; ++i)
-    if (zero_ent_marks (ent->depends[i]))
-      return 1;
-  return 0;
+    if ((ret = find_unlisted_dependency (ent->depends[i])) != NULL)
+      return ret;
+  return NULL;
 }
 
 int
@@ -77,6 +78,7 @@ prelink_ent (struct prelink_entry *ent)
   struct prelink_link *hardlink;
   char *move = NULL;
   size_t movelen = 0;
+  struct prelink_entry *dep;
 
   for (i = 0; i < ent->ndepends; ++i)
     if (ent->depends[i]->done == 1 && prelink_ent (ent->depends[i]))
@@ -98,12 +100,12 @@ prelink_ent (struct prelink_entry *ent)
   for (i = 0; i < ent->ndepends; ++i)
     ent->depends[i]->u.tmp = 1;
 
-  if (zero_ent_marks (ent))
+  if ((dep = find_unlisted_dependency (ent)) != NULL)
     {
       ent->done = 0;
       if (verbose)
-	error (0, 0, "Could not prelink %s because its dependencies link against other library versions",
-	       ent->filename);
+	error (0, 0, "Could not prelink %s because it doesn't use %s, but one of its dependencies has been prelinked against it",
+	       ent->filename, dep->filename);
       return 0;
     }
 
