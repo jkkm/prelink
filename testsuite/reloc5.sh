@@ -1,4 +1,5 @@
 #!/bin/sh
+. `dirname $0`/functions.sh
 # This test takes a lot of time, so skip it normally
 [ -z "$CHECK_ME_HARDER" ] && exit 77
 rm -f reloc5 reloc5.log

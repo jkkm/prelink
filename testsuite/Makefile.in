@@ -88,19 +88,21 @@ TESTS = movelibs.sh \
 	reloc1.sh reloc2.sh reloc3.sh reloc4.sh reloc5.sh reloc6.sh \
 	reloc7.sh \
 	shuffle1.sh shuffle2.sh shuffle3.sh shuffle4.sh shuffle5.sh \
-	layout1.sh layout2.sh
+	layout1.sh layout2.sh \
+	undosyslibs.sh
 
 TESTS_ENVIRONMENT = \
-	PRELINK="../src/prelink -c ./prelink.conf -C ./prelink.cache --ld-library-path=. --dynamic-linker=`echo ./ld*.so.*`" \
-	CC="$(CC)" CCLINK="$(CC) -Wl,--dynamic-linker=`echo ./ld*.so.*`" \
-	CXX="$(CXX)" CXXLINK="$(CXX) -Wl,--dynamic-linker=`echo ./ld*.so.*`" \
+	PRELINK="../src/prelink -c ./prelink.conf -C ./prelink.cache --ld-library-path=. --dynamic-linker=`echo ./ld*.so.*[0-9]`" \
+	CC="$(CC)" CCLINK="$(CC) -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`" \
+	CXX="$(CXX)" CXXLINK="$(CXX) -Wl,--dynamic-linker=`echo ./ld*.so.*[0-9]`" \
 	$(SHELL)
 
 
-extra_DIST = $(TESTS) env.sh
+extra_DIST = $(TESTS) functions.sh
 
-CLEANFILES = *.so *.so.* *.nop prelink.cache prelink.conf $(TESTS:%.sh=%) \
-	$(TESTS:%.sh=%.log) $(TESTS:%.sh=%.lds) core *.\#prelink\#
+CLEANFILES = *.so *.so.* *.nop syslib.list prelink.cache prelink.conf \
+	$(TESTS:%.sh=%) $(TESTS:%.sh=%.log) $(TESTS:%.sh=%.lds) \
+	*.orig *.new core* *.\#prelink\#
 
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = ../config.h

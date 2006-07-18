@@ -35,6 +35,8 @@ undo_prelink_rel (DSO *dso, int n)
   GElf_Rel rel;
   int sec;
 
+  if (dso->arch->undo_prelink_rel == NULL)
+    return 0;
   while ((data = elf_getdata (scn, data)) != NULL)
     {
       int ndx, maxndx;
@@ -72,6 +74,8 @@ undo_prelink_rela (DSO *dso, int n)
   GElf_Rela rela;
   int sec;
 
+  if (dso->arch->undo_prelink_rela == NULL)
+    return 0;
   while ((data = elf_getdata (scn, data)) != NULL)
     {
       int ndx, maxndx;
@@ -338,6 +342,9 @@ prelink_undo (DSO *dso)
   for (i = 1; i < move->new_shnum; ++i)
     move->new_to_old[i] = -1;
 
+  if (find_reloc_sections (dso, &rinfo))
+    return 1;
+
   for (i = 1; i < move->old_shnum; ++i)
     {
       for (j = 1; j < move->new_shnum; ++j)
@@ -392,7 +399,28 @@ prelink_undo (DSO *dso)
 	      }
 	  }
 
-	error (0, 0, "%s: Section %s not created by prelink created after prelinking",
+	if (((i >= rinfo.first && i <= rinfo.last) || i == rinfo.plt)
+	    && dso->shdr[i].sh_type == SHT_RELA)
+	  {
+	    for (j = 1; j < move->new_shnum; ++j)
+	      if (dso->shdr[i].sh_name == shdr[j].sh_name
+		  && shdr[j].sh_type == SHT_REL
+		  && dso->shdr[i].sh_flags == shdr[j].sh_flags
+		  && dso->shdr[i].sh_addralign == shdr[j].sh_addralign
+		  && 2 * dso->shdr[i].sh_entsize == 3 * shdr[j].sh_entsize
+		  && 2 * dso->shdr[i].sh_size == 3 * shdr[j].sh_size
+		  && move->new_to_old[j] == -1)
+		break;
+
+	    if (j < move->new_shnum)
+	      {
+		move->old_to_new[i] = j;
+		move->new_to_old[j] = i;
+		continue;
+	      }
+	  }
+
+	error (0, 0, "%s: Section %s created after prelinking",
 	       dso->filename, name);
 	free (move);
 	return 1;
@@ -456,13 +484,45 @@ prelink_undo (DSO *dso)
 	  }
       while (i > 0)
 	{
+	  int nsec = 1, j;
 	  /* Change here PROGBITS .plt into NOBITS if needed.  */
+
 	  /* Convert RELA to REL if needed.  */
+	  if (dso->shdr[i].sh_type == SHT_RELA && shdr[i].sh_type == SHT_REL)
+	    {
+	      assert (dso->arch->rela_to_rel != NULL);
+	      if (i == rinfo.plt)
+		{
+		  if (convert_rela_to_rel (dso, i))
+		    return 1;
+		  dso->shdr[i].sh_size = shdr[i].sh_size;
+		}
+	      else if (i == rinfo.last)
+		{
+		  GElf_Addr start = dso->shdr[rinfo.first].sh_addr;
+
+		  for (j = rinfo.first; j <= rinfo.last; ++j)
+		    {
+		      if (convert_rela_to_rel (dso, j))
+			return 1;
+		      dso->shdr[j].sh_addr = start;
+		      dso->shdr[j].sh_size = shdr[j].sh_size;
+		      start += dso->shdr[j].sh_size;
+		    }
+		  nsec = rinfo.last - rinfo.first + 1;
+		  i = rinfo.first;
+		}
+	      else
+		{
+		  error (0, 0, "%s: Cannot convert RELA to REL", dso->filename);
+		  return 1;
+		}
+	    }
 	  diff = shdr[i].sh_addr - dso->shdr[i].sh_addr;
 	  if (diff != adjust)
 	    {
 	      assert (diff >= adjust);
-	      if (adjust_dso (dso, dso->shdr[i + 1].sh_addr, adjust - diff))
+	      if (adjust_dso (dso, dso->shdr[i + nsec].sh_addr, adjust - diff))
 		return 1;
 	      adjust = diff;
 	    }

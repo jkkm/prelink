@@ -118,6 +118,7 @@ struct PLArch
   int (*apply_rel) (struct prelink_info *info, GElf_Rel *rel, char *buf);
   int (*apply_rela) (struct prelink_info *info, GElf_Rela *rela, char *buf);
   int (*rel_to_rela) (DSO *dso, GElf_Rel *rel, GElf_Rela *rela);
+  int (*rela_to_rel) (DSO *dso, GElf_Rela *rela, GElf_Rel *rel);
   int (*need_rel_to_rela) (DSO *dso, int first, int last);
   GElf_Addr (*create_opd) (struct prelink_info *info, int first, int last,
 			   int plt);

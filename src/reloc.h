@@ -35,6 +35,7 @@ struct reloc_info
 
 int find_reloc_sections (DSO *dso, struct reloc_info *rinfo);
 int convert_rel_to_rela (DSO *dso, int i);
+int convert_rela_to_rel (DSO *dso, int i);
 int update_dynamic_rel (DSO *dso, struct reloc_info *rinfo);
 
 #endif /* RELOC_H */

@@ -1,4 +1,5 @@
 #!/bin/sh
+. `dirname $0`/functions.sh
 rm -f shuffle4 shuffle4.log
 $CCLINK -o shuffle4 $srcdir/shuffle2.c -Wl,--rpath-link,. shuffle3lib2.so
 echo $PRELINK -vm ./shuffle4 > shuffle4.log
