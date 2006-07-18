@@ -301,7 +301,8 @@ layout_libs (void)
 		    deps[j]->done = 0;
 		    --k;
 		    memmove (deps + j, deps + j + 1, (k - j) * sizeof (*deps));
-		    --j;
+		    if (j > 0)
+		      --j;
 		  }
 	    }
 	}
