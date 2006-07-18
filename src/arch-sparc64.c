@@ -42,7 +42,7 @@ sparc64_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 	if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
 			      dso->shdr[i].sh_name), ".got"))
 	  {
-	    Elf32_Addr data;
+	    Elf64_Addr data;
 
 	    data = read_ube64 (dso, dso->shdr[i].sh_addr);
 	    /* .got[0] points to _DYNAMIC, it needs to be adjusted.  */
@@ -119,9 +119,9 @@ sparc64_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr value)
       write_be32 (dso, rela->r_offset + 8, 0x01000000);
     }
   else if ((rela->r_offset + 4 > value
-	    && ((rela->r_offset - 4 - value) >> 32) == 0)
+	    && ((rela->r_offset - value) >> 31) == 0)
 	   || (value > rela->r_offset + 4
-	       && ((value - rela->r_offset - 4) >> 32) == 0))
+	       && ((value - rela->r_offset - 4) >> 31) == 0))
     {
       /* mov %o7, %g1
 	 call value
@@ -555,6 +555,12 @@ sparc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 			  | (((dso->shdr[sec].sh_addr + 32
 			       - rela->r_offset - 4) >> 2)
 			     & 0x7ffff));
+	      write_be32 (dso, rela->r_offset + 8, 0x01000000);
+	      write_be32 (dso, rela->r_offset + 12, 0x01000000);
+	      write_be32 (dso, rela->r_offset + 16, 0x01000000);
+	      write_be32 (dso, rela->r_offset + 20, 0x01000000);
+	      write_be32 (dso, rela->r_offset + 24, 0x01000000);
+	      write_be32 (dso, rela->r_offset + 28, 0x01000000);
 	    }
 	  else
 	    {
@@ -563,9 +569,9 @@ sparc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 				/ 0x1400) * 0x1400
 			       + dso->shdr[sec].sh_addr - 0x400;
 	      /* slot+12 contains: ldx [%o7 + X], %g1  */
-	      GElf_Addr ptr = slot + (read_ule32 (dso, slot + 12) & 0xfff) + 4;
+	      GElf_Addr ptr = slot + (read_ube32 (dso, slot + 12) & 0xfff) + 4;
 
-	      write_be32 (dso, rela->r_offset,
+	      write_be64 (dso, rela->r_offset,
 			  dso->shdr[sec].sh_addr
 			  - (slot + ((rela->r_offset - ptr) / 8) * 24 + 4));
 	    }
