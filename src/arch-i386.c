@@ -231,11 +231,12 @@ i386_apply_rel (struct prelink_info *info, GElf_Rel *rel, char *buf)
       buf_write_le32 (buf, value);
       break;
     case R_386_32:
+      buf_write_le32 (buf, value + read_ule32 (info->dso, rel->r_offset));
+      break;
     case R_386_PC32:
-      error (0, 0, "%s: R_386_%s32 relocs should not be present in prelinked REL sections",
-	     info->dso->filename,
-	     GELF_R_TYPE (rel->r_info) == R_386_32 ? "" : "PC");
-      return 1;
+      buf_write_le32 (buf, value + read_ule32 (info->dso, rel->r_offset)
+			   - rel->r_offset);
+      break;
     case R_386_COPY:
       abort ();
     case R_386_RELATIVE:

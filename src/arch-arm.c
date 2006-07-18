@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -229,6 +229,7 @@ static int
 arm_apply_rel (struct prelink_info *info, GElf_Rel *rel, char *buf)
 {
   GElf_Addr value;
+  Elf32_Sword val;
 
   value = info->resolve (info, GELF_R_SYM (rel->r_info),
 			 GELF_R_TYPE (rel->r_info));
@@ -241,11 +242,22 @@ arm_apply_rel (struct prelink_info *info, GElf_Rel *rel, char *buf)
       buf_write_le32 (buf, value);
       break;
     case R_ARM_ABS32:
+      buf_write_le32 (buf, value + read_ule32 (info->dso, rel->r_offset));
+      break;
     case R_ARM_PC24:
-      error (0, 0, "%s: R_ARM_%s relocs should not be present in prelinked REL sections",
-	     info->dso->filename,
-	     GELF_R_TYPE (rel->r_info) == R_ARM_ABS32 ? "ABS32" : "PC24");
-      return 1;
+      val = value + rel->r_offset;
+      value = read_ule32 (info->dso, rel->r_offset) << 8;
+      value = (Elf32_Sword) value >> 6;
+      val += value;
+      val >>= 2;
+      if ((Elf32_Word) val + 0x800000 >= 0x1000000)
+	{
+	  error (0, 0, "%s: R_ARM_PC24 overflow", info->dso->filename);
+	  return 1;
+	}
+      val &= 0xffffff;
+      buf_write_le32 (buf, (buf_read_ule32 (buf) & 0xff000000) | val);
+      break;
     case R_ARM_COPY:
       abort ();
     case R_ARM_RELATIVE:
