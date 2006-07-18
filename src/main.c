@@ -44,6 +44,8 @@ int dereference;
 int one_file_system;
 int enable_cxx_optimizations = 1;
 int undo;
+GElf_Addr mmap_reg_start = ~(GElf_Addr) 0;
+GElf_Addr mmap_reg_end = ~(GElf_Addr) 0;
 const char *dynamic_linker;
 const char *ld_library_path;
 const char *prelink_conf = PRELINK_CONF;
@@ -59,6 +61,8 @@ static char argp_doc[] = "prelink -- program to relocate and prelink an ELF shar
 #define OPT_LD_LIBRARY_PATH	0x81
 #define OPT_LIBS_ONLY		0x82
 #define OPT_CXX_DISABLE		0x83
+#define OPT_MMAP_REG_START	0x84
+#define OPT_MMAP_REG_END	0x85
 
 static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
@@ -81,6 +85,8 @@ static struct argp_option options[] = {
 			        0,  "What LD_LIBRARY_PATH should be used" },
   {"libs-only",		OPT_LIBS_ONLY, 0, 0, "Prelink only libraries, no binaries" },
   {"disable-c++-optimizations", OPT_CXX_DISABLE, 0, OPTION_HIDDEN, "" },
+  {"mmap-region-start",	OPT_MMAP_REG_START, "BASE_ADDRESS", OPTION_HIDDEN, "" },
+  {"mmap-region-end",	OPT_MMAP_REG_END, "BASE_ADDRESS", OPTION_HIDDEN, "" },
   { 0 }
 };
 
@@ -147,6 +153,16 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
     case OPT_CXX_DISABLE:
       enable_cxx_optimizations = 0;
+      break;
+    case OPT_MMAP_REG_START:
+      mmap_reg_start = strtoull (arg, &endarg, 0);
+      if (endarg != strchr (arg, '\0'))
+	error (EXIT_FAILURE, 0, "--mmap-region-start option requires numberic argument");
+      break;
+    case OPT_MMAP_REG_END:
+      mmap_reg_end = strtoull (arg, &endarg, 0);
+      if (endarg != strchr (arg, '\0'))
+	error (EXIT_FAILURE, 0, "--mmap-region-end option requires numberic argument");
       break;
     default:
       return ARGP_ERR_UNKNOWN;

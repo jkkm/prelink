@@ -186,6 +186,13 @@ layout_libs (void)
 
       mmap_base = plarch->mmap_base;
       mmap_end = plarch->mmap_end;
+      if (mmap_reg_start != ~(GElf_Addr) 0)
+	mmap_base = mmap_reg_start;
+      if (mmap_reg_end != ~(GElf_Addr) 0)
+	mmap_end = mmap_reg_end;
+      if (mmap_base >= mmap_end)
+	error (EXIT_FAILURE, 0,
+	       "--mmap-region-start cannot be bigger than --mmap-region-end");
       max_page_size = plarch->max_page_size;
       class = plarch->class;
       /* The code below relies on having a VA slot as big as <mmap_base,mmap_end)

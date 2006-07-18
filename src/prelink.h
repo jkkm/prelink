@@ -364,5 +364,6 @@ extern int dry_run;
 extern int libs_only;
 extern int enable_cxx_optimizations;
 extern int undo;
+extern GElf_Addr mmap_reg_start, mmap_reg_end;
 
 #endif /* PRELINK_H */
