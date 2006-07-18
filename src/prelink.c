@@ -788,11 +788,11 @@ prelink_set_checksum (DSO *dso)
   uint32_t crc;
   int i, cvt;
 
-  if (dynamic_info_is_set (dso, DT_GNU_PRELINKED_BIT)
-      && set_dynamic (dso, DT_GNU_PRELINKED, 0, 1))
+  if (set_dynamic (dso, DT_CHECKSUM, 0, 1))
     return 1;
 
-  if (set_dynamic (dso, DT_CHECKSUM, 0, 1))
+  if (dso->info_DT_GNU_PRELINKED
+      && set_dynamic (dso, DT_GNU_PRELINKED, 0, 1))
     return 1;
 
   cvt = ! ((__BYTE_ORDER == __LITTLE_ENDIAN

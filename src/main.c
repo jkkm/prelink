@@ -318,6 +318,9 @@ main (int argc, char *argv[])
     if (gather_object (argv[remaining++], dereference, one_file_system))
       return EXIT_FAILURE;
 
+  if (gather_check_libs ())
+    return EXIT_FAILURE;
+
   if (undo)
     return undo_all ();
 

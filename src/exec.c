@@ -131,6 +131,7 @@ prelink_exec (struct prelink_info *info)
 	  goto error_out;
 	}
       memcpy (dso->undo.d_buf, data->d_buf, data->d_size);
+      ehdr.e_shstrndx = dso->ehdr.e_shstrndx;
     }
   undo = 0;
 
@@ -343,7 +344,7 @@ prelink_exec (struct prelink_info *info)
 	  int k, l = new[new_reloc];
 
 	  j = rinfo.last - rinfo.first + (new_plt != -1);
-	  shdr[l].sh_size = dso->shdr[rinfo.first].sh_size / 2 * 3;
+	  shdr[l].sh_size = shdr_after_undo[rinfonew.first].sh_size / 2 * 3;
 	  for (k = 1; k <= j; ++k)
 	    {
 	      insert_readonly_section (&ehdr, shdr, l + k, &adjust);
@@ -414,7 +415,6 @@ prelink_exec (struct prelink_info *info)
 
   i = ehdr.e_shnum;
   ehdr.e_shnum = dso->ehdr.e_shnum;
-  ehdr.e_shstrndx = dso->ehdr.e_shstrndx;
   dso->ehdr = ehdr;
   memcpy (dso->phdr, phdr, ehdr.e_phnum * sizeof (GElf_Phdr));
   if (reopen_dso (dso, move))
@@ -623,6 +623,16 @@ prelink_exec (struct prelink_info *info)
 	  dso->shdr[j].sh_size = shdr[j].sh_size;
 	}
     }
+  else if (rinfonew.rel_to_rela)
+    {
+      assert (new_reloc != -1);
+      for (j = rinfo.first; j <= rinfo.last; ++j)
+	{
+	  dso->shdr[j].sh_entsize
+	    = gelf_fsize (dso->elf, ELF_T_RELA, 1, EV_CURRENT);
+	  dso->shdr[j].sh_type = SHT_RELA;
+	}
+    }
 
   /* Adjust .rel*.plt if necessary.  */
   rinfo.plt = move->old_to_new[rinfo.plt];
@@ -638,6 +648,12 @@ prelink_exec (struct prelink_info *info)
 	  if (convert_rel_to_rela (dso, rinfo.plt))
 	    goto error_out;
 	  dso->shdr[rinfo.plt].sh_size = shdr[rinfo.plt].sh_size;
+	}
+      else if (rinfonew.rel_to_rela_plt)
+	{
+	  dso->shdr[rinfo.plt].sh_entsize
+	    = gelf_fsize (dso->elf, ELF_T_RELA, 1, EV_CURRENT);
+	  dso->shdr[rinfo.plt].sh_type = SHT_RELA;
 	}
     }
 

@@ -675,6 +675,7 @@ unsupported_type:
 
   assert (ent->type == ET_NONE);
   ent->type = ET_BAD;
+  ent->u.explicit = 1;
   return gather_dso (dso, ent);
 }
 
@@ -796,9 +797,7 @@ gather_check_lib (void **p, void *info)
 	}
 
       name = strrchr (e->canon_filename, '/');
-      if (name)
-	--name;
-      else
+      if (!name)
 	name = e->canon_filename;
       len = name - e->canon_filename;
 
