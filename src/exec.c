@@ -452,7 +452,7 @@ prelink_exec (struct prelink_info *info)
 	    Elf_Data *data = elf_getdata (dso->scn[i], NULL);
 
 	    assert (data->d_buf == NULL);
-	    assert (data->d_size == shdr[i].sh_size);
+	    data->d_size = shdr[i].sh_size;
 	    data->d_buf = calloc (shdr[i].sh_size, 1);
 	    if (data->d_buf == NULL)
 	      {
@@ -886,8 +886,21 @@ prelink_exec (struct prelink_info *info)
       if (old_dynbss == -1)
 	{
 	  data = elf_getdata (dso->scn[new_dynbss + 1], NULL);
-	  assert (dso->shdr[new_dynbss + 1].sh_type != SHT_NOBITS
-		  || data->d_buf == NULL);
+	  if (dso->shdr[new_dynbss + 1].sh_type == SHT_NOBITS
+	      && data->d_buf != NULL)
+	    {
+#ifndef NDEBUG
+	      char *buf_start = data->d_buf;
+	      char *buf_end = buf_start + data->d_size;
+
+	      while (buf_start < buf_end)
+		if (*buf_start++)
+		  break;
+	      assert (buf_start == buf_end);
+#endif
+	      free (data->d_buf);
+	      data->d_buf = NULL;
+	    }
 	  if (data->d_size != dso->shdr[new_dynbss + 1].sh_size)
 	    {
 	      assert (data->d_size == dso->shdr[new_dynbss].sh_size
