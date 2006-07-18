@@ -59,7 +59,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
       || is_ldso_soname (dso->soname))
     {
       if (ent->timestamp && ent->checksum)
-	ent->done = 1;
+	ent->done = 2;
       close_dso (dso);
       return 0;
     }
@@ -199,7 +199,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	  break;
 
       if (i == ndepends)
-        ent->done = 1;
+        ent->done = 2;
     }
 
   return 0;

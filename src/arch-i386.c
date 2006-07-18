@@ -423,5 +423,7 @@ PL_ARCH = {
   .rel_to_rela = i386_rel_to_rela,
   .need_rel_to_rela = i386_need_rel_to_rela,
   .arch_prelink = i386_arch_prelink,
-  .mmap_base = 0x40000000
+  .mmap_base = 0x40000000,
+  .mmap_end =  0x50000000,
+  .page_size = 0x1000
 };

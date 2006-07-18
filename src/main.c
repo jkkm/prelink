@@ -35,6 +35,8 @@ int verbose;
 int print_cache;
 int reloc_only;
 int no_update;
+int random_base;
+int conserve_memory;
 const char *dynamic_linker;
 const char *ld_library_path;
 const char *prelink_conf = PRELINK_CONF;
@@ -52,10 +54,12 @@ static char argp_doc[] = "prelink -- program to relocate and prelink an ELF shar
 static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
   {"cache-file",	'C', "CACHE", 0, "Use CACHE as cache file" },
-  {"config-file",	'f', "CONF", 0, "Use CONF as configuration file" },
-  {"force",		'F', 0, 0,  "Force prelinking" },
+  {"config-file",	'c', "CONF", 0, "Use CONF as configuration file" },
+  {"conserve-memory",	'm', 0, 0,  "Allow libraries to overlap as long as they never appear in the same program" },
+  {"force",		'f', 0, 0,  "Force prelinking" },
   {"no-update",		'n', 0, 0,  "Don't update prelink cache" },
   {"print-cache",	'p', 0,	0,  "Print prelink cache" },
+  {"random",		'R', 0, 0,  "Choose random base for libraries" },
   {"reloc-only",	'r', 0, 0,  "Relocate only, don't prelink" },
   {"verbose",		'v', 0, 0,  "Produce verbose output" },
   {"dynamic-linker",	OPT_DYNAMIC_LINKER, "DYNAMIC_LINKER",
@@ -82,8 +86,14 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'v':
       verbose = 1;
       break;
+    case 'R':
+      random_base = 1;
+      break;
     case 'r':
       reloc_only = 1;
+      break;
+    case 'm':
+      conserve_memory = 1;
       break;
     case 'n':
       no_update = 1;
@@ -91,7 +101,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'C':
       prelink_cache = arg;
       break;
-    case 'f':
+    case 'c':
       prelink_conf = arg;
       break;
     case OPT_DYNAMIC_LINKER:

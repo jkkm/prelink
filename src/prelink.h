@@ -82,7 +82,7 @@ struct PLArch
   int (*rel_to_rela) (DSO *dso, GElf_Rel *rel, GElf_Rela *rela);
   int (*need_rel_to_rela) (DSO *dso, int first, int last);
   int (*arch_prelink) (DSO *dso);
-  GElf_Addr mmap_base;
+  GElf_Addr mmap_base, mmap_end, page_size;
 };
 
 struct section_move
@@ -176,7 +176,7 @@ struct prelink_entry
   ino64_t ino;
   int type, done, ndepends, refs, tmp;
   struct prelink_entry **depends;
-  struct prelink_entry *next;
+  struct prelink_entry *prev, *next;
 };
 
 struct prelink_symbol
@@ -250,10 +250,14 @@ int execve_close (FILE *f);
 
 int layout_libs (void);
 
-struct prelink_entry *prelinked;
-const char *dynamic_linker;
-const char *ld_library_path;
-const char *prelink_cache;
-const char *prelink_conf;
+extern struct prelink_entry *prelinked;
+extern const char *dynamic_linker;
+extern const char *ld_library_path;
+extern const char *prelink_cache;
+extern const char *prelink_conf;
+extern int force;
+extern int random_base;
+extern int conserve_memory;
+extern int verbose;
 
 #endif /* PRELINK_H */
