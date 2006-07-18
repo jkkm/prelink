@@ -1,0 +1,6 @@
+- limit LD_TRACE_PRELINKING to one library/binary only
+- compute and add real DT_CHECKSUM and DT_GNU_TIMESTAMP
+- emit .gnu.liblist into shared libraries as well (but without SHF_ALLOC)
+- undo mode
+- better cache handling
+- more ports
