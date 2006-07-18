@@ -1741,3 +1741,85 @@
    else
      _dl_reloc_bad_type (map, r_type, 1);
  }
+--- libc/sysdeps/s390/s390-32/bits/link.h.jj	Mon Oct  1 13:19:40 2001
++++ libc/sysdeps/s390/s390-32/bits/link.h	Mon Oct  1 21:08:52 2001
+@@ -0,0 +1,5 @@
++struct link_map_machine
++  {
++    Elf32_Addr plt; /* Address of .plt + 0x20 */
++    Elf32_Addr gotplt; /* Address of .got + 0x0c */
++  };
+--- libc/sysdeps/s390/s390-32/dl-machine.h.jj	Mon Aug 27 12:04:30 2001
++++ libc/sysdeps/s390/s390-32/dl-machine.h	Mon Oct  1 21:13:31 2001
+@@ -92,6 +92,14 @@ elf_machine_runtime_setup (struct link_m
+ 	 and then jump to _GLOBAL_OFFSET_TABLE[2].  */
+       Elf32_Addr *got;
+       got = (Elf32_Addr *) D_PTR (l, l_info[DT_PLTGOT]);
++      /* If a library is prelinked but we have to relocate anyway,
++	 we have to be able to undo the prelinking of .got.plt.
++	 The prelinker saved us here address of .plt + 0x20.  */
++      if (got[1])
++	{
++	  l->l_mach.plt = got[1] + l->l_addr;
++	  l->l_mach.gotplt = (Elf32_Addr) &got[3];
++	}
+       got[1] = (Elf32_Addr) l;	/* Identify this shared object.  */
+ 
+       /* The got[2] entry contains the address of a function which gets
+@@ -454,7 +462,14 @@ elf_machine_lazy_rel (struct link_map *m
+   const unsigned int r_type = ELF32_R_TYPE (reloc->r_info);
+   /* Check for unexpected PLT reloc type.  */
+   if (__builtin_expect (r_type == R_390_JMP_SLOT, 1))
+-    *reloc_addr += l_addr;
++    {
++      if (__builtin_expect (map->l_mach.plt, 0) == 0)
++	*reloc_addr += l_addr;
++      else
++	*reloc_addr =
++	  map->l_mach.plt
++	  + (((Elf32_Addr) reloc_addr) - map->l_mach.gotplt) * 8;
++    }
+   else
+     _dl_reloc_bad_type (map, r_type, 1);
+ }
+--- libc/sysdeps/s390/s390-64/bits/link.h.jj	Mon Oct  1 13:19:40 2001
++++ libc/sysdeps/s390/s390-64/bits/link.h	Mon Oct  1 21:09:09 2001
+@@ -0,0 +1,5 @@
++struct link_map_machine
++  {
++    Elf64_Addr plt; /* Address of .plt + 0x20 */
++    Elf64_Addr gotplt; /* Address of .got + 0x18 */
++  };
+--- libc/sysdeps/s390/s390-64/dl-machine.h.jj	Mon Aug 27 12:04:55 2001
++++ libc/sysdeps/s390/s390-64/dl-machine.h	Mon Oct  1 21:11:49 2001
+@@ -85,6 +85,14 @@ elf_machine_runtime_setup (struct link_m
+ 	 and then jump to _GLOBAL_OFFSET_TABLE[2].  */
+       Elf64_Addr *got;
+       got = (Elf64_Addr *) D_PTR (l, l_info[DT_PLTGOT]);
++      /* If a library is prelinked but we have to relocate anyway,
++	 we have to be able to undo the prelinking of .got.plt.
++	 The prelinker saved us here address of .plt + 0x20.  */
++      if (got[1])
++	{
++	  l->l_mach.plt = got[1] + l->l_addr;
++	  l->l_mach.gotplt = (Elf64_Addr) &got[3];
++	}
+       got[1] = (Elf64_Addr) l;	/* Identify this shared object.	 */
+ 
+       /* The got[2] entry contains the address of a function which gets
+@@ -434,7 +442,14 @@ elf_machine_lazy_rel (struct link_map *m
+   const unsigned int r_type = ELF32_R_TYPE (reloc->r_info);
+   /* Check for unexpected PLT reloc type.  */
+   if (__builtin_expect (r_type == R_390_JMP_SLOT, 1))
+-    *reloc_addr += l_addr;
++    {
++      if (__builtin_expect (map->l_mach.plt, 0) == 0)
++	*reloc_addr += l_addr;
++      else
++	*reloc_addr =
++	  map->l_mach.plt
++	  + (((Elf64_Addr) reloc_addr) - map->l_mach.gotplt) * 4;
++    }
+   else
+     _dl_reloc_bad_type (map, r_type, 1);
+ }

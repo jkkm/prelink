@@ -85,6 +85,8 @@ typedef struct
 
 #define dynamic_info_is_set(dso,bit) ((dso)->info_set_mask & (1ULL << (bit)))
 
+struct layout_libs;
+
 struct PLArch
 {
   int class;
@@ -121,6 +123,8 @@ struct PLArch
 #define RTYPE_CLASS_COPY	(8|2)
   int (*reloc_class) (int);
   int (*arch_prelink) (DSO *dso);
+  int (*layout_libs_pre) (struct layout_libs *l);
+  int (*layout_libs_post) (struct layout_libs *l);
   GElf_Addr mmap_base, mmap_end, page_size;
 };
 
@@ -285,9 +289,9 @@ struct prelink_info
   struct prelink_conflict **conflicts;
   struct prelink_conflict *curconflicts;
   const char **sonames;
-  char *dynbss;
-  GElf_Addr dynbss_base;
-  size_t dynbss_size, symtab_entsize;
+  char *dynbss, *sdynbss;
+  GElf_Addr dynbss_base, sdynbss_base;
+  size_t dynbss_size, sdynbss_size, symtab_entsize;
   int symbol_count;
   GElf_Sym *symtab;
   GElf_Rela *conflict_rela;

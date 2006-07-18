@@ -23,6 +23,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "prelinktab.h"
+#include "layout.h"
 
 #define DEBUG_LAYOUT
 
@@ -41,14 +42,6 @@ print_list (struct prelink_entry *e)
   printf ("\n");
 }
 #endif
-
-struct layout_libs
-  {
-    struct prelink_entry **libs;
-    int nlibs;
-    struct prelink_entry **binlibs;
-    int nbinlibs;
-  };
 
 static int
 find_libs (void **p, void *info)
@@ -130,16 +123,19 @@ layout_libs (void)
   GElf_Addr mmap_start, mmap_base, mmap_end, mmap_fin, page_size;
   GElf_Addr base, size;
   DSO *dso;
-  struct prelink_entry *list = NULL, *e;
+  struct prelink_entry *list = NULL, *e, *fake = NULL;
+  struct prelink_entry fakeent;
+  int fakecnt = 0;
+  int (*layout_libs_pre) (struct layout_libs *l);
+  int (*layout_libs_post) (struct layout_libs *l);
 
+  memset (&l, 0, sizeof (l));
   l.libs =
     (struct prelink_entry **) alloca (prelink_entry_count
 				      * sizeof (struct prelink_entry *));
-  l.nlibs = 0;
   l.binlibs =
     (struct prelink_entry **) alloca (prelink_entry_count
 				      * sizeof (struct prelink_entry *));
-  l.nbinlibs = 0;
   htab_traverse (prelink_filename_htab, find_libs, &l);
 
   dso = open_dso (dynamic_linker);
@@ -147,12 +143,14 @@ layout_libs (void)
     error (EXIT_FAILURE, 0, "Could not assign base addresses to libraries");
   mmap_base = dso->arch->mmap_base;
   mmap_end = dso->arch->mmap_end;
+  page_size = dso->arch->page_size;
+  class = dso->arch->class;
   /* The code below relies on having a VA slot as big as <mmap_base,mmap_end)
      above mmap_end for -R.  */
   if (mmap_end + (mmap_end - mmap_base) <= mmap_end)
     random_base = 0;
-  page_size = dso->arch->page_size;
-  class = dso->arch->class;
+  layout_libs_pre = dso->arch->layout_libs_pre;
+  layout_libs_post = dso->arch->layout_libs_post;
   close_dso (dso);
 
   /* Make sure there is some room between libraries.  */
@@ -191,13 +189,14 @@ layout_libs (void)
 	    class == ELFCLASS32 ? 8 : 16, (long long) mmap_end);
 
   qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), refs_cmp);
-  mmap_start = 0;
+  mmap_start = mmap_base;
   mmap_fin = mmap_end;
   done = 1;
   if (random_base)
     {
       int fd = open ("/dev/urandom", O_RDONLY);
 
+      mmap_start = 0;
       if (fd != -1)
 	{
 	  GElf_Addr x;
@@ -219,47 +218,70 @@ layout_libs (void)
 	}
 
       mmap_start = (mmap_start + page_size - 1) & ~(page_size - 1);
-      if (list)
-	{
-	  for (e = list; e != NULL; e = e->next)
-	    {
-	      if (e->base >= mmap_start)
-		break;
-	      if (e->end > mmap_start)
-		mmap_start = (e->end + page_size - 1) & ~(page_size - 1);
-	      e->base += mmap_end - mmap_base;
-	      e->end += mmap_end - mmap_base;
-	      e->done |= 0x80;
-	    }
+    }
 
-	  if (mmap_start < mmap_end)
+  if (layout_libs_pre)
+    {
+      l.list = list;
+      l.mmap_start = mmap_start;
+      layout_libs_pre (&l);
+      list = l.list;
+      mmap_start = l.mmap_start;
+      mmap_fin = l.mmap_fin;
+      fake = l.fake;
+      fakecnt = l.fakecnt;
+      done = l.done;
+    }
+
+  if (mmap_start != mmap_base && list)  
+    {
+      for (e = list; e != NULL; e = e->next)
+	{
+	  if (e->base >= mmap_start)
+	    break;
+	  if (e->end > mmap_start)
+	    mmap_start = (e->end + page_size - 1) & ~(page_size - 1);
+	  e->base += mmap_end - mmap_base;
+	  e->end += mmap_end - mmap_base;
+	  e->done |= 0x80;
+	}
+
+      if (mmap_start < mmap_end)
+	{
+	  if (e && e != list)
 	    {
-	      if (e && e != list)
-		{
-		  list->prev->next = list;
-		  list = e;
-		  list->prev->next = NULL;
-		}
-	      done |= 0x80;
-	      mmap_fin = mmap_end + (mmap_start - mmap_base);
+	      memset (&fakeent, 0, sizeof (fakeent));
+	      fakeent.u.tmp = -1;
+	      fakeent.base = mmap_end;
+	      fakeent.end = mmap_end;
+	      fake = &fakeent;
+	      fakecnt = 1;
+	      fakeent.prev = list->prev;
+	      fakeent.next = list;
+	      list->prev = fake;
+	      fakeent.prev->next = fake;
+	      list = e;
+	      e->prev->next = NULL;
 	    }
-	  else
+	}
+      else
+	{
+	  mmap_start = mmap_base;
+	  for (e = list; e != NULL; e = e->next)
+	  if (e->done & 0x80)
 	    {
-	      mmap_start = mmap_base;
-	      for (e = list; e != NULL; e = e->next)
-		if (e->done & 0x80)
-		  {
-		    e->done &= ~0x80;
-		    e->base -= mmap_end - mmap_base;
-		    e->end -= mmap_end - mmap_base;
-		  }
+	      e->done &= ~0x80;
+	      e->base -= mmap_end - mmap_base;
+	      e->end -= mmap_end - mmap_base;
 	    }
 	}
     }
-  else
-    mmap_start = mmap_base;
 
-  mmap_start = (mmap_start + page_size - 1) & ~(page_size - 1);
+  if (mmap_start != mmap_base)
+    {
+      done |= 0x80;
+      mmap_fin = mmap_end + (mmap_start - mmap_base);
+    }
 
   for (i = 0; i < l.nlibs; ++i)
     l.libs[i]->u.tmp = -1;
@@ -284,6 +306,8 @@ layout_libs (void)
 		      break;
 		    }
 	      }
+	    for (j = 0; j < fakecnt; ++j)
+	      fake[j].u.tmp = m;
 	  }
 
 	size = l.libs[i]->end - l.libs[i]->base;
@@ -364,6 +388,12 @@ not_found:
 	error (EXIT_FAILURE, 0, "Could not find virtual address slot for %s",
 	       l.libs[i]->filename);
       }
+
+  if (layout_libs_post)
+    {
+      l.list = list;
+      layout_libs_post (&l);
+    }
 
   if (done & 0x80)
     for (e = list; e != NULL; e = e->next)

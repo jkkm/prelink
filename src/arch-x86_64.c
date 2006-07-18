@@ -107,14 +107,14 @@ x86_64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   DSO *dso;
   GElf_Addr value;
 
+  dso = info->dso;
   if (GELF_R_TYPE (rela->r_info) == R_X86_64_NONE)
     return 0;
-  else if (GELF_R_TYPE (rela->r_info) == R_X86_64_NONE)
+  else if (GELF_R_TYPE (rela->r_info) == R_X86_64_RELATIVE)
     {
       write_le64 (dso, rela->r_offset, rela->r_addend);
       return 0;
     }
-  dso = info->dso;
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   switch (GELF_R_TYPE (rela->r_info))    

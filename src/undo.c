@@ -134,7 +134,8 @@ prelink_undo (DSO *dso)
 	    || ! strcmp (name, ".gnu.conflict")
 	    || ! strcmp (name, ".gnu.liblist")
 	    || ! strcmp (name, ".gnu.libstr")
-	    || (! strcmp (name, ".dynbss") && dso->ehdr.e_type == ET_EXEC))
+	    || ((! strcmp (name, ".dynbss") || ! strcmp (name, ".sdynbss"))
+		&& dso->ehdr.e_type == ET_EXEC))
 	  continue;
 
 	if ((! strcmp (name, ".dynstr") && dso->ehdr.e_type == ET_EXEC)

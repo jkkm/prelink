@@ -26,6 +26,7 @@
 #include <stdlib.h>
 
 #include "prelink.h"
+#include "layout.h"
 
 static int
 ppc_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
@@ -432,6 +433,241 @@ ppc_reloc_class (int reloc_type)
     }
 }
 
+/* Library memory regions in order of precedence:
+   0xe800000 .. 0x10000000 top to bottom
+   0x40000 .. 0xe800000 bottom to top
+   0x18000000 .. 0x30000000 bottom to top  */
+
+struct ppc_layout_data
+{
+  int cnt;
+  struct prelink_entry e[3];
+  Elf32_Addr mmap_start, first_start, last_start;
+  struct
+    {
+      struct prelink_entry *e;
+      Elf32_Addr base, end;
+    } ents[0];
+};
+
+static inline void
+list_append (struct prelink_entry *x, struct prelink_entry *e)
+{
+  x->prev->next = e;
+  e->prev = x->prev;
+  e->next = NULL;
+  x->prev = e;
+}
+
+static int
+addr_cmp (const void *A, const void *B)
+{
+  struct prelink_entry *a = * (struct prelink_entry **) A;
+  struct prelink_entry *b = * (struct prelink_entry **) B;
+
+  if (a->base < b->base)
+    return -1;
+  else if (a->base > b->base)
+    return 1;
+  if (a->end < b->end)
+    return -1;
+  else if (a->end > b->end)
+    return 1;
+  return 0;
+}
+
+static void
+list_sort (struct prelink_entry *x)
+{
+  int cnt, i;
+  struct prelink_entry *e;
+  struct prelink_entry **a;
+
+  if (x->next)
+    return;
+  for (cnt = 0, e = x->next; e != NULL; e = e->next)
+    ++cnt;
+  a = alloca (cnt * sizeof (*a));
+  for (i = 0, e = x->next; e != NULL; e = e->next)
+    a[i++] = e;
+  qsort (a, cnt, sizeof (*a), addr_cmp);
+  x->next = NULL;
+  x->prev = x;
+  for (i = 0; i < cnt; ++i)
+    list_append (x, a[i]);
+}
+
+static int
+ppc_layout_libs_pre (struct layout_libs *l)
+{
+  Elf32_Addr mmap_start = l->mmap_start - 0x40000;
+  Elf32_Addr first_start = 0xe800000, last_start = 0x18000000;
+  struct prelink_entry *e, e0;
+  struct ppc_layout_data *pld;
+  int cnt;
+
+  mmap_start = 0x10000000 - (mmap_start & 0xff0000);
+  for (cnt = 0, e = l->list; e != NULL; e = e->next, ++cnt)
+    {
+      if (e->base < mmap_start && e->end > mmap_start)
+	mmap_start = (e->end + 0xffff) & ~0xffff;
+      if (e->base < 0xe800000 && e->end > 0xe800000 && first_start > e->base)
+	first_start = e->base;
+      if (e->base < 0x10000000 && e->end > 0x18000000 && last_start < e->end)
+	last_start = e->end;
+    }
+  if (mmap_start > 0x10000000)
+    mmap_start = 0x10000000;
+
+  pld = calloc (sizeof (*pld) + cnt * sizeof (pld->ents[0]), 1);
+  if (pld == NULL)
+    error (EXIT_FAILURE, ENOMEM, "Cannot lay libraries out");
+
+  l->arch_data = pld;
+  memset (&e0, 0, sizeof (e0));
+  e0.prev = &e0;
+  pld->cnt = cnt;
+  pld->e[0].u.tmp = -1;
+  pld->e[0].base = 0x40000 + 0x10000000 - mmap_start;
+  pld->e[0].end = pld->e[0].base + 0x10000;
+  pld->e[0].prev = &pld->e[0];
+  pld->e[1].u.tmp = -1;
+  pld->e[1].base = pld->e[0].end + mmap_start - 0xe800000;
+  pld->e[1].end = pld->e[1].base + 0x10000;
+  pld->e[1].prev = &pld->e[1];
+  pld->e[2].u.tmp = -1;
+  pld->e[2].base = pld->e[1].end + first_start - 0x40000;
+  pld->e[2].end = pld->e[1].base + 0x10000;
+  pld->e[2].prev = &pld->e[2];
+  for (cnt = 0, e = l->list; e != NULL; e = e->next, ++cnt)
+    {
+      pld->ents[cnt].e = e;
+      pld->ents[cnt].base = e->base;
+      pld->ents[cnt].end = e->end;
+      if (e->end <= 0xe800000)
+	{
+	  if (e->base < 0x40000)
+	    e->base = 0x40000;
+	  else if (e->base > first_start)
+	    e->base = first_start;
+	  if (e->end < 0x40000)
+	    e->end = 0x40000;
+	  else if (e->end > first_start)
+	    e->end = first_start;
+	  e->base += pld->e[1].end - 0x40000;
+	  e->end += pld->e[1].end - 0x40000;
+	  list_append (&pld->e[1], e);
+	}
+      else if (e->base < mmap_start)
+	{
+	  if (e->base < 0xe800000)
+	    e->base = 0xe800000;
+	  if (e->end > mmap_start)
+	    e->end = mmap_start;
+	  e->base = pld->e[1].base + mmap_start - e->end;
+	  e->end = pld->e[1].base + mmap_start - pld->ents[cnt].base;
+	  list_append (&pld->e[0], e);
+	}
+      else if (e->base < 0x1000000)
+	{
+	  if (e->end > 0x1000000)
+	    e->end = 0x1000000;
+	  e->base = pld->e[0].base + 0x1000000 - e->end;
+	  e->end = pld->e[0].base + 0x1000000 - pld->ents[cnt].base;
+	  list_append (&e0, e);
+	}
+      else if (e->end >= last_start)
+	{
+	  if (e->base < last_start)
+	    e->base = last_start;
+	  e->base += pld->e[2].end - last_start;
+	  e->end += pld->e[2].end - last_start;
+	  list_append (&pld->e[2], e);
+	}
+    }
+
+  list_sort (&pld->e[0]);
+  if (e0.next == NULL)
+    l->list = &pld->e[0];
+  else
+    {
+      list_sort (&e0);
+      l->list = e0.next;
+      l->list->prev = pld->e[0].prev;
+      e0.prev->next = &pld->e[0];
+      pld->e[0].prev = e0.prev;
+    }
+
+  e0.prev = l->list->prev;
+  l->list->prev = pld->e[1].prev;
+  e0.prev->next = &pld->e[1];
+  pld->e[1].prev = e0.prev;
+
+  e0.prev = l->list->prev;
+  l->list->prev = pld->e[2].prev;
+  e0.prev->next = &pld->e[2];
+  pld->e[2].prev = e0.prev;
+
+  pld->mmap_start = mmap_start;
+  pld->first_start = first_start;
+  pld->last_start = last_start;
+
+  l->done = 0x41;
+  l->mmap_start = 0x40000;
+  l->mmap_fin = pld->e[2].end + 0x30000000 - last_start;
+  l->fakecnt = 3;
+  l->fake = pld->e;
+
+  return 0;
+}
+
+static int
+ppc_layout_libs_post (struct layout_libs *l)
+{
+  struct prelink_entry *e;
+  struct ppc_layout_data *pld = (struct ppc_layout_data *) l->arch_data;
+  Elf32_Addr base, end;
+  int i;
+
+  /* First fix up base and end fields we saved.  */
+  for (i = 0; i < pld->cnt; ++i)
+    {
+      pld->ents[i].e->base = pld->ents[i].base;
+      pld->ents[i].e->end = pld->ents[i].end;
+    }
+
+  /* Now fix up the newly created items.  */
+  for (e = l->list; e != NULL; e = e->next)
+    if (e->done & 0x40)
+      {
+	e->done &= ~0x40;
+	base = e->base;
+	end = e->end;
+	if (e->base < pld->e[0].base)
+	  {
+	    e->base = pld->e[0].base + 0x1000000 - end;
+	    e->end = pld->e[0].base + 0x1000000 - base;
+	  }
+	else if (e->base < pld->e[1].base)
+	  {
+	    e->base = pld->e[1].base + pld->mmap_start - end;
+	    e->end = pld->e[1].base + pld->mmap_start - base;
+	  }
+	else if (e->base < pld->e[2].base)
+	  {
+	    e->base -= pld->e[1].end - 0x40000;
+	    e->end -= pld->e[1].end - 0x40000;
+	  }
+	else
+	  {
+	    e->base -= pld->e[2].end - pld->last_start;
+	    e->end -= pld->e[2].end - pld->last_start;
+	  }
+      }
+
+  free (l->arch_data);
+}
+
 PL_ARCH = {
   .class = ELFCLASS32,
   .machine = EM_PPC,
@@ -455,10 +691,12 @@ PL_ARCH = {
   .reloc_class = ppc_reloc_class,
   .max_reloc_size = 4,
   .arch_prelink = ppc_arch_prelink,
+  .layout_libs_pre = ppc_layout_libs_pre,
+  .layout_libs_post = ppc_layout_libs_post,
   /* This will need some changes in layout.c.
      PowerPC prefers addresses right below 0x10000000
      and can use the region above say 0x18000000 if libs don't fit.  */
   .mmap_base = 0x40000LL,
-  .mmap_end =  0x10000000LL,
+  .mmap_end =  0x30000000LL,
   .page_size = 0x10000
 };

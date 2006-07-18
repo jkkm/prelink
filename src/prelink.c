@@ -665,6 +665,7 @@ free_info (struct prelink_info *info)
 
   free (info->symtab);
   free (info->dynbss);
+  free (info->sdynbss);
   free (info->conflict_rela);
   if (info->conflicts)
     {

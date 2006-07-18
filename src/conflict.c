@@ -360,6 +360,17 @@ get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
 	  return 0;
 	}
 
+      if (addr + size > info->sdynbss_base
+	  && addr < info->sdynbss_base + info->sdynbss_size)
+	{
+	  if (addr < info->sdynbss_base
+	      || addr + size > info->sdynbss_base + info->sdynbss_size)
+	    return 4;
+
+	  memcpy (buf, info->sdynbss + (addr - info->sdynbss_base), size);
+	  return 0;
+	}
+
       for (i = 1; i < dso->ehdr.e_shnum; ++i)
 	{
 
@@ -548,38 +559,71 @@ prelink_build_conflicts (struct prelink_info *info)
 
   if (cr.count)
     {
-      int bss;
+      int bss1, bss2, firstbss2 = 0;
+      const char *name;
 
       qsort (cr.rela, cr.count, sizeof (GElf_Rela), rela_cmp);
-      if ((bss = addr_to_sec (dso, cr.rela[0].r_offset))
-	  != addr_to_sec (dso, cr.rela[cr.count - 1].r_offset))
+      bss1 = addr_to_sec (dso, cr.rela[0].r_offset);
+      bss2 = addr_to_sec (dso, cr.rela[cr.count - 1].r_offset);
+      if (bss1 != bss2)
 	{
-	  /* FIXME. When porting to architectures which use both
-	     .sbss and emit copy relocs, we need to support that somehow.  */
-	  error (0, 0, "%s: Not all copy relocs belong to the same section",
-		 dso->filename);
-	  goto error_out;
+	  for (i = 1; i < cr.count; ++i)
+	    if (cr.rela[i].r_offset
+		> dso->shdr[bss1].sh_addr + dso->shdr[bss1].sh_size)
+	      break;
+	  if (cr.rela[i].r_offset < dso->shdr[bss2].sh_addr)
+	    {
+	      error (0, 0, "%s: Copy relocs against 3 or more sections",
+		     dso->filename);
+	      goto error_out;
+	    }
+	  firstbss2 = i;
+	  info->sdynbss_size = cr.rela[i - 1].r_offset - cr.rela[0].r_offset;
+	  info->sdynbss_size += cr.rela[i - 1].r_addend;
+	  info->sdynbss = calloc (info->sdynbss_size, 1);
+	  info->sdynbss_base = cr.rela[0].r_offset;
+	  if (info->sdynbss == NULL)
+	    {
+	      error (0, ENOMEM, "%s: Cannot build .sdynbss", dso->filename);
+	      goto error_out;
+	    }
 	}
-      info->dynbss_size = cr.rela[cr.count - 1].r_offset - cr.rela[0].r_offset;
+
+      info->dynbss_size = cr.rela[cr.count - 1].r_offset
+			  - cr.rela[firstbss2].r_offset;
       info->dynbss_size += cr.rela[cr.count - 1].r_addend;
       info->dynbss = calloc (info->dynbss_size, 1);
-      info->dynbss_base = cr.rela[0].r_offset;
+      info->dynbss_base = cr.rela[firstbss2].r_offset;
       if (info->dynbss == NULL)
 	{
 	  error (0, ENOMEM, "%s: Cannot build .dynbss", dso->filename);
 	  goto error_out;
 	}
+
       /* emacs apparently has .rel.bss relocations against .data section,
 	 crap.  */
-      if (dso->shdr[bss].sh_type != SHT_NOBITS
-	  && strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-			     dso->shdr[bss].sh_name),
-		     ".dynbss") != 0)
+      if (dso->shdr[bss1].sh_type != SHT_NOBITS
+	  && strcmp (name = strptr (dso, dso->ehdr.e_shstrndx,
+				    dso->shdr[bss1].sh_name),
+		     ".dynbss") != 0
+	  && strcmp (name, ".sdynbss") != 0)
 	{
-	  error (0, 0, "%s: COPY relocations don't point into .bss section",
+	  error (0, 0, "%s: COPY relocations don't point into .bss or .sbss section",
 		 dso->filename);
 	  goto error_out;
 	}
+      if (bss1 != bss2
+	  && dso->shdr[bss2].sh_type != SHT_NOBITS
+	  && strcmp (name = strptr (dso, dso->ehdr.e_shstrndx,
+				    dso->shdr[bss2].sh_name),
+		     ".dynbss") != 0
+	  && strcmp (name, ".sdynbss") != 0)
+	{
+	  error (0, 0, "%s: COPY relocations don't point into .bss or .sbss section",
+		 dso->filename);
+	  goto error_out;
+	}
+
       for (i = 0; i < cr.count; ++i)
 	{
 	  struct prelink_symbol *s;
@@ -609,9 +653,15 @@ prelink_build_conflicts (struct prelink_info *info)
 	      }
 
 	  assert (j < ndeps);
-	  j = get_relocated_mem (info, ndso, s->ent->base + s->value,
-				 info->dynbss + cr.rela[i].r_offset
-				 - info->dynbss_base, cr.rela[i].r_addend);
+	  if (i < firstbss2)
+	    j = get_relocated_mem (info, ndso, s->ent->base + s->value,
+				   info->sdynbss + cr.rela[i].r_offset
+				   - info->sdynbss_base, cr.rela[i].r_addend);
+	  else
+	    j = get_relocated_mem (info, ndso, s->ent->base + s->value,
+				   info->dynbss + cr.rela[i].r_offset
+				   - info->dynbss_base, cr.rela[i].r_addend);
+
 	  switch (j)
 	    {
 	    case 1:
@@ -653,7 +703,9 @@ prelink_build_conflicts (struct prelink_info *info)
 error_out:
   free (cr.rela);
   free (info->dynbss);
+  free (info->sdynbss);
   info->dynbss = NULL;
+  info->sdynbss = NULL;
   for (i = 1; i < ndeps; ++i)
     if (info->dsos[i])
       close_dso (info->dsos[i]);
