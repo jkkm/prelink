@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -66,7 +66,11 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   const char *dl;
 
   if (check_dso (dso))
+    {
+      if (! undo)
+	ent->type = ET_UNPRELINKABLE;
       goto error_out;
+    }
 
   ent->pltgot = dso->info[DT_PLTGOT];
   ent->soname = strdup (dso->soname);
@@ -154,7 +158,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	  q = strstr (p, " (");
 	  if (q == NULL && strcmp (p, " => not found") == 0)
 	    {
-	      error (0, 0, "%s: Could not find one of dependencies",
+	      error (0, 0, "%s: Could not find one of the dependencies",
 		     ent->filename);
 	      goto error_out;
 	    }
@@ -164,7 +168,23 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	  if (strstr (line, "statically linked") != NULL)
 	    error (0, 0, "%s: Library without dependencies", ent->filename);
 	  else
-	    error (0, 0, "%s: Could not parse `%s'", ent->filename, line);
+	    {
+	      p = strstr (line, "error while loading shared libraries: ");
+	      if (p != NULL)
+		{
+		  p += sizeof "error while loading shared libraries: " - 1;
+		  q = strstr (line, "cannot open shared object file: "
+				    "No such file or directory");
+		  if (q != NULL)
+		    {
+		      error (0, 0,
+			     "%s: Could not find one of the dependencies",
+			     ent->filename);
+		      goto error_out;
+		    }
+		}
+	      error (0, 0, "%s: Could not parse `%s'", ent->filename, line);
+	    }
 	  goto error_out;
 	}
 
@@ -231,7 +251,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
     {
       ent->depends[i] = prelink_find_entry (depends [i], NULL, 1);
       if (ent->depends[i] == NULL)
-	goto error_out;
+	goto error_out_free_depends;
 
       if (ent->depends[i]->type == ET_CACHE_DYN)
 	{
@@ -243,10 +263,11 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 
       if (ent->depends[i]->type != ET_NONE
 	  && ent->depends[i]->type != ET_BAD
-	  && ent->depends[i]->type != ET_DYN)
+	  && ent->depends[i]->type != ET_DYN
+	  && ent->depends[i]->type != ET_UNPRELINKABLE)
 	{
 	  error (0, 0, "%s is not a shared library", depends [i]);
-	  goto error_out;
+	  goto error_out_free_depends;
 	}
     }
 
@@ -256,15 +277,24 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   for (i = 0; i < ndepends; ++i)
     if (ent->depends[i]->type == ET_NONE
 	&& gather_lib (ent->depends[i]))
-      goto error_out;
+      goto error_out_free_depends;
 
   for (i = 0; i < ndepends; ++i)
     for (j = 0; j < ent->depends[i]->ndepends; ++j)
       if (ent->depends[i]->depends[j] == ent)
 	{
-	  error (0, 0, "%s has dependency cycle", ent->canon_filename);
-	  goto error_out;
+	  error (0, 0, "%s has a dependency cycle", ent->canon_filename);
+	  goto error_out_free_depends;
 	}
+
+  for (i = 0; i < ndepends; ++i)
+    if (ent->depends[i]->type == ET_UNPRELINKABLE)
+      {
+	error (0, 0, "Could not prelink %s because its dependency %s could not be prelinked",
+	       ent->filename, ent->depends[i]->filename);
+	ent->type = ET_UNPRELINKABLE;
+	goto error_out;
+      }
 
   if (! undo && (!nliblist || liblist) && nliblist == ndepends)
     {
@@ -280,13 +310,14 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 
   return 0;
 
+error_out_free_depends:
+  free (ent->depends);
+  ent->depends = NULL;
+  ent->ndepends = 0;
 error_out:
   if (f)
     execve_close (f);
   free (line);
-  free (ent->depends);
-  ent->depends = NULL;
-  ent->ndepends = 0;
   free (depends);
   if (dso)
     close_dso (dso);
@@ -372,7 +403,7 @@ gather_dso (DSO *dso, struct prelink_entry *ent)
 	  last = -1;
 	  for (i = 0; i < dso->ehdr.e_phnum; ++i)
 	    if (dso->phdr[i].p_type == PT_LOAD
-	        && dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz >= start)
+		&& dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz >= start)
 	      {
 		if (last != -1
 		    && (((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz
@@ -439,7 +470,21 @@ gather_exec (DSO *dso, const struct stat64 *st)
 
   /* If there are no PT_INTERP segments, it is statically linked.  */
   if (i == dso->ehdr.e_phnum)
-    goto error_out;
+    {
+make_unprelinkable:
+      if (undo)
+	goto error_out;
+
+      ent = prelink_find_entry (dso->filename, st, 1);
+      if (ent == NULL)
+	goto error_out;
+
+      assert (ent->type == ET_NONE);
+      ent->type = ET_UNPRELINKABLE;
+      if (dso)
+	close_dso (dso);
+      return 0;
+    }
 
   j = addr_to_sec (dso, dso->phdr[i].p_vaddr);
   if (j == -1 || dso->shdr[j].sh_addr != dso->phdr[i].p_vaddr
@@ -447,7 +492,7 @@ gather_exec (DSO *dso, const struct stat64 *st)
     {
       error (0, 0, "%s: PT_INTERP segment not corresponding to .interp section",
 	     dso->filename);
-      goto error_out;
+      goto make_unprelinkable;
     }
 
   data = elf_getdata (dso->scn[j], NULL);
@@ -572,12 +617,19 @@ gather_func (const char *name, const struct stat64 *st, int type,
       ent = prelink_find_entry (name, st, 0);
       if (ent != NULL && ent->type != ET_NONE)
 	{
-	  if (verbose > 5
-	      && (ent->type == ET_CACHE_EXEC || ent->type == ET_CACHE_DYN))
-	    printf ("Assuming prelinked %s\n", name);
+	  if (verbose > 5)
+	    {
+	      if (ent->type == ET_CACHE_EXEC || ent->type == ET_CACHE_DYN)
+	        printf ("Assuming prelinked %s\n", name);
+              if (ent->type == ET_UNPRELINKABLE)
+                printf ("Assuming non-prelinkable %s\n", name);
+            }
 	  ent->u.explicit = 1;
 	  return FTW_CONTINUE;
 	}
+
+      if (st->st_size < sizeof (e_ident))
+	return FTW_CONTINUE;
 
       fd = open (name, O_RDONLY);
       if (fd == -1)
@@ -593,20 +645,43 @@ close_it:
       /* Quickly find ET_EXEC ELF binaries only.  */
 
       if (memcmp (e_ident, ELFMAG, SELFMAG) != 0)
-	goto close_it;
+	{
+make_unprelinkable:
+	  if (! undo)
+	    {
+	      ent = prelink_find_entry (name, st, 1);
+	      if (ent != NULL)
+		{
+		  assert (ent->type == ET_NONE);
+		  ent->type = ET_UNPRELINKABLE;
+		}
+	    }
+	  close (fd);
+	  return FTW_CONTINUE;
+	}
 
       switch (e_ident [EI_DATA])
 	{
 	case ELFDATA2LSB:
 	  if (e_ident [EI_NIDENT] != ET_EXEC || e_ident [EI_NIDENT + 1] != 0)
-	    goto close_it;
+	    {
+	      if (e_ident [EI_NIDENT] != ET_DYN)
+		goto make_unprelinkable;
+	      else
+		goto close_it;
+	    }
 	  break;
 	case ELFDATA2MSB:
 	  if (e_ident [EI_NIDENT + 1] != ET_EXEC || e_ident [EI_NIDENT] != 0)
-	    goto close_it;
+	    {
+	      if (e_ident [EI_NIDENT + 1] != ET_DYN)
+		goto make_unprelinkable;
+	      else
+		goto close_it;
+	    }
 	  break;
 	default:
-	  goto close_it;
+	  goto make_unprelinkable;
 	}
 
       dso = fdopen_dso (fd, name);
@@ -622,7 +697,7 @@ close_it:
       default: return FTW_STOP;
       case 2:
 #ifdef HAVE_FTW_ACTIONRETVAL
-        return FTW_SKIP_SUBTREE;
+	return FTW_SKIP_SUBTREE;
 #else
 	{
 	  blacklist_dir_len = strlen (name) + 1;
@@ -660,6 +735,13 @@ gather_binlib (const char *name, const struct stat64 *st)
     }
 
   ent = prelink_find_entry (name, st, 0);
+  if (ent != NULL && ent->type == ET_UNPRELINKABLE)
+    {
+      free (ent->depends);
+      ent->depends = NULL;
+      ent->ndepends = 0;
+      ent->type = ET_NONE;
+    }
   if (ent != NULL && ent->type != ET_NONE)
     {
       ent->u.explicit = 1;
@@ -884,7 +966,7 @@ static int
 gather_check_lib (void **p, void *info)
 {
   struct prelink_entry *e = * (struct prelink_entry **) p;
-    
+
   if (e->type != ET_DYN)
     return 1;
 
@@ -913,7 +995,7 @@ gather_check_lib (void **p, void *info)
 
       if (dir != NULL)
 	{
-	  error (0, 0, "%s is presnet in a blacklisted directory %s",
+	  error (0, 0, "%s is present in a blacklisted directory %s",
 		 e->canon_filename, dir->dir);
 	  e->type = ET_BAD;
 	  return 1;

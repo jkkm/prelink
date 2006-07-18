@@ -72,12 +72,12 @@ send_file (int outfd, int infd, off_t *poff, size_t count)
 	}
       p = buf;
       while (p != q)
-        {
+	{
 	  n = TEMP_FAILURE_RETRY (write (outfd, p, q - p));
 	  if (n < 0)
 	    return -1;
 	  p += n;
-        }
+	}
       todo -= len;
     }
   return count;
@@ -366,10 +366,10 @@ prelink_verify (const char *filename)
       munmap (p, st.st_size);
       munmap (q, st.st_size);
       if (ret != 0)
-        {
+	{
 	  error (0, 0, "%s: prelinked file was modified", filename);
 	  goto failure;
-        }
+	}
     }
   else
     {

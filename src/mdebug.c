@@ -641,9 +641,9 @@ finalize_mdebug (DSO *dso)
 
   for (i = 1; i < dso->ehdr.e_shnum; i++)
     if ((dso->arch->machine == EM_ALPHA
-         && dso->shdr[i].sh_type == SHT_ALPHA_DEBUG)
-        || (dso->arch->machine == EM_MIPS
-            && dso->shdr[i].sh_type == SHT_MIPS_DEBUG))
+	 && dso->shdr[i].sh_type == SHT_ALPHA_DEBUG)
+	|| (dso->arch->machine == EM_MIPS
+	    && dso->shdr[i].sh_type == SHT_MIPS_DEBUG))
       break;
 
   assert (i < dso->ehdr.e_shnum);

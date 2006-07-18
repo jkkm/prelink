@@ -32,7 +32,7 @@ update_dynamic_tags (DSO *dso, GElf_Shdr *shdr, GElf_Shdr *old_shdr,
 		     struct section_move *move)
 {
   int i, j;
-  
+
   for (i = 1; i < move->new_shnum; ++i)
     {
       j = move->new_to_old[i];
@@ -57,7 +57,7 @@ update_dynamic_tags (DSO *dso, GElf_Shdr *shdr, GElf_Shdr *old_shdr,
 	  || (dynamic_info_is_set (dso, DT_VERNEED_BIT)
 	      && dso->info_DT_VERNEED == old_shdr[j].sh_addr
 	      && old_shdr[j].sh_type == SHT_GNU_verneed
-	      && set_dynamic (dso, DT_VERNEED, shdr[i].sh_addr, 1)) 
+	      && set_dynamic (dso, DT_VERNEED, shdr[i].sh_addr, 1))
 	  || (dynamic_info_is_set (dso, DT_VERSYM_BIT)
 	      && dso->info_DT_VERSYM == old_shdr[j].sh_addr
 	      && old_shdr[j].sh_type == SHT_GNU_versym
@@ -78,7 +78,6 @@ prelink_exec (struct prelink_info *info)
   int new_reloc = -1, new_plt = -1, new_dynstr = -1;
   int old_dynbss = -1, old_bss = -1, new_dynbss = -1;
   int old_sdynbss = -1, old_sbss = -1, new_sdynbss = -1;
-  int *old, *new;
   int addcnt, undo, shnum_after_undo;
   struct reloc_info rinfo, rinfonew;
   DSO *dso = info->dso;
@@ -86,7 +85,7 @@ prelink_exec (struct prelink_info *info)
   GElf_Phdr phdr[dso->ehdr.e_phnum + 1];
   GElf_Shdr old_shdr[dso->ehdr.e_shnum], new_shdr[dso->ehdr.e_shnum + 20];
   GElf_Shdr shdr_after_undo[dso->ehdr.e_shnum + 20];
-  GElf_Shdr *shdr, *add;
+  GElf_Shdr *shdr;
   Elf32_Lib *liblist = NULL;
   struct readonly_adjust adjust;
   struct section_move *move = NULL;
@@ -265,12 +264,12 @@ prelink_exec (struct prelink_info *info)
       old_sdynbss = -1;
     }
 
-  add = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*add));
-  old = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*old));
-  new = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*new));
-  memset (add, 0, (rinfo.last - rinfo.first + 5) * sizeof (*add));
-  memset (old, 0, (rinfo.last - rinfo.first + 5) * sizeof (*old));
-  memset (new, 0, (rinfo.last - rinfo.first + 5) * sizeof (*new));
+  GElf_Shdr add[rinfo.last - rinfo.first + 5];
+  int old[rinfo.last - rinfo.first + 5];
+  int new[rinfo.last - rinfo.first + 5];
+  memset (add, 0, sizeof (add));
+  memset (old, 0, sizeof (old));
+  memset (new, 0, sizeof (new));
 
   i = 0;
   if (rinfonew.rel_to_rela)

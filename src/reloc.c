@@ -190,19 +190,19 @@ convert_rel_to_rela (DSO *dso, int i)
     {
       if (gelfx_getrel (dso->elf, d, ndx, &rel) == 0
 	  || dso->arch->rel_to_rela (dso, &rel, &rela))
-        {
+	{
 	  free (d1.d_buf);
 	  return 1;
-        }
+	}
       /* gelf_update_rel etc. should have Elf * argument, so that
 	 we don't have to do this crap.  */
       *d = d1;
       if (gelfx_update_rela (dso->elf, d, ndx, &rela) == 0)
-        {
+	{
 	  *d = d2;
 	  free (d1.d_buf);
 	  return 1;
-        }
+	}
       *d = d2;
     }
 
@@ -246,19 +246,19 @@ convert_rela_to_rel (DSO *dso, int i)
     {
       if (gelfx_getrela (dso->elf, d, ndx, &rela) == 0
 	  || dso->arch->rela_to_rel (dso, &rela, &rel))
-        {
+	{
 	  free (d1.d_buf);
 	  return 1;
-        }
+	}
       /* gelf_update_rela etc. should have Elf * argument, so that
 	 we don't have to do this crap.  */
       *d = d1;
       if (gelfx_update_rel (dso->elf, d, ndx, &rel) == 0)
-        {
+	{
 	  *d = d2;
 	  free (d1.d_buf);
 	  return 1;
-        }
+	}
       *d = d2;
     }
 

@@ -129,7 +129,7 @@ ppc_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr value)
 	  write_be32 (dso, rela->r_offset + 8, 0x7d8903a6);
 	  write_be32 (dso, rela->r_offset + 12, 0x4e800420);
 	}
-    } 
+    }
 }
 
 static int
@@ -149,7 +149,7 @@ ppc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_PPC_GLOB_DAT:
     case R_PPC_ADDR32:
@@ -262,7 +262,7 @@ static int
 ppc_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_PPC_ADDR32:
     case R_PPC_UADDR32:
@@ -293,7 +293,7 @@ ppc_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_PPC_NONE:
       break;
@@ -413,14 +413,14 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   ret->r_offset = rela->r_offset;
   value += rela->r_addend;
   r_type = GELF_R_TYPE (rela->r_info);
-  switch (r_type)    
+  switch (r_type)
     {
     case R_PPC_GLOB_DAT:
       r_type = R_PPC_ADDR32;
       break;
     case R_PPC_ADDR32:
     case R_PPC_UADDR32:
-      break;    
+      break;
     case R_PPC_JMP_SLOT:
       break;
     case R_PPC_ADDR16_HA:
@@ -475,13 +475,13 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_PPC_TPREL16_HI:
     case R_PPC_TPREL16_HA:
       if (conflict != NULL
-          && (conflict->reloc_class != RTYPE_CLASS_TLS
-              || conflict->lookup.tls == NULL))
-        {
-          error (0, 0, "%s: TLS reloc not resolving to STT_TLS symbol",
-                 dso->filename);
-          return 1;
-        }
+	  && (conflict->reloc_class != RTYPE_CLASS_TLS
+	      || conflict->lookup.tls == NULL))
+	{
+	  error (0, 0, "%s: TLS reloc not resolving to STT_TLS symbol",
+		 dso->filename);
+	  return 1;
+	}
       tls = conflict ? conflict->lookup.tls : info->curtls;
       r_type = R_PPC_ADDR16;
       switch (GELF_R_TYPE (rela->r_info))

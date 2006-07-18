@@ -30,7 +30,7 @@ int
 is_ldso_soname (const char *soname)
 {
   if (! strcmp (soname, "ld-linux.so.2")
-      || ! strcmp (soname, "ld.so.1")    
+      || ! strcmp (soname, "ld.so.1")
       || ! strcmp (soname, "ld-linux-ia64.so.2")
       || ! strcmp (soname, "ld-linux-x86-64.so.2")
       || ! strcmp (soname, "ld64.so.1"))
@@ -113,11 +113,11 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       *p = '\0';
 
       if (ndeps > info->ent->ndepends)
-        {
+	{
 	  error (0, 0, "%s: Recorded %d dependencies, now seeing %d\n",
 		 info->ent->filename, info->ent->ndepends, ndeps - 1);
 	  goto error_out;
-        }
+	}
 
       tdeps = ndeps - seen + 1;
       if (! seen
@@ -149,7 +149,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		}
 
 	      if (st.st_dev != ent2->dev || st.st_ino != ent2->ino)
-	        {
+		{
 		  error (0, 0, "%s: %s => %s does not match recorded dependency",
 			 info->ent->filename, soname, filename);
 		  goto error_out;
@@ -158,9 +158,9 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	}
 
       if (! tdeps)
-        deps[0].ent = info->ent;
+	deps[0].ent = info->ent;
       else
-        deps[tdeps].ent = info->ent->depends[tdeps - 1];
+	deps[tdeps].ent = info->ent->depends[tdeps - 1];
       deps[tdeps].soname = strdup (soname);
       if (deps[tdeps].soname == NULL)
 	{
@@ -354,7 +354,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 			 symstart, buffer);
 		  goto error_out;
 		}
-		
+
 	      for (conflict = info->conflicts[symowner]; conflict;
 		   conflict = conflict->next)
 		if (conflict->symoff == symoff
@@ -445,7 +445,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 			 symstart, buffer);
 		  goto error_out;
 		}
-		
+
 	      for (j = 0; j < 2; j++)
 		{
 		  ents[j] = NULL;

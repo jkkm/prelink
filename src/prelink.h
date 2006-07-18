@@ -224,9 +224,10 @@ struct prelink_cache_entry
   uint32_t filename;
   uint32_t depends;
   uint32_t checksum;
-#define PCF_PRELINKED	0x20000
-#define PCF_ELF64	0x10000
-#define PCF_MACHINE	0x0ffff
+#define PCF_UNPRELINKABLE	0x40000
+#define PCF_PRELINKED		0x20000
+#define PCF_ELF64		0x10000
+#define PCF_MACHINE		0x0ffff
   uint32_t flags;
   uint32_t ctime;
   uint32_t mtime;
@@ -237,7 +238,7 @@ struct prelink_cache_entry
 struct prelink_cache
 {
 #define PRELINK_CACHE_NAME "prelink-ELF"
-#define PRELINK_CACHE_VER "0.3.0"
+#define PRELINK_CACHE_VER "0.3.2"
 #define PRELINK_CACHE_MAGIC PRELINK_CACHE_NAME PRELINK_CACHE_VER
   const char magic [sizeof (PRELINK_CACHE_MAGIC) - 1];
   uint32_t nlibs;
@@ -266,9 +267,10 @@ struct prelink_entry
   GElf_Addr base, end, layend, pltgot;
   dev_t dev;
   ino64_t ino;
-#define ET_BAD		(ET_NUM)
-#define ET_CACHE_EXEC	(ET_NUM + 1)
-#define ET_CACHE_DYN	(ET_NUM + 2)
+#define ET_BAD			(ET_NUM)
+#define ET_CACHE_EXEC		(ET_NUM + 1)
+#define ET_CACHE_DYN		(ET_NUM + 2)
+#define ET_UNPRELINKABLE	(ET_NUM + 3)
   int type, done, ndepends, refs, flags;
   union
     {
@@ -397,7 +399,7 @@ int get_relocated_mem (struct prelink_info *info, DSO *dso, GElf_Addr addr,
 
 int layout_libs (void);
 
-int prelink_all (void);
+void prelink_all (void);
 
 int undo_all (void);
 
@@ -417,6 +419,7 @@ extern int enable_cxx_optimizations;
 extern int exec_shield;
 extern int undo;
 extern int verify;
+extern int print_cache;
 enum verify_method_t { VERIFY_CONTENT, VERIFY_MD5, VERIFY_SHA };
 extern enum verify_method_t verify_method;
 extern int quick;

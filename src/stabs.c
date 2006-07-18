@@ -147,10 +147,10 @@ adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
       case N_SLINE:
       case N_BSLINE:
       case N_DSLINE:
-        value = read_32 (data->d_buf + off + 8);
-        sec = addr_to_sec (dso, value);
-        if (sec != -1)
-          {
+	value = read_32 (data->d_buf + off + 8);
+	sec = addr_to_sec (dso, value);
+	if (sec != -1)
+	  {
 	    addr_adjust (value, start, adjust);
 	    write_32 (data->d_buf + off + 8, value);
 	  }
@@ -173,10 +173,10 @@ adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
       /* These are relative.  */
       case N_LBRAC:
       case N_RBRAC:
-        break;
+	break;
       default:
-        error (0, 0, "%s: Unknown stabs code 0x%02x\n", dso->filename, type);
-        return 1;
+	error (0, 0, "%s: Unknown stabs code 0x%02x\n", dso->filename, type);
+	return 1;
       }
     }
 

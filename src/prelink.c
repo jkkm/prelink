@@ -158,7 +158,7 @@ prelink_prepare (DSO *dso)
   struct reloc_info rinfo;
   int liblist = 0, libstr = 0, newlibstr = 0, undo = 0, newundo = 0;
   int i;
-  
+
   for (i = 1; i < dso->ehdr.e_shnum; ++i)
     {
       const char *name
@@ -365,7 +365,7 @@ prelink_prepare (DSO *dso)
 	}
 
       if (newlibstr)
-        {
+	{
 	  memset (&dso->shdr[libstr], 0, sizeof (GElf_Shdr));
 	  dso->shdr[libstr].sh_name = shstrtabadd (dso, ".gnu.libstr");
 	  if (dso->shdr[libstr].sh_name == 0)
@@ -375,7 +375,7 @@ prelink_prepare (DSO *dso)
 	  if (dso->shdr[libstr - 1].sh_type != SHT_NOBITS)
 	    dso->shdr[libstr].sh_offset += dso->shdr[libstr - 1].sh_size;
 	  dso->shdr[libstr].sh_addralign = 1;
-        }
+	}
 
       if (newundo)
 	{
@@ -803,7 +803,7 @@ free_info (struct prelink_info *info)
   if (info->conflicts)
     {
       for (i = 0; i < info->ent->ndepends + 1; ++i)
-        {
+	{
 	  struct prelink_conflict *c = info->conflicts[i];
 	  void *f;
 
@@ -813,22 +813,22 @@ free_info (struct prelink_info *info)
 	      c = c->next;
 	      free (f);
 	    }
-        }
+	}
       free (info->conflicts);
     }
   if (info->sonames)
     {
       for (i = 0; i < info->ent->ndepends + 1; ++i)
-        free ((char *) info->sonames[i]);
+	free ((char *) info->sonames[i]);
       free (info->sonames);
     }
   free (info->tls);
   if (info->symbols)
     {
       for (i = 0; i < info->symbol_count; ++i)
-        {
-          struct prelink_symbol *s = info->symbols[i].next;
-          void *f;
+	{
+	  struct prelink_symbol *s = info->symbols[i].next;
+	  void *f;
 
 	  while (s != NULL)
 	    {
@@ -836,7 +836,7 @@ free_info (struct prelink_info *info)
 	      s = s->next;
 	      free (f);
 	    }
-        }
+	}
       free (info->symbols);
     }
 }
@@ -859,7 +859,7 @@ prelink (DSO *dso, struct prelink_entry *ent)
       if (reopen_dso (dso, NULL))
 	return 1;
     }
-                        
+
   i = addr_to_sec (dso, dso->info[DT_SYMTAB]);
   /* DT_SYMTAB should be found and should point to
      start of .dynsym section.  */

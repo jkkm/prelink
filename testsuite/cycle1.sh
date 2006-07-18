@@ -14,9 +14,9 @@ echo 'int main (void) { return 0; } ' \
 savelibs
 echo $PRELINK ${PRELINK_OPTS--vm} ./cycle1 > cycle1.log
 $PRELINK ${PRELINK_OPTS--vm} ./cycle1 >> cycle1.log 2>&1 || exit 1
-grep -v 'has dependency cycle' cycle1.log \
+grep -v 'has a dependency cycle' cycle1.log \
   | grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` && exit 2
-grep -q "^`echo $PRELINK | sed 's/ .*$/: .*has dependency cycle/'`" \
+grep -q "^`echo $PRELINK | sed 's/ .*$/: .*has a dependency cycle/'`" \
   cycle1.log || exit 3
 LD_LIBRARY_PATH=. ./cycle1 || exit 4
 # So that it is not prelinked again

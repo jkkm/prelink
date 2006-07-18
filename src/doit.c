@@ -69,7 +69,7 @@ find_unlisted_dependency (struct prelink_entry *ent)
   return NULL;
 }
 
-int
+static void
 prelink_ent (struct prelink_entry *ent)
 {
   int i;
@@ -81,17 +81,19 @@ prelink_ent (struct prelink_entry *ent)
   struct prelink_entry *dep;
 
   for (i = 0; i < ent->ndepends; ++i)
-    if (ent->depends[i]->done == 1 && prelink_ent (ent->depends[i]))
-      return 1;
+    if (ent->depends[i]->done == 1)
+      prelink_ent (ent->depends[i]);
 
   for (i = 0; i < ent->ndepends; ++i)
     if (ent->depends[i]->done != 2)
       {
 	ent->done = 0;
+	if (! undo)
+	  ent->type = ET_UNPRELINKABLE;
 	if (verbose)
 	  error (0, 0, "Could not prelink %s because its dependency %s could not be prelinked",
 		 ent->filename, ent->depends[i]->filename);
-	return 0;
+	return;
       }
     else
       clear_ent_marks (ent->depends[i]);
@@ -103,16 +105,18 @@ prelink_ent (struct prelink_entry *ent)
   if ((dep = find_unlisted_dependency (ent)) != NULL)
     {
       ent->done = 0;
+      if (! undo)
+	ent->type = ET_UNPRELINKABLE;
       if (verbose)
 	error (0, 0, "Could not prelink %s because it doesn't use %s, but one of its dependencies has been prelinked against it",
 	       ent->filename, dep->filename);
-      return 0;
+      return;
     }
 
   if (verbose)
     {
       if (dry_run)
-        printf ("Would prelink %s\n", ent->canon_filename);
+	printf ("Would prelink %s\n", ent->canon_filename);
       else
 	printf ("Prelinking %s\n", ent->canon_filename);
     }
@@ -138,11 +142,11 @@ prelink_ent (struct prelink_entry *ent)
   else
     {
       if (prelink_prepare (dso))
-	goto error_out;
+	goto make_unprelinkable;
       if (ent->type == ET_DYN && relocate_dso (dso, ent->base))
-	goto error_out;
+	goto make_unprelinkable;
       if (prelink (dso, ent))
-	goto error_out;
+	goto make_unprelinkable;
       if (update_dso (dso))
 	{
 	  dso = NULL;
@@ -158,18 +162,18 @@ prelink_ent (struct prelink_entry *ent)
       size_t len;
 
       if (lstat64 (hardlink->canon_filename, &st) < 0)
-        {
-          error (0, 0, "Could not stat %s (former hardlink to %s)",
+	{
+	  error (0, 0, "Could not stat %s (former hardlink to %s)",
 		 hardlink->canon_filename, ent->canon_filename);
 	  continue;
-        }
+	}
 
       if (st.st_dev != ent->dev || st.st_ino != ent->ino)
-        {
-          error (0, 0, "%s is no longer hardlink to %s",
+	{
+	  error (0, 0, "%s is no longer hardlink to %s",
 		 hardlink->canon_filename, ent->canon_filename);
 	  continue;
-        }
+	}
 
       if (verbose)
 	{
@@ -186,30 +190,30 @@ prelink_ent (struct prelink_entry *ent)
 
       len = strlen (hardlink->canon_filename);
       if (len + sizeof (".#prelink#") > movelen)
-        {
+	{
 	  movelen = len + sizeof (".#prelink#");
-          move = realloc (move, movelen);
-          if (move == NULL)
-            {
+	  move = realloc (move, movelen);
+	  if (move == NULL)
+	    {
 	      error (0, ENOMEM, "Could not hardlink %s to %s",
 		     hardlink->canon_filename, ent->canon_filename);
 	      movelen = 0;
 	      continue;
-            }
-        }
+	    }
+	}
 
       memcpy (mempcpy (move, hardlink->canon_filename, len), ".#prelink#",
 	      sizeof (".#prelink#"));
       if (rename (hardlink->canon_filename, move) < 0)
-        {
-          error (0, errno, "Could not hardlink %s to %s",
+	{
+	  error (0, errno, "Could not hardlink %s to %s",
 		 hardlink->canon_filename, ent->canon_filename);
 	  continue;
-        }
+	}
 
       if (link (ent->canon_filename, hardlink->canon_filename) < 0)
-        {
-          error (0, errno, "Could not hardlink %s to %s",
+	{
+	  error (0, errno, "Could not hardlink %s to %s",
 		 hardlink->canon_filename, ent->canon_filename);
 
 	  if (rename (move, hardlink->canon_filename) < 0)
@@ -218,13 +222,13 @@ prelink_ent (struct prelink_entry *ent)
 		     move, hardlink->canon_filename);
 	    }
 	  continue;
-        }
+	}
 
       if (unlink (move) < 0)
-        {
-          error (0, errno, "Could not unlink %s", move);
-          continue;
-        }
+	{
+	  error (0, errno, "Could not unlink %s", move);
+	  continue;
+	}
     }
   free (move);
 
@@ -235,16 +239,19 @@ prelink_ent (struct prelink_entry *ent)
       ent->ctime = st.st_ctime;
       ent->mtime = st.st_mtime;
     }
-  return 0;
+  return;
 
+make_unprelinkable:
+  if (! undo)
+    ent->type = ET_UNPRELINKABLE;
 error_out:
   ent->done = 0;
   if (dso)
     close_dso (dso);
-  return 0;
+  return;
 }
 
-int
+void
 prelink_all (void)
 {
   struct collect_ents l;
@@ -257,11 +264,7 @@ prelink_all (void)
   htab_traverse (prelink_filename_htab, find_ents, &l);
 
   for (i = 0; i < l.nents; ++i)
-    if (l.ents[i]->done == 1 && prelink_ent (l.ents[i]))
-      return 1;
-    else if (l.ents[i]->done == 0 && l.ents[i]->type == ET_EXEC
-	     && prelink_ent (l.ents[i]))
-      return 1;
-
-  return 0;
+    if (l.ents[i]->done == 1
+	|| (l.ents[i]->done == 0 && l.ents[i]->type == ET_EXEC))
+      prelink_ent (l.ents[i]);
 }

@@ -123,24 +123,24 @@ remove_dynamic_prelink_tags (DSO *dso)
     {
       gelfx_getdyn (dso->elf, data, ndx, &dyn);
       switch (dyn.d_tag)
-        {
-        case DT_NULL:
+	{
+	case DT_NULL:
 	  continue;
-        case DT_CHECKSUM:
-        case DT_GNU_PRELINKED:
-        case DT_GNU_LIBLIST:
-        case DT_GNU_LIBLISTSZ:
-        case DT_GNU_CONFLICT:
-        case DT_GNU_CONFLICTSZ:
+	case DT_CHECKSUM:
+	case DT_GNU_PRELINKED:
+	case DT_GNU_LIBLIST:
+	case DT_GNU_LIBLISTSZ:
+	case DT_GNU_CONFLICT:
+	case DT_GNU_CONFLICTSZ:
 	  dyn.d_tag = DT_NULL;
 	  dyn.d_un.d_val = 0;
 	  gelfx_update_dyn (dso->elf, data, ndx, &dyn);
 	  elf_flagscn (scn, ELF_C_SET, ELF_F_DIRTY);
 	  break;
-        default:
+	default:
 	  ndx = 0;
 	  break;
-        }      
+	}
     }
   return 0;
 }
@@ -354,7 +354,7 @@ undo_sections (DSO *dso, int undo, struct section_move *move,
 	const char *name = strptr (dso, dso->ehdr.e_shstrndx,
 				   dso->shdr[i].sh_name);
 
-        if (! strcmp (name, ".gnu.prelink_undo")
+	if (! strcmp (name, ".gnu.prelink_undo")
 	    || ! strcmp (name, ".gnu.conflict")
 	    || ! strcmp (name, ".gnu.liblist")
 	    || ! strcmp (name, ".gnu.libstr")
@@ -525,22 +525,22 @@ prelink_undo (DSO *dso)
   for (i = 1; i < dso->ehdr.e_shnum; i++)
     {
       if (! (dso->shdr[i].sh_flags & SHF_ALLOC))
-        continue;
+	continue;
       if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-                            dso->shdr[i].sh_name),
-                    ".gnu.conflict"))
-        continue;
+			    dso->shdr[i].sh_name),
+		    ".gnu.conflict"))
+	continue;
       switch (dso->shdr[i].sh_type)
-        {
-        case SHT_REL:
-          if (undo_prelink_rel (dso, i))
-            goto error_out;
-          break;
-        case SHT_RELA:
-          if (undo_prelink_rela (dso, i))
-            goto error_out;
-          break;
-        }
+	{
+	case SHT_REL:
+	  if (undo_prelink_rel (dso, i))
+	    goto error_out;
+	  break;
+	case SHT_RELA:
+	  if (undo_prelink_rela (dso, i))
+	    goto error_out;
+	  break;
+	}
     }
 
   if (dso->arch->arch_undo_prelink && dso->arch->arch_undo_prelink (dso))

@@ -39,7 +39,7 @@ ia64_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
       Elf64_Addr data;
 
       if (sec != -1)
-	{                                
+	{
 	  data = read_ule64 (dso, dyn->d_un.d_ptr + 8);
 
 	  /* If .got[1] points to .plt + 0x30, it needs to be adjusted.  */
@@ -391,7 +391,7 @@ ia64_create_opd (struct prelink_info *info, int first, int last, int plt)
 		&& opd_add (info, ELF64_R_SYM (rela->r_info),
 			    R_IA64_FPTR64LSB))
 	      return -1;
-        }
+	}
     }
 
   sec = first;
@@ -411,7 +411,7 @@ ia64_create_opd (struct prelink_info *info, int first, int last, int plt)
 	    if ((ELF64_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
 	      opd_note_plt (info, ELF64_R_SYM (rela->r_info), R_IA64_IPLTLSB,
 			    rela->r_offset);
-        }
+	}
     }
 
   return opd_size (info, 16);
@@ -422,7 +422,7 @@ ia64_arch_prelink (DSO *dso)
 {
   int plt = -1, got = -1, i;
   const char *name;
-  
+
   /* Write address of .plt + 0x30 into .got[1].
      .plt + 0x30 is what .IA_64.pltoff[0] contains unless prelinking.  */
 

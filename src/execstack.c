@@ -35,7 +35,7 @@ int execflag;
 const char *argp_program_version = "execstack 1.0";
 
 const char *argp_program_bug_address = "<jakub@redhat.com>";
-                        
+
 static char argp_doc[] = "execstack -- program to query or set executable stack flag";
 
 static struct argp_option options[] = {
@@ -212,7 +212,7 @@ execstack_set (DSO *dso, int flag)
   for (i = 0; i < dso->ehdr.e_phnum; ++i)
     if (dso->phdr[i].p_type == PT_GNU_STACK)
       {
-        /* Found PT_GNU_STACK.  Check if we need any change or not.  */
+	/* Found PT_GNU_STACK.  Check if we need any change or not.  */
 	if (flag ^ ((dso->phdr[i].p_flags & PF_X) != 0))
 	  {
 	    ret = execstack_make_rdwr (dso, flag);
@@ -282,7 +282,7 @@ execstack_set (DSO *dso, int flag)
       <= lowoff)
     {
       /* There is enough space for the headers even without reshuffling
-         anything.  */
+	 anything.  */
       i = dso->ehdr.e_phnum++;
       ret = execstack_make_rdwr (dso, flag);
       if (ret != -1)
@@ -369,7 +369,7 @@ execstack_query (DSO *dso)
     if (dso->phdr[i].p_type == PT_GNU_STACK)
       {
 	stack = (dso->phdr[i].p_flags & PF_X) ? 'X' : '-';
-        break;
+	break;
       }
   printf ("%c %s\n", stack, dso->filename);
   close_dso (dso);

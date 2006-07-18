@@ -66,7 +66,7 @@ opd_tabent_eq (const void *p, const void *q)
 {
   struct opd_tabent *e = (struct opd_tabent *)p;
   struct opd_tabent *f = (struct opd_tabent *)q;
-        
+
   return e->ent == f->ent;
 }
 
@@ -83,7 +83,7 @@ opd_refent_eq (const void *p, const void *q)
 {
   struct opd_refent *e = (struct opd_refent *)p;
   struct opd_refent *f = (struct opd_refent *)q;
-        
+
   return e->val == f->val && e->gp == f->gp;
 }
 
@@ -112,7 +112,7 @@ opd_refent_cmp (const void *A, const void *B)
   if (a->refcnt < b->refcnt)
     return 1;
   return 0;
-}    
+}
 
 int
 opd_init (struct prelink_info *info)

@@ -62,7 +62,7 @@ const char *undo_output;
 const char *argp_program_version = "prelink 1.0";
 
 const char *argp_program_bug_address = "<jakub@redhat.com>";
-                        
+
 static char argp_doc[] = "prelink -- program to relocate and prelink ELF shared libraries and programs";
 
 #define OPT_DYNAMIC_LINKER	0x80
@@ -100,11 +100,11 @@ static struct argp_option options[] = {
   {"md5",		OPT_MD5, 0, 0, "For verify print MD5 sum of original to standard output instead of content" },
   {"sha",		OPT_SHA, 0, 0, "For verify print SHA sum of original to standard output instead of content" },
   {"dynamic-linker",	OPT_DYNAMIC_LINKER, "DYNAMIC_LINKER",
-			        0,  "Special dynamic linker path" },
+				0,  "Special dynamic linker path" },
   {"exec-shield",	OPT_EXEC_SHIELD, 0, 0, "Lay out libraries for exec-shield on IA-32" },
   {"no-exec-shield",	OPT_NO_EXEC_SHIELD, 0, 0, "Don't lay out libraries for exec-shield on IA-32" },
   {"ld-library-path",	OPT_LD_LIBRARY_PATH, "PATHLIST",
-			        0,  "What LD_LIBRARY_PATH should be used" },
+				0,  "What LD_LIBRARY_PATH should be used" },
   {"libs-only",		OPT_LIBS_ONLY, 0, 0, "Prelink only libraries, no binaries" },
   {"disable-c++-optimizations", OPT_CXX_DISABLE, 0, OPTION_HIDDEN, "" },
   {"mmap-region-start",	OPT_MMAP_REG_START, "BASE_ADDRESS", OPTION_HIDDEN, "" },
@@ -259,7 +259,7 @@ main (int argc, char *argv[])
   if (dry_run && verify)
     error (EXIT_FAILURE, 0, "--dry-run and --verify options are incompatible");
   if ((undo || verify) && quick)
-    error (EXIT_FAILURE, 0, "--undo and --quick options are incompatible"); 
+    error (EXIT_FAILURE, 0, "--undo and --quick options are incompatible");
 
   if (print_cache)
     {

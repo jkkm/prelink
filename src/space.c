@@ -201,7 +201,7 @@ readonly_is_movable (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int k)
 
 int
 find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
-		     GElf_Phdr *phdr, GElf_Shdr *shdr, 
+		     GElf_Phdr *phdr, GElf_Shdr *shdr,
 		     struct readonly_adjust *adjust)
 {
   int i, j;
@@ -377,7 +377,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    }
 	}
       else
-        moveend = adjust->moveend;
+	moveend = adjust->moveend;
       if (moveend < ehdr->e_shnum && moveend > 1
 	  && (shdr[moveend].sh_flags & (SHF_ALLOC | SHF_WRITE)))
 	{
@@ -419,7 +419,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		}
 
 	      if (k < ehdr->e_shnum)
-	        {
+		{
 		  GElf_Addr a;
 
 		  a = shdr[k].sh_addr;
@@ -435,9 +435,9 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		    }
 		  else
 		    k = moveend;
-	        }
+		}
 	      else
-	        k = moveend;
+		k = moveend;
 	    }
 
 	  for (j = 1; j < k; ++j)
@@ -476,7 +476,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	      addr = (shdr[k + 1].sh_addr - add->sh_size)
 		     & ~(add->sh_addralign - 1);
 	    }
-	  
+
 	  shdr[k].sh_addr = addr;
 	  shdr[k].sh_offset = (addr - phdr[i].p_vaddr) + phdr[i].p_offset;
 	  adjust_nonalloc (dso, ehdr, shdr, 0, 0, adj);
@@ -557,7 +557,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	      start += shdr[j].sh_size;
 	    }
 
-	  if (movesec == -1)	  
+	  if (movesec == -1)
 	    {
 	      error (0, 0, "%s: No space in ELF segment table to add new ELF segment",
 		     dso->filename);
@@ -664,7 +664,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
   shdr[i] = *add;
   shdr[i].sh_addr = phdr[j].p_vaddr;
   shdr[i].sh_offset = phdr[j].p_offset;
-  adjust_nonalloc (dso, ehdr, shdr, 0, 0, 
+  adjust_nonalloc (dso, ehdr, shdr, 0, 0,
 		   phdr[j].p_offset + phdr[j].p_filesz - phdr[j - 1].p_offset
 		   - phdr[j - 1].p_filesz);
   return i;

@@ -541,7 +541,7 @@ sparc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_SPARC_JMP_SLOT:
       sec = addr_to_sec (dso, rela->r_offset);
       if (sec != -1)
-        {
+	{
 	  if (rela->r_addend == 0)
 	    {
 	      /* sethi .-.plt, %g1
@@ -575,7 +575,7 @@ sparc64_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 			  dso->shdr[sec].sh_addr
 			  - (slot + ((rela->r_offset - ptr) / 8) * 24 + 4));
 	    }
-        }
+	}
       break;
     case R_SPARC_RELATIVE:
     case R_SPARC_GLOB_DAT:

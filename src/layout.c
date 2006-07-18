@@ -324,10 +324,10 @@ layout_libs (void)
 	  for (j = i + 1; j < l.nlibs; ++j)
 	    {
 	      if (! l.libs[j]->done || l.libs[j]->base >= mmap_end)
-	        break;
+		break;
 
 	      if (l.libs[j]->base < mmap_base || l.libs[j]->layend > mmap_end)
-	        random_base = 0;
+		random_base = 0;
 	      l.libs[j]->prev = l.libs[j - 1];
 	      l.libs[j - 1]->next = l.libs[j];
 	    }
@@ -357,10 +357,10 @@ layout_libs (void)
 	      GElf_Addr x;
 
 	      if (read (fd, &x, sizeof (x)) == sizeof (x))
-	        {
-	          mmap_start = x % (mmap_end - mmap_base);
-	          mmap_start += mmap_base;
-	        }
+		{
+		  mmap_start = x % (mmap_end - mmap_base);
+		  mmap_start += mmap_base;
+		}
 
 	      close (fd);
 	    }
@@ -368,7 +368,7 @@ layout_libs (void)
 	  if (! mmap_start)
 	    {
 	      mmap_start = ((mmap_end - mmap_base) >> 16)
-	                   * (time (NULL) & 0xffff);
+			   * (time (NULL) & 0xffff);
 	      mmap_start += mmap_base;
 	    }
 
@@ -411,14 +411,14 @@ layout_libs (void)
 	  fakecnt = l.fakecnt;
 	}
 
-      if (mmap_start != mmap_base && list)  
+      if (mmap_start != mmap_base && list)
 	{
 	  for (e = list; e != NULL; e = e->next)
 	    {
 	      if (e->base >= mmap_start)
-	        break;
+		break;
 	      if (e->layend > mmap_start)
-	        mmap_start = (e->layend + max_page_size - 1)
+		mmap_start = (e->layend + max_page_size - 1)
 			     & ~(max_page_size - 1);
 	      e->base += mmap_end - mmap_base;
 	      e->end += mmap_end - mmap_base;
@@ -429,33 +429,33 @@ layout_libs (void)
 	  if (mmap_start < mmap_end)
 	    {
 	      if (e && e != list)
-	        {
-	          memset (&fakeent, 0, sizeof (fakeent));
-	          fakeent.u.tmp = -1;
-	          fakeent.base = mmap_end;
-	          fakeent.end = mmap_end;
-	          fakeent.layend = mmap_end;
-	          fake = &fakeent;
-	          fakecnt = 1;
-	          fakeent.prev = list->prev;
-	          fakeent.next = list;
-	          list->prev = fake;
-	          fakeent.prev->next = fake;
-	          list = e;
-	          e->prev->next = NULL;
-	        }
+		{
+		  memset (&fakeent, 0, sizeof (fakeent));
+		  fakeent.u.tmp = -1;
+		  fakeent.base = mmap_end;
+		  fakeent.end = mmap_end;
+		  fakeent.layend = mmap_end;
+		  fake = &fakeent;
+		  fakecnt = 1;
+		  fakeent.prev = list->prev;
+		  fakeent.next = list;
+		  list->prev = fake;
+		  fakeent.prev->next = fake;
+		  list = e;
+		  e->prev->next = NULL;
+		}
 	    }
 	  else
 	    {
 	      mmap_start = mmap_base;
 	      for (e = list; e != NULL; e = e->next)
 	      if (e->done & 0x80)
-	        {
-	          e->done &= ~0x80;
-	          e->base -= mmap_end - mmap_base;
-	          e->end -= mmap_end - mmap_base;
-	          e->layend -= mmap_end - mmap_base;
-	        }
+		{
+		  e->done &= ~0x80;
+		  e->base -= mmap_end - mmap_base;
+		  e->end -= mmap_end - mmap_base;
+		  e->layend -= mmap_end - mmap_base;
+		}
 	    }
 	}
 
@@ -474,35 +474,35 @@ layout_libs (void)
 	  {
 	    if (conserve_memory)
 	      {
-	        /* If conserving virtual address space, only consider libraries
-	           which ever appear together with this one.  Otherwise consider
-	           all libraries.  */
-	        m = i;
-	        for (j = 0; j < l.nbinlibs; ++j)
-	          {
-	            for (k = 0; k < l.binlibs[j]->ndepends; ++k)
-	              if (l.binlibs[j]->depends[k] == l.libs[i])
-	                {
-	                  for (k = 0; k < l.binlibs[j]->ndepends; ++k)
-	                    l.binlibs[j]->depends[k]->u.tmp = m;
-	                  break;
-	                }
-	          }
-	        for (j = 0; j < fakecnt; ++j)
-	          fake[j].u.tmp = m;
+		/* If conserving virtual address space, only consider libraries
+		   which ever appear together with this one.  Otherwise consider
+		   all libraries.  */
+		m = i;
+		for (j = 0; j < l.nbinlibs; ++j)
+		  {
+		    for (k = 0; k < l.binlibs[j]->ndepends; ++k)
+		      if (l.binlibs[j]->depends[k] == l.libs[i])
+			{
+			  for (k = 0; k < l.binlibs[j]->ndepends; ++k)
+			    l.binlibs[j]->depends[k]->u.tmp = m;
+			  break;
+			}
+		  }
+		for (j = 0; j < fakecnt; ++j)
+		  fake[j].u.tmp = m;
 	      }
 
 	    size = l.libs[i]->layend - l.libs[i]->base;
 	    base = mmap_start;
 	    for (e = list; e; e = e->next)
 	      if (e->u.tmp == m)
-	        {
-	          if (base + size <= e->base)
-	            goto found;
+		{
+		  if (base + size <= e->base)
+		    goto found;
 
-	          if (base < e->layend)
-	            base = e->layend;
-	        }
+		  if (base < e->layend)
+		    base = e->layend;
+		}
 
 	    if (base + size > mmap_fin)
 	      goto not_found;
@@ -516,57 +516,57 @@ found:
 	      l.libs[i]->done = 1;
 	    if (list == NULL)
 	      {
-	        list = l.libs[i];
-	        list->prev = list;
+		list = l.libs[i];
+		list->prev = list;
 	      }
 	    else
 	      {
-	        if (e == NULL)
-	          e = list->prev;
-	        else
-	          e = e->prev;
-	        while (e != list && e->base > base)
-	          e = e->prev;
-	        if (e->base > base)
-	          {
-	            l.libs[i]->next = list;
-	            l.libs[i]->prev = list->prev;
-	            list->prev = l.libs[i];
-	            list = l.libs[i];
-	          }
-	        else
-	          {
-	            l.libs[i]->next = e->next;
-	            l.libs[i]->prev = e;
-	            if (e->next)
-	              e->next->prev = l.libs[i];
-	            else
-	              list->prev = l.libs[i];
-	            e->next = l.libs[i];
-	          }
+		if (e == NULL)
+		  e = list->prev;
+		else
+		  e = e->prev;
+		while (e != list && e->base > base)
+		  e = e->prev;
+		if (e->base > base)
+		  {
+		    l.libs[i]->next = list;
+		    l.libs[i]->prev = list->prev;
+		    list->prev = l.libs[i];
+		    list = l.libs[i];
+		  }
+		else
+		  {
+		    l.libs[i]->next = e->next;
+		    l.libs[i]->prev = e;
+		    if (e->next)
+		      e->next->prev = l.libs[i];
+		    else
+		      list->prev = l.libs[i];
+		    e->next = l.libs[i];
+		  }
 	      }
 #ifdef DEBUG_LAYOUT
 	    {
 	      struct prelink_entry *last = list;
 	      base = 0;
 	      for (e = list; e; last = e, e = e->next)
-	        {
-	          if (e->base < base)
-	            abort ();
-	          base = e->base;
-	          if ((e == list && e->prev->next != NULL)
-	              || (e != list && e->prev->next != e))
-	            abort ();
-	        }
+		{
+		  if (e->base < base)
+		    abort ();
+		  base = e->base;
+		  if ((e == list && e->prev->next != NULL)
+		      || (e != list && e->prev->next != e))
+		    abort ();
+		}
 	      if (list->prev != last)
-	        abort ();
+		abort ();
 	    }
 #endif
 	    continue;
 
 not_found:
 	    error (EXIT_FAILURE, 0, "Could not find virtual address slot for %s",
-	           l.libs[i]->filename);
+		   l.libs[i]->filename);
 	  }
 
       if (layout_libs_post)
@@ -596,8 +596,8 @@ not_found:
 	  for (i = 0; i < l.nlibs; ++i)
 	    if (l.libs[i]->done >= 1)
 	      printf ("%-60s %0*llx-%0*llx\n", l.libs[i]->filename,
-	              class == ELFCLASS32 ? 8 : 16, (long long) l.libs[i]->base,
-	              class == ELFCLASS32 ? 8 : 16, (long long) l.libs[i]->end);
+		      class == ELFCLASS32 ? 8 : 16, (long long) l.libs[i]->base,
+		      class == ELFCLASS32 ? 8 : 16, (long long) l.libs[i]->end);
 	}
 
 #ifdef DEBUG_LAYOUT

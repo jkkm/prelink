@@ -33,7 +33,7 @@ void insert_readonly_section (GElf_Ehdr *ehdr, GElf_Shdr *shdr, int n,
 int remove_readonly_section (GElf_Ehdr *ehdr, GElf_Shdr *shdr, int n,
 			     struct readonly_adjust *adjust);
 int find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
-			 GElf_Phdr *phdr, GElf_Shdr *shdr, 
+			 GElf_Phdr *phdr, GElf_Shdr *shdr,
 			 struct readonly_adjust *adjust);
 
 #endif /* SPACE_H */

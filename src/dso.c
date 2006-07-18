@@ -146,7 +146,7 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
     {
       gelfx_getdyn (dso->elf, data, ndx, &dyn);
       if (dyn.d_tag == DT_NULL)
-        break;
+	break;
       else if (dyn.d_tag == tag)
 	{
 	  if (dyn.d_un.d_ptr != value)
@@ -317,7 +317,7 @@ fdopen_dso (int fd, const char *name)
   dso = (DSO *)
 	malloc (sizeof(DSO) + (ehdr.e_shnum + 20) * sizeof(GElf_Shdr)
 		+ (ehdr.e_phnum + 1) * sizeof(GElf_Phdr)
-	        + (ehdr.e_shnum + 20) * sizeof(Elf_Scn *));
+		+ (ehdr.e_shnum + 20) * sizeof(Elf_Scn *));
   if (!dso)
     {
       error (0, ENOMEM, "Could not open DSO");
@@ -415,7 +415,7 @@ fdopen_dso (int fd, const char *name)
 	    }
 	  dso->shdr[i].sh_info = invsections[dso->shdr[i].sh_info];
 	}
-	
+
       /* Some linkers mess up sh_offset fields for empty or nobits
 	 sections.  */
       if (RELOCATE_SCN (dso->shdr[i].sh_flags)
@@ -1448,7 +1448,7 @@ recompute_nonalloc_offsets (DSO *dso)
   for (i = 1; i < dso->ehdr.e_shnum; ++i)
     if (RELOCATE_SCN (dso->shdr[i].sh_flags))
       {
-        if (dso->shdr[i].sh_type == SHT_NOBITS)
+	if (dso->shdr[i].sh_type == SHT_NOBITS)
 	  last_offset = dso->shdr[i].sh_offset;
 	else
 	  last_offset = dso->shdr[i].sh_offset + dso->shdr[i].sh_size;
@@ -1481,10 +1481,10 @@ recompute_nonalloc_offsets (DSO *dso)
 			       & ~(dso->shdr[i].sh_addralign - 1);
       last_offset = dso->shdr[i].sh_offset + dso->shdr[i].sh_size;
       if (i == sec_before_shoff)
-        {
+	{
 	  dso->ehdr.e_shoff = (last_offset + shdralign - 1) & ~(shdralign - 1);
 	  last_offset = dso->ehdr.e_shoff + shdrsize;
-        }
+	}
     }
 
   return 0;
@@ -1571,7 +1571,7 @@ relocate_dso (DSO *dso, GElf_Addr base)
   if (! dso_is_rdwr (dso))
     {
       if (reopen_dso (dso, NULL))
-	return 1;	
+	return 1;
     }
 
   return adjust_dso (dso, 0, base - dso->base);
@@ -1709,8 +1709,8 @@ update_dso (DSO *dso)
       struct stat64 st;
 
       switch (write_dso (dso))
-        {
-        case 2:
+	{
+	case 2:
 	  error (0, 0, "Could not write %s: %s", dso->filename,
 		 elf_errmsg (-1));
 	  /* FALLTHROUGH */
@@ -1719,7 +1719,7 @@ update_dso (DSO *dso)
 	  return 1;
 	case 0:
 	  break;
-        }
+	}
 
       name1 = strdupa (dso->filename);
       name2 = strdupa (dso->temp_filename);
@@ -1742,7 +1742,7 @@ update_dso (DSO *dso)
       utime (name2, &u);
 
       if (set_security_context (dso, name2, name1))
-        {
+	{
 	  unlink (name2);
 	  return 1;
 	}
@@ -1756,6 +1756,6 @@ update_dso (DSO *dso)
     }
   else
     close_dso_1 (dso);
-  
+
   return 0;
 }

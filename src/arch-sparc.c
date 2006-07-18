@@ -194,23 +194,23 @@ sparc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
        unless prelink sets the rules.  */
     case R_SPARC_TLS_DTPMOD32:
       if (dso->ehdr.e_type == ET_EXEC)
-        {
-          error (0, 0, "%s: R_SPARC_TLS_DTPMOD32 reloc in executable?",
-                 dso->filename);
-          return 1;
-        }
+	{
+	  error (0, 0, "%s: R_SPARC_TLS_DTPMOD32 reloc in executable?",
+		 dso->filename);
+	  return 1;
+	}
       break;
     case R_SPARC_TLS_TPOFF32:
       if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
-        write_be32 (dso, rela->r_offset,
-                    value + rela->r_addend - info->resolvetls->offset);
+	write_be32 (dso, rela->r_offset,
+		    value + rela->r_addend - info->resolvetls->offset);
       break;
     case R_SPARC_TLS_LE_HIX22:
       if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
 	write_be32 (dso, rela->r_offset,
 		    (read_ube32 (dso, rela->r_offset) & 0xffc00000)
 		    | (((~(value + rela->r_addend - info->resolvetls->offset))
-		        >> 10) & 0x3fffff));
+			>> 10) & 0x3fffff));
       break;
     case R_SPARC_TLS_LE_LOX10:
       if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
@@ -341,28 +341,28 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   if (conflict == NULL)
     {
       if (info->curtls == NULL)
-        return 0;
+	return 0;
       switch (GELF_R_TYPE (rela->r_info))
-        {
-        /* Even local DTPMOD32 and TPOFF32 relocs need conflicts.  */
-        case R_SPARC_TLS_DTPMOD32:
-        case R_SPARC_TLS_TPOFF32:
-        case R_SPARC_TLS_LE_HIX22:
-        case R_SPARC_TLS_LE_LOX10:
-          break;
-        default:
-          return 0;
-        }
+	{
+	/* Even local DTPMOD32 and TPOFF32 relocs need conflicts.  */
+	case R_SPARC_TLS_DTPMOD32:
+	case R_SPARC_TLS_TPOFF32:
+	case R_SPARC_TLS_LE_HIX22:
+	case R_SPARC_TLS_LE_LOX10:
+	  break;
+	default:
+	  return 0;
+	}
       value = 0;
     }
   else
     {
       /* DTPOFF32 wants to see only real conflicts, not lookups
-         with reloc_class RTYPE_CLASS_TLS.  */
+	 with reloc_class RTYPE_CLASS_TLS.  */
       if (GELF_R_TYPE (rela->r_info) == R_SPARC_TLS_DTPOFF32
-          && conflict->lookup.tls == conflict->conflict.tls
-          && conflict->lookupval == conflict->conflictval)
-        return 0;
+	  && conflict->lookup.tls == conflict->conflict.tls
+	  && conflict->lookupval == conflict->conflictval)
+	return 0;
 
       value = conflict_lookup_value (conflict);
     }
@@ -416,36 +416,36 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_SPARC_TLS_LE_HIX22:
     case R_SPARC_TLS_LE_LOX10:
       if (conflict != NULL
-          && (conflict->reloc_class != RTYPE_CLASS_TLS
-              || conflict->lookup.tls == NULL))
-        {
-          error (0, 0, "%s: TLS reloc not resolving to STT_TLS symbol",
-                 dso->filename);
-          return 1;
-        }
+	  && (conflict->reloc_class != RTYPE_CLASS_TLS
+	      || conflict->lookup.tls == NULL))
+	{
+	  error (0, 0, "%s: TLS reloc not resolving to STT_TLS symbol",
+		 dso->filename);
+	  return 1;
+	}
       r_type = R_SPARC_32;
       tls = conflict ? conflict->lookup.tls : info->curtls;
       switch (GELF_R_TYPE (rela->r_info))
-        {
-        case R_SPARC_TLS_DTPMOD32:
-          value = tls->modid;
-          break;
-        case R_SPARC_TLS_DTPOFF32:
-          break;
-        case R_SPARC_TLS_TPOFF32:
-          value -= tls->offset;
-          break;
-        case R_SPARC_TLS_LE_HIX22:
-          value -= tls->offset;
+	{
+	case R_SPARC_TLS_DTPMOD32:
+	  value = tls->modid;
+	  break;
+	case R_SPARC_TLS_DTPOFF32:
+	  break;
+	case R_SPARC_TLS_TPOFF32:
+	  value -= tls->offset;
+	  break;
+	case R_SPARC_TLS_LE_HIX22:
+	  value -= tls->offset;
 	  value = (read_ube32 (dso, rela->r_offset) & 0xffc00000)
 		  | (((~value) >> 10) & 0x3fffff);
 	  break;
-        case R_SPARC_TLS_LE_LOX10:
-          value -= tls->offset;
-          value = (read_ube32 (dso, rela->r_offset) & 0xffffe000) | 0x1c00
+	case R_SPARC_TLS_LE_LOX10:
+	  value -= tls->offset;
+	  value = (read_ube32 (dso, rela->r_offset) & 0xffffe000) | 0x1c00
 		  | (value & 0x3ff);
-          break;
-        }
+	  break;
+	}
       break;
     default:
       error (0, 0, "%s: Unknown Sparc relocation type %d", dso->filename,
@@ -511,7 +511,7 @@ sparc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_SPARC_JMP_SLOT:
       sec = addr_to_sec (dso, rela->r_offset);
       if (sec != -1)
-        {
+	{
 	  /* sethi .-.plt, %g1
 	     b,a .plt+0  */
 	  write_be32 (dso, rela->r_offset,
@@ -522,7 +522,7 @@ sparc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 		      0x30800000
 		      | (((dso->shdr[sec].sh_addr - rela->r_offset - 4) >> 2)
 			 & 0x3fffff));
-        }
+	}
       break;
     case R_SPARC_8:
     case R_SPARC_DISP8:

@@ -172,7 +172,7 @@ ppc64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_PPC64_GLOB_DAT:
     case R_PPC64_ADDR64:
@@ -308,7 +308,7 @@ static int
 ppc64_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_PPC64_ADDR64:
     case R_PPC64_UADDR64:
@@ -343,7 +343,7 @@ ppc64_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_PPC64_NONE:
       break;
@@ -487,7 +487,7 @@ ppc64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   ret->r_offset = rela->r_offset;
   value += rela->r_addend;
   r_type = GELF_R_TYPE (rela->r_info);
-  switch (r_type)    
+  switch (r_type)
     {
     case R_PPC64_GLOB_DAT:
       r_type = R_PPC64_ADDR64;

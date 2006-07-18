@@ -121,7 +121,7 @@ cris_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_CRIS_GLOB_DAT:
     case R_CRIS_JUMP_SLOT:
@@ -161,7 +161,7 @@ static int
 cris_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_CRIS_GLOB_DAT:
     case R_CRIS_JUMP_SLOT:
@@ -195,7 +195,7 @@ cris_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_CRIS_NONE:
       break;
@@ -261,7 +261,7 @@ cris_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   ret->r_offset = rela->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_CRIS_GLOB_DAT:
     case R_CRIS_JUMP_SLOT:

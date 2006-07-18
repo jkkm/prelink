@@ -27,7 +27,7 @@
 #include <byteswap.h>
 #include "md5.h"
 
-#if __BYTE_ORDER == __BIG_ENDIAN 
+#if __BYTE_ORDER == __BIG_ENDIAN
 # define SWAP(n)  bswap_32 (n)
 #else
 # define SWAP(n) (n)
@@ -247,12 +247,12 @@ md5_process_block (buffer, len, ctx)
 
 #define OP(a, b, c, d, s, T)						\
       do								\
-        {								\
+	{								\
 	  a += FF (b, c, d) + (*cwp++ = SWAP (*words)) + T;		\
 	  ++words;							\
 	  a = rol (a, s);						\
 	  a += b;							\
-        }								\
+	}								\
       while (0)
 
       /* Before we start, one word to the strange constants.

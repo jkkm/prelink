@@ -133,7 +133,7 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
 	}
 
       if (strcmp (canon_filename, ent->canon_filename) != 0)
-        {
+	{
 	  struct prelink_link *hardlink;
 
 	  hardlink = (struct prelink_link *)
@@ -149,9 +149,9 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
 	  hardlink->canon_filename = canon_filename;
 	  hardlink->next = ent->hardlink;
 	  ent->hardlink = hardlink;
-        }
+	}
       else
-        free (canon_filename);
+	free (canon_filename);
       return ent;
     }
 
@@ -177,7 +177,7 @@ prelink_find_entry (const char *filename, const struct stat64 *stp,
   ent->ino = stp->st_ino;
   ent->ctime = stp->st_ctime;
   ent->mtime = stp->st_mtime;
-  
+
   *filename_slot = ent;
   *devino_slot = ent;
   ++prelink_entry_count;
@@ -349,10 +349,14 @@ prelink_load_cache (void)
 		      ? ET_CACHE_EXEC : ET_CACHE_DYN;
       ents[i]->flags = cache->entry[i].flags;
 
+      if (ents[i]->flags == PCF_UNPRELINKABLE)
+        ents[i]->type = (quick || print_cache) ? ET_UNPRELINKABLE : ET_NONE;
+
       /* If mtime is equal to ctime, assume the filesystem does not store
 	 ctime.  */
       if (quick
-	  && (ents[i]->ctime == ents[i]->mtime
+	  && ((ents[i]->ctime == ents[i]->mtime
+	       && ents[i]->type != ET_UNPRELINKABLE)
 	      || ents[i]->ctime != cache->entry[i].ctime
 	      || ents[i]->mtime != cache->entry[i].mtime))
 	ents[i]->type = ET_NONE;
@@ -421,13 +425,25 @@ prelink_print_cache_size (void **p, void *info)
     }
 
   return 1;
-}  
+}
 
 static int
 prelink_print_cache_object (void **p, void *info)
 {
   struct prelink_entry *e = * (struct prelink_entry **) p;
   int *psize = (int *) info, i;
+
+  if (e->type == ET_UNPRELINKABLE)
+    {
+      printf ("%s (not prelinkable)%s\n", e->filename, e->ndepends ? ":" : "");
+      for (i = 0; i < e->ndepends; i++)
+	if (e->depends[i]->type == ET_UNPRELINKABLE)
+	  printf ("    %s (not prelinkable)\n", e->depends[i]->filename);
+	else
+	  printf ("    %s [0x%08x]\n", e->depends[i]->filename,
+		  e->depends[i]->checksum);
+      return 1;
+    }
 
   if (e->type == ET_CACHE_DYN)
     printf ("%s [0x%08x] 0x%0*llx-0x%0*llx%s\n", e->filename, e->checksum,
@@ -477,6 +493,10 @@ prelink_save_cache_check (struct prelink_entry *ent)
 	break;
       case ET_CACHE_DYN:
 	break;
+      case ET_UNPRELINKABLE:
+	if (ent->type != ET_UNPRELINKABLE)
+	  return 1;
+	break;
       default:
 	return 1;
       }
@@ -491,7 +511,8 @@ find_ents (void **p, void *info)
   struct prelink_entry *e = * (struct prelink_entry **) p;
 
   if (((e->type == ET_DYN || e->type == ET_EXEC) && e->done == 2)
-      || ((e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC)
+      || ((e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC
+	   || e->type == ET_UNPRELINKABLE)
 	  && ! prelink_save_cache_check (e)))
     {
       l->ents[l->nents++] = e;
@@ -510,24 +531,24 @@ prelink_save_cache (int do_warn)
   uint32_t *deps, ndeps = 0, i, j, k;
   char *strings;
   int fd, len;
+  struct prelink_entry *ents_array[prelink_entry_count];
 
   memset (&cache, 0, sizeof (cache));
   memcpy ((char *) & cache, PRELINK_CACHE_MAGIC,
 	  sizeof (PRELINK_CACHE_MAGIC) - 1);
-  l.ents =
-    (struct prelink_entry **) alloca (prelink_entry_count
-				      * sizeof (struct prelink_entry *));
+  l.ents = ents_array;
   l.nents = 0;
   l.ndeps = 0;
   l.len_strings = 0;
   htab_traverse (prelink_filename_htab, find_ents, &l);
   cache.nlibs = l.nents;
   cache.ndeps = l.ndeps;
-  cache.len_strings = l.len_strings;  
+  cache.len_strings = l.len_strings;
 
   len = cache.nlibs * sizeof (struct prelink_cache_entry)
 	+ cache.ndeps * sizeof (uint32_t) + cache.len_strings;
-  data = alloca (len);
+  char data_buf[len];
+  data = (struct prelink_cache_entry *) data_buf;
   deps = (uint32_t *) & data[cache.nlibs];
   strings = (char *) & deps[cache.ndeps];
 
@@ -543,6 +564,13 @@ prelink_save_cache (int do_warn)
 	{
 	  data[i].base = 0;
 	  data[i].end = 0;
+	}
+      else if (l.ents[i]->type == ET_UNPRELINKABLE)
+	{
+	  data[i].base = 0;
+	  data[i].end = 0;
+	  data[i].checksum = 0;
+	  data[i].flags = PCF_UNPRELINKABLE;
 	}
       else
 	{
@@ -696,7 +724,7 @@ prelink_entry_restorefn (FILE *f)
     {
       e->depends [i] = (void *) strtol (p, &q, 0);
       if (p == q || *q != '-')
-        abort ();
+	abort ();
       p = q + 1;
     }
   if (*p++ != '|')

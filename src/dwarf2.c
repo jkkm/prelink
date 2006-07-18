@@ -230,7 +230,7 @@ read_abbrev (DSO *dso, unsigned char *ptr)
 no_memory:
       error (0, ENOMEM, "%s: Could not read .debug_abbrev", dso->filename);
       if (h)
-        htab_delete (h);
+	htab_delete (h);
       return NULL;
     }
 
@@ -239,15 +239,15 @@ no_memory:
       size = 10;
       t = malloc (sizeof (*t) + size * sizeof (struct abbrev_attr));
       if (t == NULL)
-        goto no_memory;
+	goto no_memory;
       t->entry = attr;
       t->nattr = 0;
       slot = htab_find_slot (h, t, INSERT);
       if (slot == NULL)
-        {
+	{
 	  free (t);
 	  goto no_memory;
-        }
+	}
       if (*slot != NULL)
 	{
 	  error (0, 0, "%s: Duplicate DWARF-2 abbreviation %d", dso->filename,
@@ -259,7 +259,7 @@ no_memory:
       t->tag = read_uleb128 (ptr);
       ++ptr; /* skip children flag.  */
       while ((attr = read_uleb128 (ptr)) != 0)
-        {
+	{
 	  if (t->nattr == size)
 	    {
 	      size += 10;
@@ -277,14 +277,14 @@ no_memory:
 
 	  t->attr[t->nattr].attr = attr;
 	  t->attr[t->nattr++].form = form;
-        }
+	}
       if (read_uleb128 (ptr) != 0)
-        {
+	{
 	  error (0, 0, "%s: DWARF-2 abbreviation does not end with 2 zeros",
 		 dso->filename);
 	  htab_delete (h);
 	  return NULL;
-        }
+	}
       *slot = t;
     }
 
@@ -303,8 +303,8 @@ adjust_location_list (DSO *dso, unsigned char *ptr, size_t len,
     {
       op = *ptr++;
       switch (op)
-        {
-        case DW_OP_addr:
+	{
+	case DW_OP_addr:
 	  addr = read_ptr (ptr);
 	  if (addr >= start && addr_to_sec (dso, addr) != -1)
 	    write_ptr (ptr - ptr_size, addr + adjust);
@@ -382,7 +382,7 @@ adjust_location_list (DSO *dso, unsigned char *ptr, size_t len,
 	default:
 	  error (0, 0, "%s: Unknown DWARF-2 DW_OP_%d", dso->filename, op);
 	  return 1;
-        }
+	}
     }
   return 0;
 }
@@ -628,24 +628,24 @@ adjust_attributes (DSO *dso, unsigned char *ptr, struct abbrev_tag *t,
 	    {
 	      switch (t->attr[i].attr)
 		{
-	        case DW_AT_frame_base:
-	        case DW_AT_location:
-	        case DW_AT_data_member_location:
-	        case DW_AT_vtable_elem_location:
+		case DW_AT_frame_base:
+		case DW_AT_location:
+		case DW_AT_data_member_location:
+		case DW_AT_vtable_elem_location:
 		  if (adjust_location_list (dso, ptr, len, start, adjust))
 		    return NULL;
-	          break;
-	        default:
+		  break;
+		default:
 		  if (t->attr[i].attr <= DW_AT_call_line
 		      || (t->attr[i].attr >= DW_AT_MIPS_fde
 			  && t->attr[i].attr <= DW_AT_MIPS_has_inlines)
 		      || (t->attr[i].attr >= DW_AT_sf_names
 			  && t->attr[i].attr <= DW_AT_body_end))
 		    break;
-	          error (0, 0, "%s: Unknown DWARF-2 DW_AT_%d with block DW_FORM",
+		  error (0, 0, "%s: Unknown DWARF-2 DW_AT_%d with block DW_FORM",
 			 dso->filename, t->attr[i].attr);
-	          return NULL;
-	        }
+		  return NULL;
+		}
 	      ptr += len;
 	    }
 
@@ -787,14 +787,14 @@ adjust_dwarf2_aranges (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 
       ptr += 6;
       while (ptr < endcu)
-        {
+	{
 	  addr = read_ptr (ptr);
 	  len = read_ptr (ptr);
 	  if (addr == 0 && len == 0)
 	    break;
 	  if (addr >= start && addr_to_sec (dso, addr) != -1)
 	    write_ptr (ptr - 2 * ptr_size, addr + adjust);
-        }
+	}
       assert (ptr == endcu);
     }
 
@@ -946,7 +946,7 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
     if (! (dso->shdr[i].sh_flags & (SHF_ALLOC | SHF_WRITE | SHF_EXECINSTR))
 	&& dso->shdr[i].sh_size)
       {
-        const char *name = strptr (dso, dso->ehdr.e_shstrndx,
+	const char *name = strptr (dso, dso->ehdr.e_shstrndx,
 				   dso->shdr[i].sh_name);
 
 	if (strncmp (name, ".debug_", sizeof (".debug_") - 1) == 0)
@@ -961,7 +961,7 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 		      return 1;
 		    }
 
-		  scn = dso->scn[i]; 
+		  scn = dso->scn[i];
 		  data = elf_getdata (scn, NULL);
 		  assert (data != NULL && data->d_buf != NULL);
 		  assert (elf_getdata (scn, data) == NULL);
@@ -1015,13 +1015,13 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
       ptr = debug_sections[DEBUG_INFO].data;
       endsec = ptr + debug_sections[DEBUG_INFO].size;
       while (ptr < endsec)
-        {
-          if (ptr + 11 > endsec)
-            {
-              error (0, 0, "%s: .debug_info CU header too small",
+	{
+	  if (ptr + 11 > endsec)
+	    {
+	      error (0, 0, "%s: .debug_info CU header too small",
 		     dso->filename);
-              return 1;
-            }
+	      return 1;
+	    }
 
 	  endcu = ptr + 4;
 	  endcu += read_32 (ptr);
@@ -1049,9 +1049,9 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 	  if (value >= debug_sections[DEBUG_ABBREV].size)
 	    {
 	      if (debug_sections[DEBUG_ABBREV].data == NULL)
-	        error (0, 0, "%s: .debug_abbrev not present", dso->filename);
+		error (0, 0, "%s: .debug_abbrev not present", dso->filename);
 	      else
-	        error (0, 0, "%s: DWARF-2 CU abbrev offset too large",
+		error (0, 0, "%s: DWARF-2 CU abbrev offset too large",
 		       dso->filename);
 	      return 1;
 	    }
@@ -1065,10 +1065,10 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 		  write_ptr = write_32;
 		}
 	      else if (ptr_size == 8)
-	        {
+		{
 		  do_read_ptr = do_read_64;
 		  write_ptr = write_64;
-	        }
+		}
 	      else
 		{
 		  error (0, 0, "%s: Invalid DWARF-2 pointer size %d",
@@ -1095,15 +1095,15 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 	    {
 	      tag.entry = read_uleb128 (ptr);
 	      if (tag.entry == 0)
-	        continue;
+		continue;
 	      t = htab_find_with_hash (abbrev, &tag, tag.entry);
 	      if (t == NULL)
-	        {
+		{
 		  error (0, 0, "%s: Could not find DWARF-2 abbreviation %d",
 			 dso->filename, tag.entry);
 		  htab_delete (abbrev);
 		  return 1;
-	        }
+		}
 
 	      ptr = adjust_attributes (dso, ptr, t, &cu, start, adjust);
 	      if (ptr == NULL)
@@ -1114,7 +1114,7 @@ adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 	    }
 
 	  htab_delete (abbrev);
-        }
+	}
     }
 
   if (ptr_size == 0)

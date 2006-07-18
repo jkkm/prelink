@@ -1,4 +1,4 @@
-/* An expandable hash tables datatype.  
+/* An expandable hash tables datatype.
    Copyright (C) 1999, 2000, 2001 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov (vmakarov@cygnus.com).
 
@@ -404,7 +404,7 @@ htab_find_slot_with_hash (htab, element, hash, insert)
 	}
       else  if ((*htab->eq_f) (entry, element))
 	return &htab->entries[index];
-      
+
       htab->collisions++;
       index += hash2;
       if (index >= size)

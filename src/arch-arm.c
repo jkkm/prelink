@@ -50,7 +50,7 @@ arm_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
       if (data && data >= start)
 	{
 	  int i;
-                                    
+
 	  for (i = 1; i < dso->ehdr.e_shnum; i++)
 	    if (data == dso->shdr[i].sh_addr
 		&& dso->shdr[i].sh_type == SHT_PROGBITS
@@ -122,7 +122,7 @@ arm_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
   dso = info->dso;
   value = info->resolve (info, GELF_R_SYM (rel->r_info),
 			 GELF_R_TYPE (rel->r_info));
-  switch (GELF_R_TYPE (rel->r_info))    
+  switch (GELF_R_TYPE (rel->r_info))
     {
     case R_ARM_GLOB_DAT:
     case R_ARM_JUMP_SLOT:
@@ -174,7 +174,7 @@ arm_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   dso = info->dso;
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_ARM_GLOB_DAT:
     case R_ARM_JUMP_SLOT:
@@ -213,7 +213,7 @@ static int
 arm_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_ARM_GLOB_DAT:
     case R_ARM_JUMP_SLOT:
@@ -234,7 +234,7 @@ arm_apply_rel (struct prelink_info *info, GElf_Rel *rel, char *buf)
 
   value = info->resolve (info, GELF_R_SYM (rel->r_info),
 			 GELF_R_TYPE (rel->r_info));
-  switch (GELF_R_TYPE (rel->r_info))    
+  switch (GELF_R_TYPE (rel->r_info))
     {
     case R_ARM_NONE:
       break;
@@ -278,7 +278,7 @@ arm_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
 
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_ARM_NONE:
       break;
@@ -331,7 +331,7 @@ arm_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
     return 1;
   ret->r_offset = rel->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rel->r_info));
-  switch (GELF_R_TYPE (rel->r_info))    
+  switch (GELF_R_TYPE (rel->r_info))
     {
     case R_ARM_GLOB_DAT:
     case R_ARM_JUMP_SLOT:
@@ -376,7 +376,7 @@ arm_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     return 1;
   ret->r_offset = rela->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_ARM_GLOB_DAT:
     case R_ARM_JUMP_SLOT:
@@ -489,7 +489,7 @@ arm_need_rel_to_rela (DSO *dso, int first, int last)
 	      case R_ARM_PC24:
 		return 1;
 	      }
-        }
+	}
     }
   return 0;
 }
@@ -502,19 +502,19 @@ arm_arch_prelink (DSO *dso)
   if (dso->info[DT_PLTGOT])
     {
       /* Write address of .plt into got[1].
-         .plt is what got[3] contains unless prelinking.  */
+	 .plt is what got[3] contains unless prelinking.  */
       int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
       Elf32_Addr data;
 
       if (sec == -1)
-        return 1;
+	return 1;
 
       for (i = 1; i < dso->ehdr.e_shnum; i++)
-        if (dso->shdr[i].sh_type == SHT_PROGBITS
-            && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-                                 dso->shdr[i].sh_name),
-                         ".plt"))
-        break;
+	if (dso->shdr[i].sh_type == SHT_PROGBITS
+	    && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				 dso->shdr[i].sh_name),
+			 ".plt"))
+	break;
 
       if (i == dso->ehdr.e_shnum)
 	return 0;

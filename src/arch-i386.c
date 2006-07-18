@@ -593,7 +593,7 @@ i386_need_rel_to_rela (DSO *dso, int first, int last)
 		  return 1;
 		break;
 	      }
-        }
+	}
     }
   return 0;
 }

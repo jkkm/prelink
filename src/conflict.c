@@ -107,7 +107,7 @@ prelink_conflict_rela (DSO *dso, int n, struct prelink_info *info)
   while ((data = elf_getdata (scn, data)) != NULL)
     {
       GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
-      
+
       maxndx = data->d_size / dso->shdr[n].sh_entsize;
       for (ndx = 0; ndx < maxndx;
 	   ++ndx, addr += dso->shdr[n].sh_entsize)
@@ -140,7 +140,7 @@ prelink_add_copy_rel (DSO *dso, int n, GElf_Rel *rel, struct copy_relocs *cr)
   GElf_Sym sym;
   size_t entsize = dso->shdr[symsec].sh_entsize;
   off_t off = GELF_R_SYM (rel->r_info) * entsize;
-    
+
   while ((data = elf_getdata (scn, data)) != NULL)
     {
       if (data->d_off <= off &&
@@ -467,7 +467,7 @@ prelink_build_conflicts (struct prelink_info *info)
     {
       if (info->conflicts[i] || info->tls[i].modid)
 	{
-	  
+
 	  int j, sec, first_conflict;
 	  struct prelink_conflict *conflict;
 

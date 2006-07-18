@@ -18,7 +18,7 @@ check_log() {
   echo -n "Checking $1 " >> quick1.log
   check_one $log 'Checking executable' $CHECKE
   check_one $log 'Checking shared library' $CHECKL
-  check_one $log 'Assuming' $ASSUME
+  check_one $log 'Assuming prelinked' $ASSUME
   check_one $log 'Prelinking' $PREL
   echo >> quick1.log
 }
