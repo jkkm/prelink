@@ -1,6 +1,6 @@
-# Makefile.in generated automatically by automake 1.4 from Makefile.am
+# Makefile.in generated automatically by automake 1.4-p5 from Makefile.am
 
-# Copyright (C) 1994, 1995-8, 1999 Free Software Foundation, Inc.
+# Copyright (C) 1994, 1995-8, 1999, 2001 Free Software Foundation, Inc.
 # This Makefile.in is free software; the Free Software Foundation
 # gives unlimited permission to copy and/or distribute it,
 # with or without modifications, as long as this notice is preserved.
@@ -80,13 +80,21 @@ AUTOMAKE_OPTIONS = 1.4 gnu
 DEFS = -D_GNU_SOURCE -DHAVE_CONFIG_H -Wall
 AM_CFLAGS = -Wall
 
-TESTS = movelibs.sh reloc1.sh reloc2.sh layout1.sh layout2.sh
-TESTS_ENVIRONMENT = PRELINK="../src/prelink -c ./prelink.conf -C ./prelink.cache --ld-library-path=. --dynamic-linker=`echo ./ld*.so.*`" 	CC="$(CC)" CCLINK="$(CC) -Wl,--dynamic-linker=`echo ./ld*.so.*`" 	CXX="$(CXX)" CXXLINK="$(CXX) -Wl,--dynamic-linker=`echo ./ld*.so.*`" 	$(SHELL)
+TESTS = movelibs.sh reloc1.sh reloc2.sh shuffle1.sh shuffle2.sh \
+	layout1.sh layout2.sh
+
+TESTS_ENVIRONMENT = \
+	PRELINK="../src/prelink -c ./prelink.conf -C ./prelink.cache --ld-library-path=. --dynamic-linker=`echo ./ld*.so.*`" \
+	CC="$(CC)" CCLINK="$(CC) -Wl,--dynamic-linker=`echo ./ld*.so.*`" \
+	CXX="$(CXX)" CXXLINK="$(CXX) -Wl,--dynamic-linker=`echo ./ld*.so.*`" \
+	$(SHELL)
 
 
 extra_DIST = $(TESTS)
 
-CLEANFILES = *.so *.so.* prelink.cache prelink.conf $(TESTS:%.sh=%) $(TESTS:%.sh=%.log) core *.\#prelink\#
+CLEANFILES = *.so *.so.* prelink.cache prelink.conf $(TESTS:%.sh=%) \
+	$(TESTS:%.sh=%.log) $(TESTS:%.sh=%.lds) core *.\#prelink\#
+
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = ../config.h
 CONFIG_CLEAN_FILES = 

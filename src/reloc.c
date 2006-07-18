@@ -53,6 +53,7 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
       start = dso->info[DT_REL];
       end = dso->info[DT_REL] + dso->info[DT_RELSZ];
     }
+  rinfo->reldyn_rela = rela;
 
   if (dso->info[DT_JMPREL])
     {
@@ -79,6 +80,7 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
 	  return 1;
 	}
       rinfo->plt = first;
+      rinfo->plt_rela = (dso->shdr[first].sh_type == SHT_RELA);
       if (dso->shdr[first].sh_type == SHT_REL
 	  && dso->arch->need_rel_to_rela != NULL
 	  && dso->arch->need_rel_to_rela (dso, first, first))
@@ -403,21 +405,36 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 
   if (rel || (plt && overlap))
     {
-      assert (dso->info[DT_RELENT]
-	      == gelf_fsize (dso->elf, ELF_T_REL, 1, EV_CURRENT));
-      assert (dso->info[DT_REL] != 0);
-      assert (dso->info[DT_RELSZ] != 0);
+      int dt_RELENT, dt_REL, dt_RELSZ;
 
-      info[DT_REL]->d_un.d_ptr = dso->shdr[rel ?: plt].sh_addr;
+      if (rinfo->reldyn_rela)
+	{
+	  dt_RELENT = DT_RELAENT;
+	  dt_REL = DT_RELA;
+	  dt_RELSZ = DT_RELASZ;
+	}
+      else
+	{
+	  dt_RELENT = DT_RELENT;
+	  dt_REL = DT_REL;
+	  dt_RELSZ = DT_RELSZ;
+	}
+
+      assert (dso->info[dt_RELENT]
+	      == gelf_fsize (dso->elf, ELF_T_REL, 1, EV_CURRENT));
+      assert (dso->info[dt_REL] != 0);
+      assert (dso->info[dt_RELSZ] != 0);
+
+      info[dt_REL]->d_un.d_ptr = dso->shdr[rel ?: plt].sh_addr;
       if (plt && overlap)
-	info[DT_RELSZ]->d_un.d_val =
+	info[dt_RELSZ]->d_un.d_val =
 	  dso->shdr[plt].sh_addr + dso->shdr[plt].sh_size;
       else
-	info[DT_RELSZ]->d_un.d_val =
+	info[dt_RELSZ]->d_un.d_val =
 	  dso->shdr[rel].sh_addr + dso->shdr[rel].sh_size;
-      info[DT_RELSZ]->d_un.d_val -= info[DT_REL]->d_un.d_ptr;
+      info[dt_RELSZ]->d_un.d_val -= info[dt_REL]->d_un.d_ptr;
 
-      if (dso->shdr[rel ?: plt].sh_type == SHT_RELA)
+      if (!rinfo->reldyn_rela && dso->shdr[rel ?: plt].sh_type == SHT_RELA)
 	{
 	  info[DT_RELENT]->d_un.d_val =
 	    gelf_fsize (dso->elf, ELF_T_RELA, 1, EV_CURRENT);
@@ -432,10 +449,10 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
   if (plt)
     {
       assert (dso->info[DT_JMPREL] != 0);
-      assert (dso->info[DT_PLTREL] == DT_REL);
+      assert (dso->info[DT_PLTREL] == rinfo->plt_rela ? DT_RELA : DT_REL);
 
       info[DT_JMPREL]->d_un.d_ptr = dso->shdr[plt].sh_addr;
-      if (dso->shdr[plt].sh_type == SHT_RELA)
+      if (!rinfo->plt_rela && dso->shdr[plt].sh_type == SHT_RELA)
 	{
 	  info[DT_PLTREL]->d_un.d_val = DT_RELA;
 	  info[DT_PLTRELSZ]->d_un.d_val = dso->shdr[plt].sh_size;

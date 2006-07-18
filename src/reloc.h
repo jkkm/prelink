@@ -27,6 +27,8 @@ struct reloc_info
   int plt; /* .rel*.plt section.  */
   int overlap; /* 1 if DT_REL{,A}SZ range includes DT_PLTRELSZ range.  */
   int reldyn; /* .rel*.dyn section exists already.  */
+  int reldyn_rela; /* first..last sections were originally RELA.  */
+  int plt_rela; /* plt section was originally RELA.  */
   int rel_to_rela; /* first..last sections have to be converted REL->RELA.  */
   int rel_to_rela_plt; /* plt section has to be converted REL->RELA.  */
   int relcount; /* DT_RELCOUNT resp. DT_RELACOUNT.  */

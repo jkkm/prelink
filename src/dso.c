@@ -957,7 +957,7 @@ adjust_nonalloc (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int first,
 
   for (i = 1; i < ehdr->e_shnum; i++)
     {
-      if (RELOCATE_SCN (shdr[i].sh_flags))
+      if (RELOCATE_SCN (shdr[i].sh_flags) || shdr[i].sh_type == SHT_NULL)
 	continue;
 
       if ((shdr[i].sh_offset > start
@@ -978,7 +978,7 @@ adjust_nonalloc (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int first,
 
   for (i = 1; i < ehdr->e_shnum; i++)
     {
-      if (RELOCATE_SCN (shdr[i].sh_flags))
+      if (RELOCATE_SCN (shdr[i].sh_flags) || shdr[i].sh_type == SHT_NULL)
 	continue;
 
       if (shdr[i].sh_offset > start

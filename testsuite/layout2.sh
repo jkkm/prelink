@@ -8,7 +8,8 @@ done
 $CXXLINK -o layout2 $srcdir/layout.C layout2lib*.so
 echo $PRELINK -vR ./layout2 > layout2.log
 $PRELINK -vR ./layout2 >> layout2.log 2>&1 || exit 1
-LD_LIBRARY_PATH=. ./layout2 || exit 2
-readelf -a ./layout2 >> kayout2.log 2>&1 || exit 3
+grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` layout2.log && exit 2
+LD_LIBRARY_PATH=. ./layout2 || exit 3
+readelf -a ./layout2 >> layout2.log 2>&1 || exit 4
 # So that it is not prelinked again
 chmod -x ./layout2
