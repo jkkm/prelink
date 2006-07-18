@@ -709,30 +709,6 @@ reopen_dso (DSO *dso, struct section_move *move)
   char *e_ident;
   int fd, i, j;
 
-#ifdef USE_SELINUX
-  static int selinux_enabled = -1;
-  if (selinux_enabled == -1)
-    selinux_enabled = is_selinux_enabled ();
-  if (selinux_enabled)
-    {
-      security_context_t scontext;
-      if (getfilecon (dso->filename, &scontext) < 0)
-	{
-	  error (0, errno, "Could not get security context for %s",
-		 dso->filename);
-	  return 1;
-	}
-      if (setfscreatecon (scontext) < 0)
-	{
-	  error (0, errno, "Could not set security context for %s",
-		 dso->filename);
-	  freecon (scontext);
-	  return 1;
-	}
-      freecon (scontext);
-    }
-#endif
-
   if (move == NULL)
     {
       move = init_section_move (dso);
@@ -763,11 +739,6 @@ reopen_dso (DSO *dso, struct section_move *move)
 	  goto error_out;
 	}
     }
-
-#ifdef USE_SELINUX
-  if (selinux_enabled)
-    setfscreatecon (NULL);
-#endif
 
   elf = elf_begin (fd, ELF_C_WRITE, NULL);
   if (elf == NULL)
@@ -1660,6 +1631,41 @@ write_dso (DSO *dso)
 }
 
 int
+set_security_context (DSO *dso, const char *temp_name, const char *name)
+{
+#ifdef USE_SELINUX
+  static int selinux_enabled = -1;
+  if (selinux_enabled == -1)
+    selinux_enabled = is_selinux_enabled ();
+  if (selinux_enabled)
+    {
+      security_context_t scontext;
+      if (getfilecon (name, &scontext) < 0)
+	{
+	  /* If the filesystem doesn't support extended attributes,
+	     the original had no special security context and the
+	     target cannot have one either.  */
+	  if (errno == EOPNOTSUPP)
+	    return 0;
+
+	  error (0, errno, "Could not get security context for %s",
+		 dso->filename);
+	  return 1;
+	}
+      if (setfilecon (temp_name, scontext) < 0)
+	{
+	  error (0, errno, "Could not set security context for %s",
+		 dso->filename);
+	  freecon (scontext);
+	  return 1;
+	}
+      freecon (scontext);
+    }
+#endif
+  return 0;
+}
+
+int
 update_dso (DSO *dso)
 {
   int rdwr = dso_is_rdwr (dso);
@@ -1702,6 +1708,10 @@ update_dso (DSO *dso)
       u.actime = time (NULL);
       u.modtime = st.st_mtime;
       utime (name2, &u);
+
+      if (set_security_context (dso, name2, name1))
+	return 1;
+
       if (rename (name2, name1))
 	{
 	  error (0, errno, "Could not rename temporary to %s", name1);
