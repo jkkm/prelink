@@ -111,8 +111,13 @@ ppc64_fixup_plt (struct prelink_info *info, GElf_Rela *rela, GElf_Addr value)
   size_t n;
   struct opd_rec rec;
 
-  sec = addr_to_sec (dso, value);
-  if (sec != -1)
+  if (value == 0)
+    {
+      rec.fn = 0;
+      rec.toc = 0;
+      rec.chain = 0;
+    }
+  else if ((sec = addr_to_sec (dso, value)) != -1)
     {
       rec.fn = read_ube64 (dso, value);
       rec.toc = read_ube64 (dso, value + 8);
@@ -598,7 +603,7 @@ ppc64_reloc_class (int reloc_type)
   switch (reloc_type)
     {
     case R_PPC64_COPY: return RTYPE_CLASS_COPY;
-    case R_PPC64_JMP_SLOT: return RTYPE_CLASS_PLT;
+    case R_PPC64_ADDR24: return RTYPE_CLASS_PLT;
     default: return RTYPE_CLASS_VALID;
     }
 }

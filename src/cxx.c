@@ -337,6 +337,7 @@ check_pltref:
 			     conflict = conflict->next)
 			  if (conflict->lookup.ent->base + conflict->lookupval
 			      == info->conflict_rela[i].r_addend
+			      && conflict->conflict.ent
 			      && (conflict->conflict.ent->base
 				  + conflict->conflictval
 				  == s->u.ent->base + s->value)
