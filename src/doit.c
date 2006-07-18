@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -45,6 +45,29 @@ find_ents (void **p, void *info)
   return 1;
 }
 
+static void
+clear_ent_marks (struct prelink_entry *ent)
+{
+  int i;
+
+  ent->u.tmp = 0;
+  for (i = 0; i < ent->ndepends; ++i)
+    clear_ent_marks (ent->depends[i]);
+}
+
+static int
+zero_ent_marks (struct prelink_entry *ent)
+{
+  int i;
+
+  if (ent->u.tmp == 0)
+    return 1;
+  for (i = 0; i < ent->ndepends; ++i)
+    if (zero_ent_marks (ent->depends[i]))
+      return 1;
+  return 0;
+}
+
 int
 prelink_ent (struct prelink_entry *ent)
 {
@@ -68,6 +91,21 @@ prelink_ent (struct prelink_entry *ent)
 		 ent->filename, ent->depends[i]->filename);
 	return 0;
       }
+    else
+      clear_ent_marks (ent->depends[i]);
+
+  ent->u.tmp = 1;
+  for (i = 0; i < ent->ndepends; ++i)
+    ent->depends[i]->u.tmp = 1;
+
+  if (zero_ent_marks (ent))
+    {
+      ent->done = 0;
+      if (verbose)
+	error (0, 0, "Could not prelink %s because its dependencies link against other library versions",
+	       ent->filename);
+      return 0;
+    }
 
   if (verbose)
     {
