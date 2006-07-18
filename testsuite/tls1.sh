@@ -4,7 +4,7 @@
 rm -f tlstest
 echo '__thread int a; int main (void) { return a; }' \
   | gcc -xc - -o tlstest > /dev/null 2>&1 || exit 77
-./tlstest || { rm -f tlstest; exit 77; }
+( ./tlstest || { rm -f tlstest; exit 77; } ) 2>/dev/null || exit 77
 rm -f tls1 tls1lib*.so tls1.log
 rm -f prelink.cache
 $CC -shared -O2 -fpic -o tls1lib1.so $srcdir/tls1lib1.c

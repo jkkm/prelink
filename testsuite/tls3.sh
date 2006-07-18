@@ -4,7 +4,7 @@
 rm -f tlstest
 echo '__thread int a; int main (void) { return a; }' \
   | gcc -xc - -o tlstest > /dev/null 2>&1 || exit 77
-./tlstest || { rm -f tlstest; exit 77; }
+( ./tlstest || { rm -f tlstest; exit 77; } ) 2>/dev/null || exit 77
 SHFLAGS=
 case "`uname -m`" in
   ia64|ppc*|x86_64|alpha*|s390*) SHFLAGS=-fpic;; # Does not support non-pic shared libs
