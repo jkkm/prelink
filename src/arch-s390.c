@@ -134,20 +134,20 @@ s390_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_390_PC32:
       write_be32 (dso, rela->r_offset, value + rela->r_addend - rela->r_offset);
       break;
-    case R_390_DTPOFF:
+    case R_390_TLS_DTPOFF:
       write_be32 (dso, rela->r_offset, value + rela->r_addend);
       break;
     /* DTPMOD and TPOFF is impossible to predict in shared libraries
        unless prelink sets the rules.  */
-    case R_390_DTPMOD:
+    case R_390_TLS_DTPMOD:
       if (dso->ehdr.e_type == ET_EXEC)
 	{
-	  error (0, 0, "%s: R_390_DTPMOD reloc in executable?",
+	  error (0, 0, "%s: R_390_TLS_DTPMOD reloc in executable?",
 		 dso->filename);
 	  return 1;
 	}
       break;
-    case R_390_TPOFF:
+    case R_390_TLS_TPOFF:
       if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
 	write_be32 (dso, rela->r_offset,
 		    value + rela->r_addend - info->resolvetls->offset);
@@ -250,8 +250,8 @@ s390_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       switch (GELF_R_TYPE (rela->r_info))
 	{
 	/* Even local DTPMOD and TPOFF relocs need conflicts.  */
-	case R_390_DTPMOD:
-	case R_390_TPOFF:
+	case R_390_TLS_DTPMOD:
+	case R_390_TLS_TPOFF:
 	  break;
 	default:
 	  return 0;
@@ -262,7 +262,7 @@ s390_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     {
       /* DTPOFF wants to see only real conflicts, not lookups
 	 with reloc_class RTYPE_CLASS_TLS.  */
-      if (GELF_R_TYPE (rela->r_info) == R_390_DTPOFF
+      if (GELF_R_TYPE (rela->r_info) == R_390_TLS_DTPOFF
 	  && conflict->lookup.tls == conflict->conflict.tls
 	  && conflict->lookupval == conflict->conflictval)
 	return 0;
@@ -289,9 +289,9 @@ s390_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_390_COPY:
       error (0, 0, "R_390_COPY should not be present in shared libraries");
       return 1;
-    case R_390_DTPMOD:
-    case R_390_DTPOFF:
-    case R_390_TPOFF:
+    case R_390_TLS_DTPMOD:
+    case R_390_TLS_DTPOFF:
+    case R_390_TLS_TPOFF:
       if (conflict != NULL
 	  && (conflict->reloc_class != RTYPE_CLASS_TLS
 	      || conflict->lookup.tls == NULL))
@@ -304,13 +304,13 @@ s390_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       ret->r_info = GELF_R_INFO (0, R_390_32);
       switch (GELF_R_TYPE (rela->r_info))
 	{
-	case R_390_DTPMOD:
+	case R_390_TLS_DTPMOD:
 	  ret->r_addend = tls->modid;
 	  break;
-	case R_390_DTPOFF:
-	  ret->r_addend += value;
+	case R_390_TLS_DTPOFF:
+	  ret->r_addend = value + rela->r_addend;
 	  break;
-	case R_390_TPOFF:
+	case R_390_TLS_TPOFF:
 	  ret->r_addend = value + rela->r_addend - tls->offset;
 	  break;
 	}
@@ -433,9 +433,9 @@ s390_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
     case R_390_GLOB_DAT:
     case R_390_32:
     case R_390_PC32:
-    case R_390_DTPMOD:
-    case R_390_DTPOFF:
-    case R_390_TPOFF:
+    case R_390_TLS_DTPMOD:
+    case R_390_TLS_DTPOFF:
+    case R_390_TLS_TPOFF:
       write_be32 (dso, rela->r_offset, 0);
       break;
     case R_390_COPY:
@@ -465,9 +465,9 @@ s390_reloc_class (int reloc_type)
     {
     case R_390_COPY: return RTYPE_CLASS_COPY;
     case R_390_JMP_SLOT: return RTYPE_CLASS_PLT;
-    case R_390_DTPMOD:
-    case R_390_DTPOFF:
-    case R_390_TPOFF:
+    case R_390_TLS_DTPMOD:
+    case R_390_TLS_DTPOFF:
+    case R_390_TLS_TPOFF:
       return RTYPE_CLASS_TLS;
     default: return RTYPE_CLASS_VALID;
     }

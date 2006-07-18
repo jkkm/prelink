@@ -318,7 +318,7 @@ x86_64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 	  ret->r_addend = tls->modid;
 	  break;
 	case R_X86_64_DTPOFF64:
-	  ret->r_addend += value;
+	  ret->r_addend = value + rela->r_addend;
 	  break;
 	case R_X86_64_TPOFF64:
 	  ret->r_addend = value + rela->r_addend - tls->offset;
