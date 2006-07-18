@@ -24,9 +24,126 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
+#include "hashtab.h"
 #include "prelink.h"
 
 struct prelink_entry *prelinked;
+
+htab_t prelink_devino_htab, prelink_filename_htab;
+
+static hashval_t
+devino_hash (const void *p)
+{
+  struct prelink_entry *e = (struct prelink_entry *)p;
+
+  return (e->dev << 2) ^ (e->ino) ^ (e->ino >> 20);
+}
+
+static int
+devino_eq (const void *p, const void *q)
+{
+  struct prelink_entry *e = (struct prelink_entry *)p;
+  struct prelink_entry *f = (struct prelink_entry *)q;
+
+  return e->ino == f->ino && e->dev == f->dev;
+}
+
+static hashval_t
+filename_hash (const void *p)
+{
+  struct prelink_entry *e = (struct prelink_entry *)p;
+  const unsigned char *s = (const unsigned char *)e->filename;
+  hashval_t h = 0;
+  unsigned char c;
+  size_t len = 0;
+
+  while ((c = *s++) != '\0')
+    {
+      h += c + (c << 17);
+      h ^= h >> 2;
+      ++len;
+    }
+  return h + len + (len << 17);
+}
+
+static int
+filename_eq (const void *p, const void *q)
+{
+  struct prelink_entry *e = (struct prelink_entry *)p;
+  struct prelink_entry *f = (struct prelink_entry *)q;
+
+  return strcmp (e->filename, f->filename) == 0;
+}
+
+int
+prelink_init_cache (void)
+{
+  prelink_devino_htab = htab_try_create (100, devino_hash, devino_eq, NULL);
+  prelink_filename_htab = htab_try_create (100, filename_hash, filename_eq,
+					   NULL);
+  if (prelink_devino_htab == NULL || prelink_filename_htab == NULL)
+    error (EXIT_FAILURE, ENOMEM, "Could not create hash table");
+  return 0;
+}
+
+struct prelink_entry *
+prelink_find_entry (const char *filename, dev_t dev, ino64_t ino, int insert)
+{
+  struct prelink_entry e, *ent = NULL;
+  void **filename_slot;
+  void **devino_slot;
+
+  e.filename = filename;
+  filename_slot = htab_find_slot (prelink_filename_htab, &e, INSERT);
+  if (filename_slot == NULL)
+    goto error_out;
+
+  if (*filename_slot != NULL)
+    return (struct prelink_entry *) *filename_slot;
+
+  if (! dev)
+    {
+      struct stat64 st;
+
+      if (stat64 (filename, &st) < 0)
+	{
+	  error (0, errno, "Could not stat %s", filename);
+	  return NULL;
+	}
+      dev = st.st_dev;
+      ino = st.st_ino;
+    }
+
+  e.dev = dev;
+  e.ino = ino;
+  devino_slot = htab_find_slot (prelink_devino_htab, &e, INSERT);
+  if (devino_slot == NULL)
+    goto error_out;
+
+  if (*devino_slot != NULL)
+    return (struct prelink_entry *) *devino_slot;
+
+  if (! insert)
+    return NULL;
+
+  ent = (struct prelink_entry *) calloc (sizeof (struct prelink_entry), 1);
+  if (ent == NULL)
+    goto error_out;
+
+  ent->filename = strdup (filename);
+  if (ent->filename == NULL)
+    goto error_out;
+  ent->dev = dev;
+  ent->ino = ino;
+  *filename_slot = ent;
+  *devino_slot = ent;
+  return ent;
+
+error_out:
+  free (ent);
+  error (0, ENOMEM, "Could not insert %s into hash table", filename);
+  return NULL;
+}
 
 int
 prelink_load_cache (void)

@@ -480,6 +480,10 @@ prelink_set_checksum (struct prelink_info *info)
   int i, cvt;
 
   info->ent->timestamp = (GElf_Word) time (NULL);
+  /* Simplify handling by making sure it is never 0.  */
+  if (info->ent->timestamp == 0)
+    info->ent->timestamp = 1;
+
   if (set_dynamic (dso, DT_GNU_PRELINKED, 0, 1)
       || set_dynamic (dso, DT_CHECKSUM, 0, 1))
     return 1;
@@ -515,6 +519,10 @@ prelink_set_checksum (struct prelink_info *info)
 	    }
 	}
     }
+
+  /* Simplify handling by making sure it is never 0.  */
+  if (crc == 0)
+    crc = 1;
 
   if (set_dynamic (dso, DT_CHECKSUM, crc, 1))
     abort ();

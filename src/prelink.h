@@ -174,7 +174,7 @@ struct prelink_entry
   GElf_Addr base, end;
   dev_t dev;
   ino64_t ino;
-  int ndepends;
+  int type, done, ndepends;
   struct prelink_entry **depends;
   struct prelink_entry *next;
 };
@@ -226,9 +226,13 @@ struct prelink_info
 
 int prelink_prepare (DSO *dso);
 int prelink (DSO *dso);
+int prelink_init_cache (void);
 int prelink_load_cache (void);
 int prelink_print_cache (void);
 int prelink_save_cache (void);
+struct prelink_entry *
+  prelink_find_entry (const char *filename, dev_t dev, ino64_t ino,
+		      int insert);
 struct prelink_conflict *
   prelink_conflict (struct prelink_info *info, GElf_Word r_sym,
 		    int reloc_type);
@@ -240,6 +244,9 @@ int is_ldso_soname (const char *soname);
 
 int gather_dir (const char *dir, int deref, int onefs);
 int gather_config (const char *config);
+
+FILE *execve_open (const char *path, char *const argv[], char *const envp[]);
+int execve_close (FILE *f);
 
 struct prelink_entry *prelinked;
 const char *dynamic_linker;

@@ -15,6 +15,7 @@
    along with this program; if not, write to the Free Software Foundation,
    Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
+#include <assert.h>
 #include <errno.h>
 #include <error.h>
 #include <fcntl.h>
@@ -27,11 +28,228 @@
 
 #include "prelink.h"
 
+static int gather_lib (struct prelink_entry *ent);
+
 static int
-gather_exec (DSO *dso)
+gather_deps (DSO *dso, struct prelink_entry *ent)
+{
+  int i;
+  FILE *f;
+  const char *argv[5];
+  const char *envp[2];
+  char *line = NULL, *p, *q = NULL;
+  const char **depends = NULL;
+  size_t ndepends = 0, ndepends_alloced = 0;
+  size_t len = 0;
+  ssize_t n;
+  Elf_Scn *scn;
+  Elf_Data *data;
+  Elf32_Lib *liblist = NULL;
+  int nliblist = 0;
+
+  ent->soname = strdup (dso->soname);
+  if (ent->soname == NULL)
+    {
+      error (0, ENOMEM, "%s: Could not record SONAME", ent->filename);
+      goto error_out;
+    }
+
+  if (strcmp (dso->filename, dynamic_linker) == 0
+      || is_ldso_soname (dso->soname))
+    {
+      if (ent->timestamp && ent->checksum)
+	ent->done = 1;
+      close_dso (dso);
+      return 0;
+    }
+
+  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+    {
+      const char *name
+	= strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[i].sh_name);
+      if (! strcmp (name, ".gnu.liblist")
+	  && (dso->shdr[i].sh_size % sizeof (Elf32_Lib)) == 0)
+	{
+	  nliblist = dso->shdr[i].sh_size / sizeof (Elf32_Lib);
+	  liblist = (Elf32_Lib *) alloca (dso->shdr[i].sh_size);
+	  scn = elf_getscn (dso->elf, i);
+	  data = elf_getdata (scn, NULL);
+	  if (data == NULL || elf_getdata (scn, data)
+	      || data->d_buf == NULL || data->d_off
+	      || data->d_size != dso->shdr[i].sh_size)
+	    liblist = NULL;
+	  else
+	    memcpy (liblist, data->d_buf, dso->shdr[i].sh_size);
+	  break;
+	}
+    }
+
+  close_dso (dso);
+  dso = NULL;
+
+  i = 0;
+  argv[i++] = dynamic_linker;
+  argv[i++] = ent->filename;
+  if (ld_library_path)
+    {
+      argv[i++] = "--library-path";
+      argv[i++] = ld_library_path;
+    }
+  argv[i] = NULL;
+  envp[0] = "LD_TRACE_LOADED_OBJECTS=1";
+  envp[1] = NULL;
+  f = execve_open (dynamic_linker, (char * const *)argv, (char * const *)envp);
+  if (f == NULL)
+    return 1;
+
+  do
+    {
+      n = getline (&line, &len, f);
+      if (n < 0)
+        break;
+
+      if (line[n - 1] == '\n')
+        line[n - 1] = '\0';
+
+      p = strstr (line, " => ");
+      if (p)
+	{
+	  q = strstr (p, " (");
+	  if (q == NULL && strcmp (p, " => not found") == 0)
+	    {
+	      error (0, 0, "%s: Could not find one of dependencies",
+		     ent->filename);
+	      goto error_out;
+	    }
+	}
+      if (p == NULL || q == NULL)
+	{
+	  error (0, 0, "%s: Could not parse `%s'", ent->filename, line);
+	  goto error_out;
+	}
+
+      *p = '\0';
+      p += sizeof " => " - 1;
+      *q = '\0';
+      if (ndepends == ndepends_alloced)
+	{
+	  ndepends_alloced += 10;
+	  depends =
+	    (const char **) realloc (depends,
+				     ndepends_alloced * sizeof (char *));
+	  if (depends == NULL)
+	    {
+	      error (0, ENOMEM, "%s: Could not record dependencies",
+		     ent->filename);
+	      goto error_out;
+	    }
+	}
+
+      depends[ndepends] = strdupa (p);
+      ++ndepends;
+    } while (!feof (f));
+
+  if (execve_close (f))
+    {
+      error (0, 0, "%s: Dependency tracing failed", ent->filename);
+      goto error_out;
+    }
+
+  free (line);
+  line = NULL;
+
+  ent->depends =
+    (struct prelink_entry **)
+    malloc (ndepends * sizeof (struct prelink_entry *));
+  if (ent->depends == NULL)
+    {
+      error (0, ENOMEM, "%s: Could not record dependencies", ent->filename);
+      goto error_out;
+    }
+
+  ent->ndepends = ndepends;
+  for (i = 0; i < ndepends; ++i)
+    {
+      ent->depends[i] = prelink_find_entry (depends [i], 0, 0, 1);
+      if (ent->depends[i] == NULL)
+	goto error_out;
+
+      if (ent->depends[i]->type != ET_NONE && ent->depends[i]->type != ET_DYN)
+	{
+	  error (0, 0, "%s is not a shared library", depends [i]);
+	  goto error_out;
+	}
+    }
+
+  free (depends);
+  depends = NULL;
+
+  for (i = 0; i < ndepends; ++i)
+    if (ent->depends[i]->type == ET_NONE
+	&& gather_lib (ent->depends[i]))
+      goto error_out;
+
+  if (liblist && nliblist == ndepends)
+    {
+      for (i = 0; i < ndepends; ++i)
+	if (liblist[i].l_time_stamp != ent->depends[i]->timestamp
+	    || liblist[i].l_checksum != ent->depends[i]->checksum)
+	  break;
+
+      if (i == ndepends)
+        ent->done = 1;
+    }
+
+  return 0;
+
+error_out:
+  free (line);
+  free (ent->depends);
+  ent->depends = NULL;
+  ent->ndepends = 0;
+  free (depends);
+  if (dso)
+    close_dso (dso);
+  return 1;
+}
+
+static int
+gather_lib (struct prelink_entry *ent)
+{
+  DSO *dso;
+
+  dso = open_dso (ent->filename);
+  if (dso == NULL)
+    return 1;
+
+  if (dso->ehdr.e_type != ET_DYN)
+    {
+      error (0, 0, "%s is not a shared library", ent->filename);
+      close_dso (dso);
+      return 1;
+    }
+
+  ent->timestamp = dso->info_DT_GNU_PRELINKED;
+  ent->checksum = dso->info_DT_CHECKSUM;
+  ent->base = dso->base;
+  ent->end = dso->end;
+  if (gather_deps (dso, ent))
+    return 1;
+
+  dso = NULL;
+
+  if (ent->done && (! ent->timestamp || ! ent->checksum))
+    ent->done = 0;
+  ent->type = ET_DYN;
+  return 0;
+}
+
+static int
+gather_exec (DSO *dso, const struct stat64 *st)
 {
   int i, j;
   Elf_Data *data;
+  struct prelink_entry *ent;
 
   for (i = 0; i < dso->ehdr.e_phnum; ++i)
     if (dso->phdr[i].p_type == PT_INTERP)
@@ -39,7 +257,7 @@ gather_exec (DSO *dso)
 
   /* If there are no PT_INTERP segments, it is statically linked.  */
   if (i == dso->ehdr.e_phnum)
-    return 0;
+    goto error_out;
 
   j = addr_to_sec (dso, dso->phdr[i].p_vaddr);
   if (j == -1 || dso->shdr[j].sh_addr != dso->phdr[i].p_vaddr
@@ -47,45 +265,62 @@ gather_exec (DSO *dso)
     {
       error (0, 0, "%s: PT_INTERP segment not corresponding to .interp section",
 	     dso->filename);
-      return 0;
+      goto error_out;
     }
 
   data = elf_getdata (elf_getscn (dso->elf, j), NULL);
   if (data == NULL)
     {
       error (0, 0, "%s: Could not read .interp section", dso->filename);
-      return 0;
+      goto error_out;
     }
 
   i = strnlen (data->d_buf, data->d_size);
   if (i == data->d_size)
     {
       error (0, 0, "%s: .interp section not zero terminated", dso->filename);
-      return 0;
+      goto error_out;
     }
 
   if (strcmp (dynamic_linker, data->d_buf) != 0)
     {
       error (0, 0, "%s: Using %s, not %s as dynamic linker", dso->filename,
 	     (char *) data->d_buf, dynamic_linker);
-      return 0;
+      goto error_out;
     }
 
-  printf ("%s\n", dso->filename);
+  ent = prelink_find_entry (dso->filename, st->st_dev, st->st_ino, 1);
+  if (ent == NULL)
+    goto error_out;
+
+  assert (ent->type == ET_NONE);
+
+  if (gather_deps (dso, ent))
+    return 0;
+
+  ent->type = ET_EXEC;
+  return 0;
+
+error_out:
+  if (dso)
+    close_dso (dso);
   return 0;
 }
 
 static int
-gather_func (const char *name, const struct stat64 *stat, int type,
+gather_func (const char *name, const struct stat64 *st, int type,
 	     struct FTW *ftwp)
 {
   unsigned char e_ident [EI_NIDENT + 2];
 
-  if (type == FTW_F && S_ISREG (stat->st_mode) && (stat->st_mode & 0111))
+  if (type == FTW_F && S_ISREG (st->st_mode) && (st->st_mode & 0111))
     {
       int fd;
       DSO *dso;
-  
+
+      if (prelink_find_entry (name, st->st_dev, st->st_ino, 0))
+	return 0;
+
       fd = open (name, O_RDONLY);
       if (fd == -1)
         return 0;
@@ -120,8 +355,7 @@ close_it:
       if (dso == NULL)
 	return 0;
 
-      gather_exec (dso);
-      close_dso (dso);
+      gather_exec (dso, st);
     }
 
   return 0;

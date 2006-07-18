@@ -1147,8 +1147,8 @@ close_dso (DSO *dso)
       memcpy (name, dso->filename, len);
       memcpy (name + len, ".#prelink#", sizeof (".#prelink#"));
       unlink (name);
-      close_dso_1 (dso);
     }
+  close_dso_1 (dso);
   return 0;
 }
 

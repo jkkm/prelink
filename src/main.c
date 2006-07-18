@@ -118,17 +118,18 @@ main (int argc, char *argv[])
   if (dynamic_linker == NULL)
     dynamic_linker = "/lib/ld-linux.so.2"; /* FIXME.  */
 
+  if (all)
+    {
+      prelink_init_cache ();
+      gather_config (prelink_conf);
+      return 0;
+    }
+
   prelink_load_cache ();
 
   if (print_cache)
     {
       prelink_print_cache ();
-      return 0;
-    }
-
-  if (all)
-    {
-      gather_config (prelink_conf);
       return 0;
     }
 
