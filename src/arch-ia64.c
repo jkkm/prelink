@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -484,6 +484,7 @@ ia64_reloc_class (int reloc_type)
 }
 
 PL_ARCH = {
+  .name = "IA-64",
   .class = ELFCLASS64,
   .machine = EM_IA_64,
   .alternate_machine = { EM_NONE },

@@ -432,6 +432,7 @@ sh_reloc_class (int reloc_type)
 }
 
 PL_ARCH = {
+  .name = "SuperH",
   .class = ELFCLASS32,
   .machine = EM_SH,
   .alternate_machine = { EM_NONE },

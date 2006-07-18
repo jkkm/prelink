@@ -1,4 +1,4 @@
-/* Copyright (C) 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2002.
 
    This program is free software; you can redistribute it and/or modify
@@ -819,6 +819,7 @@ ppc64_free_opd (struct prelink_entry *ent)
 }
 
 PL_ARCH = {
+  .name = "PowerPC",
   .class = ELFCLASS64,
   .machine = EM_PPC64,
   .alternate_machine = { EM_NONE },

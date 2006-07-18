@@ -1735,10 +1735,14 @@ update_dso (DSO *dso)
       utime (name2, &u);
 
       if (set_security_context (dso, name2, name1))
-	return 1;
+        {
+	  unlink (name2);
+	  return 1;
+	}
 
       if (rename (name2, name1))
 	{
+	  unlink (name2);
 	  error (0, errno, "Could not rename temporary to %s", name1);
 	  return 1;
 	}

@@ -639,6 +639,7 @@ arm_reloc_class (int reloc_type)
 }
 
 PL_ARCH = {
+  .name = "ARM",
   .class = ELFCLASS32,
   .machine = EM_ARM,
   .alternate_machine = { EM_NONE },

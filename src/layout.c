@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -73,6 +73,9 @@ find_libs (void **p, void *info)
 {
   struct layout_libs *l = (struct layout_libs *) info;
   struct prelink_entry *e = * (struct prelink_entry **) p;
+
+  if ((e->flags & (PCF_ELF64 | PCF_MACHINE)) != l->flags)
+    return 1;
 
   if (e->type == ET_DYN || e->type == ET_EXEC
       || e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC)
@@ -241,6 +244,7 @@ layout_libs (void)
       fake = NULL;
       fakecnt = 0;
       memset (&l, 0, sizeof (l));
+      l.flags = arches[arch];
       l.libs = plibs;
       l.binlibs = pbinlibs;
       htab_traverse (prelink_filename_htab, find_libs, &l);
@@ -586,8 +590,8 @@ not_found:
 	  if (narches == 1)
 	    printf ("Assigned virtual address space slots for libraries:\n");
 	  else
-	    printf ("Assigned virtual address space slots for %d-bit ELF e_machine %04x libraries:\n",
-		    class == ELFCLASS32 ? 32 : 64, arches[arch] & PCF_MACHINE);
+	    printf ("Assigned virtual address space slots for %d-bit %s ELF libraries:\n",
+		    class == ELFCLASS32 ? 32 : 64, plarch->name);
 
 	  for (i = 0; i < l.nlibs; ++i)
 	    if (l.libs[i]->done >= 1)
