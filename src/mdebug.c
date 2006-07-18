@@ -292,6 +292,16 @@ typedef struct
 #define stIndirect	34
 #define stMax		64
 
+struct mdebug
+{
+  uint32_t (*read_32) (char *);
+  GElf_Addr (*read_ptr) (char *);
+  void (*write_ptr) (char *, GElf_Addr);
+  void (*adjust_sym) (struct mdebug *, unsigned char *, GElf_Addr, GElf_Addr);
+  unsigned char *buf;
+  DSO *dso;
+};
+
 static uint32_t
 read_native_32 (char *p)
 {
@@ -352,13 +362,98 @@ write_swap_ptr64 (char *p, GElf_Addr v)
   *(uint64_t *)p = bswap_64 (v);
 }
 
-struct mdebug
+static inline int
+mdebug_sym_relocate (unsigned int st, unsigned int sc)
 {
-  uint32_t (*read_32) (char *p);
-  GElf_Addr (*read_ptr) (char *p);
-  void (*write_ptr) (char *p, GElf_Addr v);
-  unsigned char *buf;
-};
+  switch (sc)
+    {
+    case scData:
+    case scBss:
+    case scAbs:
+    case scSData:
+    case scSBss:
+    case scRData:
+    case scXData:
+    case scPData:
+      return 1;
+    case scText:
+    case scInit:
+    case scFini:
+    case scRConst:
+      if (st != stBlock && st != stEnd && st != stFile)
+	return 1;
+    default:
+      return 0;
+    }
+}
+
+static void
+adjust_mdebug_sym_le32 (struct mdebug *mdebug, mdebug_sym_32 *symptr,
+			GElf_Addr start, GElf_Addr adjust)
+{
+  unsigned int st, sc;
+  GElf_Addr addr;
+
+  st = symptr->bits1[0] & 0x3f;
+  sc = (symptr->bits1[0] >> 6) | ((symptr->bits2[0] & 7) << 2);
+  if (mdebug_sym_relocate (st, sc))
+    {
+      addr = mdebug->read_ptr (symptr->value);
+      if (addr >= start && (addr || sc != scAbs))
+	mdebug->write_ptr (symptr->value, addr + adjust);
+    }
+}
+
+static void
+adjust_mdebug_sym_be32 (struct mdebug *mdebug, mdebug_sym_32 *symptr,
+			GElf_Addr start, GElf_Addr adjust)
+{
+  unsigned int st, sc;
+  GElf_Addr addr;
+
+  st = symptr->bits1[0] >> 2;
+  sc = ((symptr->bits1[0] & 3) << 3) | (symptr->bits2[0] >> 5);
+  if (mdebug_sym_relocate (st, sc))
+    {
+      addr = mdebug->read_ptr (symptr->value);
+      if (addr >= start && (addr || sc != scAbs))
+	mdebug->write_ptr (symptr->value, addr + adjust);
+    }
+}
+
+static void
+adjust_mdebug_sym_le64 (struct mdebug *mdebug, mdebug_sym_64 *symptr,
+			GElf_Addr start, GElf_Addr adjust)
+{
+  unsigned int st, sc;
+  GElf_Addr addr;
+
+  st = symptr->bits1[0] & 0x3f;
+  sc = (symptr->bits1[0] >> 6) | ((symptr->bits2[0] & 7) << 2);
+  if (mdebug_sym_relocate (st, sc))
+    {
+      addr = mdebug->read_ptr (symptr->value);
+      if (addr >= start && (addr || sc != scAbs))
+	mdebug->write_ptr (symptr->value, addr + adjust);
+    }
+}
+
+static void
+adjust_mdebug_sym_be64 (struct mdebug *mdebug, mdebug_sym_64 *symptr,
+			GElf_Addr start, GElf_Addr adjust)
+{
+  unsigned int st, sc;
+  GElf_Addr addr;
+
+  st = symptr->bits1[0] >> 2;
+  sc = ((symptr->bits1[0] & 3) << 3) | (symptr->bits2[0] >> 5);
+  if (mdebug_sym_relocate (st, sc))
+    {
+      addr = mdebug->read_ptr (symptr->value);
+      if (addr >= start && (addr || sc != scAbs))
+	mdebug->write_ptr (symptr->value, addr + adjust);
+    }
+}
 
 #define SIZEOf(x) \
   (dso->arch->class == ELFCLASS32 ? sizeof (x##_32) : sizeof (x##_64))
@@ -375,6 +470,7 @@ start_mdebug (DSO *dso, int n, struct mdebug *mdebug)
 
   data = elf_getdata (scn, NULL);
   mdebug->buf = data->d_buf;
+  mdebug->dso = dso;
   assert (data != NULL && data->d_buf != NULL);
   assert (elf_getdata (scn, data) == NULL);
   assert (data->d_off == 0 && data->d_size == dso->shdr[n].sh_size);
@@ -421,6 +517,20 @@ start_mdebug (DSO *dso, int n, struct mdebug *mdebug)
       error (0, 0, "%s: Wrong ELF data enconding", dso->filename);
       return 1;
     }
+  if (dso->ehdr.e_ident[EI_DATA] == ELFDATA2LSB)
+    {
+      if (dso->arch->class == ELFCLASS32)
+	mdebug->adjust_sym = (void *) adjust_mdebug_sym_le32;
+      else
+	mdebug->adjust_sym = (void *) adjust_mdebug_sym_le64;
+    }
+  else
+    {
+      if (dso->arch->class == ELFCLASS32)
+	mdebug->adjust_sym = (void *) adjust_mdebug_sym_be32;
+      else
+	mdebug->adjust_sym = (void *) adjust_mdebug_sym_be64;
+    }
 
   if (dso->shdr[n].sh_size < SIZEOF (mdebug_hdr))
     {
@@ -436,6 +546,7 @@ adjust_mdebug (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
   struct mdebug mdebug;
   struct { GElf_Off offset; GElf_Off size; size_t entsize; } regions [11];
   int i = 0;
+  unsigned char *symptr, *endptr;
 
   if (start_mdebug (dso, n, &mdebug))
     return 1;
@@ -481,6 +592,39 @@ do {									\
 	  return 1;
 	}
     }
+
+  /* Adjust symbols.  */
+  if (regions[3].offset)
+    for (symptr = mdebug.buf + regions[3].offset,
+	 endptr = symptr + regions[3].size;
+	 symptr < endptr;
+	 symptr += regions[3].entsize)
+      mdebug.adjust_sym (&mdebug, symptr, start, adjust);
+
+  /* Adjust file descriptor's addresses.  */
+  if (regions[9].offset)
+    for (symptr = mdebug.buf + regions[9].offset,
+	 endptr = symptr + regions[9].size;
+	 symptr < endptr;
+	 symptr += regions[9].entsize)
+      {
+	GElf_Addr addr;
+
+	assert (offsetof (mdebug_fdr_32, adr) == 0);
+	assert (offsetof (mdebug_fdr_64, adr) == 0);
+	addr = mdebug.read_ptr (symptr);
+	if (addr >= start)
+	  mdebug.write_ptr (symptr, addr + adjust);
+      }
+
+  /* Adjust extended symbols.  */
+  if (regions[11].offset)
+    for (symptr = mdebug.buf + regions[11].offset
+		  + OFFSETOF (mdebug_ext, asym),
+	 endptr = symptr + regions[11].size;
+	 symptr < endptr;
+	 symptr += regions[11].entsize)
+      mdebug.adjust_sym (&mdebug, symptr, start, adjust);
 
   return 0;
 }

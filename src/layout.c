@@ -158,7 +158,7 @@ layout_libs (void)
   /* Make sure there is some room between libraries.  */
   for (i = 0; i < l.nlibs; ++i)
     if (l.libs[i]->type == ET_DYN)
-      l.libs[i]->end = (l.libs[i]->end + 8 * page_size) & ~(page_size - 1);
+      l.libs[i]->end = (l.libs[i]->end + 8192 + page_size - 1) & ~(page_size - 1);
 
   /* Put the already prelinked libs into double linked list.  */
   qsort (l.libs, l.nlibs, sizeof (struct prelink_entry *), addr_cmp);

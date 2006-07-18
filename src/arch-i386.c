@@ -122,31 +122,16 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
       break;
     case R_386_32:
       {
-	int relsec;
-	GElf_Addr reloff;
-	Elf_Data *data = NULL;
-
 	if (read_ule32 (dso, rel->r_offset))
 	  {
 	    error (0, 0, "%s: R_386_32 relocs with non-zero addend should not be present in prelinked REL sections",
 		   dso->filename);
 	    return 1;
 	  }
-
-	relsec = addr_to_sec (dso, reladdr);
-	assert (relsec != -1);
-	reloff = reladdr - dso->shdr[relsec].sh_addr;
-	while ((data = elf_getdata (elf_getscn (dso->elf, relsec), data))
-	       != NULL)
-	  if (data->d_off <= reloff && data->d_off + data->d_size > reloff)
-	    break;
-	assert (data != NULL);
-	reloff -= data->d_off;
-	reloff /= dso->shdr[relsec].sh_entsize;
 	rel->r_info = GELF_R_INFO (GELF_R_SYM (rel->r_info), R_386_GLOB_DAT);
-	gelfx_update_rel (dso->elf, data, reloff, rel);
 	write_le32 (dso, rel->r_offset, value);
-	break;
+	/* Tell prelink_rel routine *rel has changed.  */
+	return 2;
       }
     case R_386_PC32:
       error (0, 0, "%s: R_386_PC32 relocs should not be present in prelinked REL sections",
@@ -193,7 +178,10 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       write_le32 (dso, rela->r_offset, value + rela->r_addend - rela->r_offset);
       break;
     case R_386_COPY:
-      error (0, 0, "R_386_COPY not handled yet");
+      if (dso->ehdr.e_type == ET_EXEC)
+	/* COPY relocs are handled specially in generic code.  */
+	return 0;
+      error (0, 0, "%s: R_386_COPY reloc in shared library?", dso->filename);
       return 1;
     default:
       error (0, 0, "%s: Unknown i386 relocation type %d", dso->filename,

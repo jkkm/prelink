@@ -31,6 +31,24 @@ static int
 sparc_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 		 GElf_Addr adjust)
 {
+  if (dyn->d_tag == DT_PLTGOT)
+    {
+      int i;
+
+      for (i = 1; i < dso->ehdr.e_shnum; ++i)
+	if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			      dso->shdr[i].sh_name), ".got"))
+	  {
+	    Elf32_Addr data;
+
+	    data = read_ube32 (dso, dso->shdr[i].sh_addr);
+	    /* .got[0] points to _DYNAMIC, it needs to be adjusted.  */
+	    if (data == dso->shdr[n].sh_addr && data >= start)
+	      write_be32 (dso, dso->shdr[i].sh_addr, data + adjust);
+	    break;
+	  }
+    }
+
   return 0;
 }
 
@@ -77,23 +95,23 @@ sparc_fixup_plt (DSO *dso, GElf_Rela *rela, GElf_Addr value)
 {
   Elf32_Sword disp = value - rela->r_offset;
 
-  if (disp >= -0x1000000 && disp < 0x1000000)
+  if (disp >= -0x800000 && disp < 0x800000)
     {
       /* b,a value
 	  nop
 	 nop  */
-      write_le32 (dso, rela->r_offset, 0x30800000 | ((disp >> 2) & 0x3fffff));
-      write_le32 (dso, rela->r_offset + 4, 0x01000000);
-      write_le32 (dso, rela->r_offset + 8, 0x01000000);
+      write_be32 (dso, rela->r_offset, 0x30800000 | ((disp >> 2) & 0x3fffff));
+      write_be32 (dso, rela->r_offset + 4, 0x01000000);
+      write_be32 (dso, rela->r_offset + 8, 0x01000000);
     }
   else
     {
       /* sethi %hi(value), %g1
 	 jmpl %g1 + %lo(value), %g0
 	  nop  */
-      write_le32 (dso, rela->r_offset, 0x03000000 | ((value >> 10) & 0x3fffff));
-      write_le32 (dso, rela->r_offset + 4, 0x81c06000 | (value & 0x3ff));
-      write_le32 (dso, rela->r_offset + 8, 0x01000000);
+      write_be32 (dso, rela->r_offset, 0x03000000 | ((value >> 10) & 0x3fffff));
+      write_be32 (dso, rela->r_offset + 4, 0x81c06000 | (value & 0x3ff));
+      write_be32 (dso, rela->r_offset + 8, 0x01000000);
     }
 }
 
@@ -101,14 +119,30 @@ static int
 sparc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
 		    GElf_Addr relaaddr)
 {
-  DSO *dso;
+  DSO *dso = info->dso;
   GElf_Addr value;
 
-  if (GELF_R_TYPE (rela->r_info) == R_SPARC_RELATIVE
-      || GELF_R_TYPE (rela->r_info) == R_SPARC_NONE)
-    /* Fast path: nothing to do.  */
+  if (GELF_R_TYPE (rela->r_info) == R_SPARC_NONE)
     return 0;
-  dso = info->dso;
+  else if (GELF_R_TYPE (rela->r_info) == R_SPARC_RELATIVE)
+    {
+      /* 32-bit SPARC handles RELATIVE relocs as
+	 *(int *)rela->r_offset += l_addr + rela->r_addend.
+	 RELATIVE relocs against .got traditionally have the
+	 addend in memory pointed by r_offset and 0 r_addend,
+	 other RELATIVE relocs have 0 in memory and non-zero
+	 r_addend.  For prelinking, we need the value in
+	 memory to be already relocated for l_addr == 0 case,
+	 so we have to make sure r_addend will be 0.  */
+      if (rela->r_addend == 0)
+	return 0;
+      value = read_ube32 (dso, rela->r_offset);
+      value += rela->r_addend;
+      rela->r_addend = 0;
+      write_be32 (dso, rela->r_offset, value);
+      /* Tell prelink_rela routine it should update the relocation.  */
+      return 2;
+    }
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
   value += rela->r_addend;
@@ -152,6 +186,12 @@ sparc_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
 		  (((value - rela->r_offset) >> 2) & 0x3fffffff)
 		  | (read_ube32 (dso, rela->r_offset) & 0xc0000000));
       break;
+    case R_SPARC_COPY:
+      if (dso->ehdr.e_type == ET_EXEC)
+	/* COPY relocs are handled specially in generic code.  */
+	return 0;
+      error (0, 0, "%s: R_SPARC_COPY reloc in shared library?", dso->filename);
+      return 1;
     default:
       error (0, 0, "%s: Unknown sparc relocation type %d", dso->filename,
 	     (int) GELF_R_TYPE (rela->r_info));

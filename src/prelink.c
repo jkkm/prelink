@@ -91,8 +91,16 @@ prelink_rel (DSO *dso, int n, struct prelink_info *info)
 	  if (sec == -1)
 	    continue;
 
-	  if (dso->arch->prelink_rel (info, &rel, addr))
-	    return 1;
+	  switch (dso->arch->prelink_rel (info, &rel, addr))
+	    {
+	    case 2:
+	      gelfx_update_rel (dso->elf, data, ndx, &rel);
+	      break;
+	    case 0:
+	      break;
+	    default:
+	      return 1;
+	    }
 	}
     }
   return 0;
@@ -120,8 +128,16 @@ prelink_rela (DSO *dso, int n, struct prelink_info *info)
 	  if (sec == -1)
 	    continue;
 
-	  if (dso->arch->prelink_rela (info, &rela, addr))
-	    return 1;
+	  switch (dso->arch->prelink_rela (info, &rela, addr))
+	    {
+	    case 2:
+	      gelfx_update_rela (dso->elf, data, ndx, &rela);
+	      break;
+	    case 0:
+	      break;
+	    default:
+	      return 1;
+	    }
 	}
     }
   return 0;
