@@ -932,20 +932,23 @@ i386_layout_libs_pre (struct layout_libs *l)
   l->arch_data = pld;
 
   mmap_start = l->mmap_start - REG0S;
-  i386_find_free_addr (l, pld->addrs + 0, REG0S, REG0E,
-		       REG0S + mmap_start % (REG0E - REG0S));
-  i386_find_free_addr (l, pld->addrs + 4, REG1S, REG1E,
-		       REG1S + mmap_start % (REG1E - REG1S));
-  i386_find_free_addr (l, pld->addrs + 8, REG2S, REG2E,
-		       REG2S + mmap_start % (REG2E - REG2S));
-
+printf ("l->mmap_start = %lx\n", l->mmap_start);
+  /* Unless not randomizing, try not to make the first region
+     too small, because otherwise it is likely libc.so as first
+     big library would often end up at REG0S.  */
+  virt = mmap_start % (REG0E - REG0S - 0x200000);
+  i386_find_free_addr (l, pld->addrs + 0, REG0S, REG0E, REG0S + virt);
+  virt = mmap_start % (REG1E - REG1S - 0x200000);
+  i386_find_free_addr (l, pld->addrs + 4, REG1S, REG1E, REG1S + virt);
+  virt = mmap_start % (REG0E - REG0S - 0x200000);
+  i386_find_free_addr (l, pld->addrs + 8, REG2S, REG2E, REG2S + virt);
+  i = 0;
+  virt = pld->addrs[3] - pld->addrs[2];
   pld->e[0].u.tmp = -1;
-  pld->e[0].base = 0;
+  pld->e[0].base = virt;
   pld->e[0].end = pld->e[0].base;
   pld->e[0].layend = pld->e[0].end;
   pld->e[0].prev = &pld->e[0];
-  i = 0;
-  virt = 0;
   next = NULL;
   for (e = l->list; e != NULL; e = next)
     {
@@ -954,7 +957,13 @@ i386_layout_libs_pre (struct layout_libs *l)
 	{
 	  ++i;
 	  pld->e[i].u.tmp = -1;
-	  virt += pld->addrs[2 * i - 1] - pld->addrs[2 * i - 2];
+	  if (i & 1)
+	    virt -= pld->addrs[2 * i + 1] - pld->addrs[2 * i];
+	  else
+	    {
+	      virt += pld->addrs[2 * i - 1] - pld->addrs[2 * i - 4];
+	      virt += pld->addrs[2 * i + 3] - pld->addrs[2 * i + 2];
+	    }
 	  pld->e[i].base = virt;
 	  pld->e[i].end = pld->e[i].base;
 	  pld->e[i].layend = pld->e[i].end;
@@ -969,7 +978,13 @@ i386_layout_libs_pre (struct layout_libs *l)
     {
       ++i;
       pld->e[i].u.tmp = -1;
-      virt += pld->addrs[2 * i - 1] - pld->addrs[2 * i - 2];
+      if (i & 1)
+	virt -= pld->addrs[2 * i + 1] - pld->addrs[2 * i];
+      else
+	{
+	  virt += pld->addrs[2 * i - 1] - pld->addrs[2 * i - 4];
+	  virt += pld->addrs[2 * i + 3] - pld->addrs[2 * i + 2];
+	}
       pld->e[i].base = virt;
       pld->e[i].end = pld->e[i].base;
       pld->e[i].layend = pld->e[i].end;
@@ -996,7 +1011,7 @@ i386_layout_libs_post (struct layout_libs *l)
 {
   struct prelink_entry *e;
   struct i386_layout_data *pld = (struct i386_layout_data *) l->arch_data;
-  Elf32_Addr adj = 0;
+  Elf32_Sword adj = 0;
   int i;
 
   if (!exec_shield)
