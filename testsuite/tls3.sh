@@ -7,8 +7,7 @@ echo '__thread int a; int main (void) { return a; }' \
 ./tlstest || { rm -f tlstest; exit 77; }
 SHFLAGS=
 case "`uname -m`" in
-  ia64|ppc|x86_64) SHFLAGS=-fpic;; # Does not support non-pic shared libs
-  s390*) if file reloc1lib1.so | grep -q 64-bit; then SHFLAGS=-fpic; fi;;
+  ia64|ppc*|x86_64|alpha*|s390*) SHFLAGS=-fpic;; # Does not support non-pic shared libs
 esac
 rm -f tls3 tls3lib*.so tls3.log
 rm -f prelink.cache

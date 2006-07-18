@@ -301,7 +301,6 @@ s390_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 	  return 1;
 	}
       tls = conflict ? conflict->lookup.tls : info->curtls;
-      ret->r_info = GELF_R_INFO (0, R_390_32);
       switch (GELF_R_TYPE (rela->r_info))
 	{
 	case R_390_TLS_DTPMOD:

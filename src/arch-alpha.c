@@ -183,7 +183,7 @@ alpha_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
       break;
     case R_ALPHA_TPREL64:
       if (dso->ehdr.e_type == ET_EXEC && info->resolvetls)
-	write_be64 (dso, rela->r_offset, value + info->resolvetls->offset);
+	write_le64 (dso, rela->r_offset, value + info->resolvetls->offset);
       break;
     default:
       error (0, 0, "%s: Unknown alpha relocation type %d", dso->filename,

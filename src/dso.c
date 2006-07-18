@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -321,12 +321,26 @@ fdopen_dso (int fd, const char *name)
   qsort (sections + k, dso->ehdr.e_shnum - k, sizeof (*sections), section_cmp);
   invsections = sections + dso->ehdr.e_shnum;
   invsections[0] = 0;
-  for (i = 1; i < ehdr.e_shnum; ++i)
+  for (i = 1, j = 0; i < ehdr.e_shnum; ++i)
     {
-      dso->scn[i] = elf_getscn (elf, sections[i]);
-      gelfx_getshdr (elf, dso->scn[i], dso->shdr + i);
+      if (i != sections[i])
+	{
+	  j = 1;
+	  dso->scn[i] = elf_getscn (elf, sections[i]);
+	  gelfx_getshdr (elf, dso->scn[i], dso->shdr + i);
+	}
       invsections[sections[i]] = i;
     }
+
+  if (j)
+    {
+      dso->move = init_section_move (dso);
+      if (dso->move == NULL)
+	goto error_out;
+      memcpy (dso->move->old_to_new, invsections, dso->ehdr.e_shnum * sizeof (int));
+      memcpy (dso->move->new_to_old, sections, dso->ehdr.e_shnum * sizeof (int));
+    }
+
   for (i = 1; i < ehdr.e_shnum; ++i)
     {
       if (dso->shdr[i].sh_link >= ehdr.e_shnum)
@@ -409,6 +423,7 @@ fdopen_dso (int fd, const char *name)
 error_out:
   if (dso)
     {
+      free (dso->move);
       if (dso->soname != dso->filename)
 	free ((char *) dso->soname);
       free ((char *) dso->filename);
@@ -764,7 +779,17 @@ reopen_dso (DSO *dso, struct section_move *move)
     {
       dso->scn[i] = elf_getscn (dso->elf, i);
       gelfx_getshdr (dso->elf, dso->scn[i], dso->shdr + i);
-      if (adddel && move->new_to_old[i] != -1)
+      if (move->new_to_old[i] == -1)
+	continue;
+      if (dso->move
+	  && (dso->shdr[i].sh_type == SHT_SYMTAB
+	      || dso->shdr[i].sh_type == SHT_DYNSYM))
+	{
+	  if (adjust_symtab_section_indices (dso, i, dso->move->old_shnum,
+					     dso->move->old_to_new))
+	    goto error_out;
+	}
+      if (adddel)
 	{
 	  if (dso->shdr[i].sh_link)
 	    {
@@ -809,6 +834,9 @@ reopen_dso (DSO *dso, struct section_move *move)
 	    }
 	}
     }
+
+  free (dso->move);
+  dso->move = NULL;
 
   dso->ehdr.e_shstrndx = move->old_to_new[dso->ehdr.e_shstrndx];
   gelf_update_ehdr (dso->elf, &dso->ehdr);
@@ -1360,6 +1388,7 @@ close_dso_1 (DSO *dso)
   if (dso->filename != dso->soname)
     free ((char *) dso->soname);
   free ((char *) dso->filename);
+  free (dso->move);
   free (dso->adjust);
   free (dso->undo.d_buf);
   free (dso);

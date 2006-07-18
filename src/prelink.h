@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -53,6 +53,14 @@ struct PLAdjust
   GElf_Addr adjust;
 };
 
+struct section_move
+{
+  int old_shnum;
+  int new_shnum;
+  int *old_to_new;
+  int *new_to_old;
+};
+
 typedef struct
 {
   Elf *elf, *elfro;
@@ -84,6 +92,7 @@ typedef struct
   Elf_Data undo;
   int nadjust;
   int permissive;
+  struct section_move *move;
   GElf_Shdr shdr[0];
 } DSO;
 
@@ -144,14 +153,6 @@ struct PLArch
      It doesn't need to be the absolutely smallest supported one,
      prelink only optimizes for such page_size.  */
   GElf_Addr max_page_size, page_size;
-};
-
-struct section_move
-{
-  int old_shnum;
-  int new_shnum;
-  int *old_to_new;
-  int *new_to_old;
 };
 
 DSO * open_dso (const char *name);
