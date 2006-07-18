@@ -1,4 +1,4 @@
-/* Copyright (C) 2002 Red Hat, Inc.
+/* Copyright (C) 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2002.
 
    This program is free software; you can redistribute it and/or modify
@@ -25,14 +25,36 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include "prelink.h"
+#include "md5.h"
+#include "sha.h"
 
 static ssize_t
 send_file (int outfd, int infd, off_t *poff, size_t count)
 {
-  char buf[65536], *p, *q;
+  char buf[65536], *b, *p, *q;
   size_t todo = count, len;
   ssize_t n;
+
+  b = mmap (NULL, count, PROT_READ, MAP_PRIVATE, infd, *poff);
+  if (b != MAP_FAILED)
+    {
+      p = b;
+      q = p + count;
+      while (p != q)
+	{
+	  n = TEMP_FAILURE_RETRY (write (outfd, p, q - p));
+	  if (n < 0)
+	    {
+	      munmap (b, count);
+	      return -1;
+	    }
+	  p += n;
+	}
+      munmap (b, count);
+      return count;
+    }
 
   if (lseek (infd, *poff, SEEK_SET) != *poff)
     return -1;
@@ -61,17 +83,115 @@ send_file (int outfd, int infd, off_t *poff, size_t count)
   return count;
 }
 
+static int
+checksum_file (int fd, size_t count,
+	       void (*sum) (const void *, size_t, void *), void *arg)
+{
+  char buf[65536+64], *b, *p, *q;
+  size_t todo = count, len;
+  ssize_t n;
+
+  b = mmap (NULL, count, PROT_READ, MAP_PRIVATE, fd, 0);
+  if (b != MAP_FAILED)
+    {
+      sum (b, count, arg);
+      munmap (b, count);
+      return 0;
+    }
+
+  b = (char *) (((uintptr_t) buf + 63) & ~(uintptr_t) 63);
+  while (todo > 0)
+    {
+      len = todo > 65536 ? 65536 : todo;
+      p = b;
+      q = b + len;
+      while (p != q)
+	{
+	  n = TEMP_FAILURE_RETRY (read (fd, p, q - p));
+	  if (n < 0)
+	    return 1;
+	  p += n;
+	}
+      sum (b, len, arg);
+      todo -= len;
+    }
+  return 0;
+}
+
+static int
+handle_verify (int fd, const char *filename)
+{
+  off_t off;
+  size_t cnt;
+  struct stat64 st;
+
+  if (fstat64 (fd, &st) < 0)
+    {
+      error (0, errno, "%s: couldn't fstat temporary file", filename);
+      return 1;
+    }
+
+  if (verify_method == VERIFY_CONTENT)
+    {
+      off = 0;
+      if (send_file (1, fd, &off, st.st_size) != st.st_size)
+	{
+	  error (0, errno, "Couldn't write file to standard output");
+	  return 1;
+	}
+    }
+  else if (verify_method == VERIFY_MD5)
+    {
+      struct md5_ctx ctx;
+      unsigned char bin_buffer[16];
+
+      md5_init_ctx (&ctx);
+      if (checksum_file (fd, st.st_size,
+			 (void (*) (const void *, size_t, void *))
+			 md5_process_bytes, &ctx))
+	{
+	  error (0, errno, "%s: Couldn't read temporary file", filename);
+	  return 1;
+	}
+
+      md5_finish_ctx (&ctx, bin_buffer);
+      for (cnt = 0; cnt < 16; ++cnt)
+	printf ("%02x", bin_buffer[cnt]);
+      printf ("  %s\n", filename);
+    }
+  else if (verify_method == VERIFY_SHA)
+    {
+      struct sha_ctx ctx;
+      unsigned char bin_buffer[20];
+
+      sha_init_ctx (&ctx);
+      if (checksum_file (fd, st.st_size,
+			 (void (*) (const void *, size_t, void *))
+			 sha_process_bytes, &ctx))
+	{
+	  error (0, errno, "%s: Couldn't read temporary file", filename);
+	  return 1;
+	}
+
+      sha_finish_ctx (&ctx, bin_buffer);
+      for (cnt = 0; cnt < 20; ++cnt)
+	printf ("%02x", bin_buffer[cnt]);
+      printf ("  %s\n", filename);
+    }
+  return 0;
+}
+
 int
 prelink_verify (const char *filename)
 {
   DSO *dso = NULL, *dso2 = NULL;
   int fd = -1, fdorig = -1, fdundone = -1, undo, ret;
   struct stat64 st, st2;
-  off_t off;
   struct prelink_entry *ent;
   GElf_Addr base;
   char buffer[32768], buffer2[32768];
   size_t count;
+  char *p, *q;
 
   if (stat64 (filename, &st) < 0)
     error (EXIT_FAILURE, errno, "Couldn't stat %s", filename);
@@ -226,50 +346,66 @@ prelink_verify (const char *filename)
       goto failure;
     }
 
-  if (lseek (fdorig, 0, SEEK_SET) != 0
-      || lseek (fd, 0, SEEK_SET) != 0)
+  q = MAP_FAILED;
+  p = mmap (NULL, st.st_size, PROT_READ, MAP_PRIVATE, fdorig, 0);
+  if (p != MAP_FAILED)
     {
-      error (0, errno, "%s: couldn't seek to start of files", filename);
-      goto failure;
+      q = mmap (NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+      if (q == MAP_FAILED)
+	{
+	  munmap (p, st.st_size);
+	  p = MAP_FAILED;
+	}
     }
-
-  count = st.st_size;
-  while (count > 0)
+  if (p != MAP_FAILED)
     {
-      size_t len = sizeof (buffer);
+      int ret = memcmp (p, q, st.st_size);
 
-      if (len > count)
-	len = count;
-      if (read (fdorig, buffer, len) != len)
-        {
-          error (0, errno, "%s: couldn't read file", filename);
-          goto failure;
-        }
-      if (read (fd, buffer2, len) != len)
-        {
-	  error (0, errno, "%s: couldn't read temporary file", filename);
-	  goto failure;
-        }
-      if (memcmp (buffer, buffer2, len) != 0)
+      munmap (p, st.st_size);
+      munmap (q, st.st_size);
+      if (ret != 0)
         {
 	  error (0, 0, "%s: prelinked file was modified", filename);
 	  goto failure;
         }
-      count -= len;
+    }
+  else
+    {
+      if (lseek (fdorig, 0, SEEK_SET) != 0
+	  || lseek (fd, 0, SEEK_SET) != 0)
+	{
+	  error (0, errno, "%s: couldn't seek to start of files", filename);
+	  goto failure;
+	}
+
+      count = st.st_size;
+      while (count > 0)
+	{
+	  size_t len = sizeof (buffer);
+
+	  if (len > count)
+	    len = count;
+	  if (read (fdorig, buffer, len) != len)
+	    {
+	      error (0, errno, "%s: couldn't read file", filename);
+	      goto failure;
+	    }
+	  if (read (fd, buffer2, len) != len)
+	    {
+	      error (0, errno, "%s: couldn't read temporary file", filename);
+	      goto failure;
+	    }
+	  if (memcmp (buffer, buffer2, len) != 0)
+	    {
+	      error (0, 0, "%s: prelinked file was modified", filename);
+	      goto failure;
+	    }
+	  count -= len;
+	}
     }
 
-  if (fstat64 (fdundone, &st2) < 0)
-    {
-      error (0, errno, "%s: couldn't fstat temporary file", filename);
-      goto failure;
-    }
-
-  off = 0;
-  if (send_file (1, fdundone, &off, st2.st_size) != st2.st_size)
-    {
-      error (0, errno, "Couldn't write file to standard output");
-      goto failure;
-    }
+  if (handle_verify (fdundone, filename))
+    goto failure;
 
   close (fd);
   close (fdorig);
@@ -295,11 +431,8 @@ not_prelinked:
   fd = open (filename, O_RDONLY);
   if (fd < 0)
     error (EXIT_FAILURE, errno, "Couldn't open %s", filename);
-  if (fstat64 (fd, &st) < 0)
-    error (EXIT_FAILURE, errno, "Couldn't fstat %s", filename);
-  off = 0;
-  if (send_file (1, fd, &off, st.st_size) != st.st_size)
-    error (EXIT_FAILURE, errno, "Couldn't write file to standard output");
+  if (handle_verify (fd, filename))
+    return EXIT_FAILURE;
   close (fd);
   return 0;
 }

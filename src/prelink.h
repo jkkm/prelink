@@ -412,6 +412,8 @@ extern int enable_cxx_optimizations;
 extern int exec_shield;
 extern int undo;
 extern int verify;
+enum verify_method_t { VERIFY_CONTENT, VERIFY_MD5, VERIFY_SHA };
+extern enum verify_method_t verify_method;
 extern int quick;
 extern long long seed;
 extern GElf_Addr mmap_reg_start, mmap_reg_end;

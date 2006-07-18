@@ -15,7 +15,8 @@ prelink_SOURCES = cache.c conflict.c cxx.c data.c doit.c dso.c dwarf2.c	     \
 		  dwarf2.h exec.c execle_open.c fptr.c fptr.h get.c gather.c \
 		  hashtab.c hashtab.h layout.c main.c mdebug.c prelink.c     \
 		  prelink.h prelinktab.h reloc.c reloc.h space.c stabs.c     \
-		  undo.c undoall.c verify.c crc32.c $(prelink_SYSDEPS)
+		  undo.c undoall.c verify.c crc32.c md5.c md5.h sha.c sha.h  \
+		  $(prelink_SYSDEPS)
 prelink_LDADD = @LIBGELF@
 prelink_LDFLAGS = -all-static
 

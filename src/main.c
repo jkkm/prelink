@@ -47,6 +47,7 @@ int one_file_system;
 int enable_cxx_optimizations = 1;
 int exec_shield;
 int undo, verify;
+enum verify_method_t verify_method;
 int quick;
 long long seed;
 GElf_Addr mmap_reg_start = ~(GElf_Addr) 0;
@@ -71,6 +72,8 @@ static char argp_doc[] = "prelink -- program to relocate and prelink ELF shared 
 #define OPT_EXEC_SHIELD		0x86
 #define OPT_NO_EXEC_SHIELD	0x87
 #define OPT_SEED		0x88
+#define OPT_MD5			0x89
+#define OPT_SHA			0x8a
 
 static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
@@ -89,6 +92,8 @@ static struct argp_option options[] = {
   {"undo",		'u', 0, 0,  "Undo prelink" },
   {"verbose",		'v', 0, 0,  "Produce verbose output" },
   {"verify",		'y', 0, 0,  "Verify file consistency by undoing and redoing prelink and printing original to standard output" },
+  {"md5",		OPT_MD5, 0, 0, "For verify print MD5 sum of original to standard output instead of content" },
+  {"sha",		OPT_SHA, 0, 0, "For verify print SHA sum of original to standard output instead of content" },
   {"dynamic-linker",	OPT_DYNAMIC_LINKER, "DYNAMIC_LINKER",
 			        0,  "Special dynamic linker path" },
   {"exec-shield",	OPT_EXEC_SHIELD, 0, 0, "Lay out libraries for exec-shield on IA-32" },
@@ -175,6 +180,12 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
     case OPT_LIBS_ONLY:
       libs_only = 1;
+      break;
+    case OPT_MD5:
+      verify_method = VERIFY_MD5;
+      break;
+    case OPT_SHA:
+      verify_method = VERIFY_SHA;
       break;
     case OPT_CXX_DISABLE:
       enable_cxx_optimizations = 0;

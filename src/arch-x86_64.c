@@ -284,6 +284,8 @@ x86_64_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_X86_64_GLOB_DAT:
+      ret->r_info = GELF_R_INFO (0, R_X86_64_64);
+      /* FALLTHROUGH */
     case R_X86_64_JUMP_SLOT:
     case R_X86_64_64:
       ret->r_addend = value + rela->r_addend;

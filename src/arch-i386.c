@@ -372,6 +372,8 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
   switch (GELF_R_TYPE (rel->r_info))
     {
     case R_386_GLOB_DAT:
+      ret->r_info = GELF_R_INFO (0, R_386_32);
+      /* FALLTHROUGH */
     case R_386_JMP_SLOT:
       ret->r_addend = (Elf32_Sword) value;
       break;
@@ -472,6 +474,8 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_386_GLOB_DAT:
+      ret->r_info = GELF_R_INFO (0, R_386_32);
+      /* FALLTHROUGH */
     case R_386_JMP_SLOT:
       ret->r_addend = (Elf32_Sword) (value + rela->r_addend);
       break;

@@ -490,6 +490,7 @@ add_dir_to_dirlist (const char *name, dev_t dev, int flags)
       if (! all && implicit)
 	return 0;
       error (0, errno, "Could not record directory %s", name);
+      return 1;
     }
 
   len = strlen (canon_name);
@@ -569,7 +570,7 @@ close_it:
 
       gather_exec (dso, st);
     }
-  else if (type == FTW_D && ! all)
+  else if (type == FTW_D)
     return add_dir_to_dirlist (name, st->st_dev, FTW_CHDIR);
 
   return 0;
@@ -698,8 +699,11 @@ gather_object (const char *name, int deref, int onefs)
       if (! deref) flags |= FTW_PHYS;
       if (onefs) flags |= FTW_MOUNT;
 
-      if (! all && implicit && ! deref)
-	return add_dir_to_dirlist (name, st.st_dev, flags);
+      if (implicit && ! deref
+	  && add_dir_to_dirlist (name, st.st_dev, flags))
+	return 1;
+      if (!all && implicit && ! deref)
+	return 0;
       ++implicit;
       ret = nftw64 (name, gather_func, 20, flags);
       --implicit;
@@ -788,23 +792,15 @@ gather_check_lib (void **p, void *info)
       const char *name;
       size_t len;
 
-      if (all)
-	{
-	  error (0, 0, "%s is not present in any config file directories, nor was specified on command line",
-		 e->canon_filename);
-	  e->type = ET_BAD;
-	  return 1;
-	}
-
       name = strrchr (e->canon_filename, '/');
       if (!name)
 	name = e->canon_filename;
       len = name - e->canon_filename;
 
       for (dir = dirs; dir; dir = dir->next)
-	if (((dir->flags == FTW_CHDIR && len >= dir->len)
-	     || (dir->flags != FTW_CHDIR && len == dir->len))
-	    && strncmp (dir->dir, e->canon_filename, len) == 0)
+	if (((dir->flags != FTW_CHDIR && len >= dir->len)
+	     || (dir->flags == FTW_CHDIR && len == dir->len))
+	    && strncmp (dir->dir, e->canon_filename, dir->len) == 0)
 	  {
 	    if (dir->flags == FTW_CHDIR)
 	      break;

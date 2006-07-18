@@ -422,8 +422,10 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	        {
 		  GElf_Addr a;
 
-		  a = shdr[k].sh_addr - add->sh_addr;
+		  a = shdr[k].sh_addr;
+		  a -= shdr[k - 1].sh_addr + shdr[k - 1].sh_size;
 		  assert (add->sh_addralign <= phdr[i].p_align);
+		  assert (add->sh_size > a);
 		  a = (add->sh_size - a + phdr[i].p_align - 1)
 		      & ~(phdr[i].p_align - 1);
 		  if (a < adj)

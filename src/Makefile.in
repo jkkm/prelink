@@ -104,7 +104,8 @@ prelink_SOURCES = cache.c conflict.c cxx.c data.c doit.c dso.c dwarf2.c	     \
 		  dwarf2.h exec.c execle_open.c fptr.c fptr.h get.c gather.c \
 		  hashtab.c hashtab.h layout.c main.c mdebug.c prelink.c     \
 		  prelink.h prelinktab.h reloc.c reloc.h space.c stabs.c     \
-		  undo.c undoall.c verify.c crc32.c $(prelink_SYSDEPS)
+		  undo.c undoall.c verify.c crc32.c md5.c md5.h sha.c sha.h  \
+		  $(prelink_SYSDEPS)
 
 prelink_LDADD = @LIBGELF@
 prelink_LDFLAGS = -all-static
@@ -129,7 +130,8 @@ am_prelink_OBJECTS = cache.$(OBJEXT) conflict.$(OBJEXT) cxx.$(OBJEXT) \
 	layout.$(OBJEXT) main.$(OBJEXT) mdebug.$(OBJEXT) \
 	prelink.$(OBJEXT) reloc.$(OBJEXT) space.$(OBJEXT) \
 	stabs.$(OBJEXT) undo.$(OBJEXT) undoall.$(OBJEXT) \
-	verify.$(OBJEXT) crc32.$(OBJEXT) $(am__objects_1)
+	verify.$(OBJEXT) crc32.$(OBJEXT) md5.$(OBJEXT) sha.$(OBJEXT) \
+	$(am__objects_1)
 prelink_OBJECTS = $(am_prelink_OBJECTS)
 prelink_DEPENDENCIES =
 DEFAULT_INCLUDES =  -I. -I$(srcdir) -I$(top_builddir)
@@ -153,8 +155,9 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/execle_open.Po ./$(DEPDIR)/fptr.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/gather.Po ./$(DEPDIR)/get.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/hashtab.Po ./$(DEPDIR)/layout.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/main.Po ./$(DEPDIR)/mdebug.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/prelink.Po ./$(DEPDIR)/reloc.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/main.Po ./$(DEPDIR)/md5.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/mdebug.Po ./$(DEPDIR)/prelink.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/reloc.Po ./$(DEPDIR)/sha.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/space.Po ./$(DEPDIR)/stabs.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/undo.Po ./$(DEPDIR)/undoall.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/verify.Po
@@ -246,9 +249,11 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/hashtab.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/layout.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/main.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/md5.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mdebug.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/prelink.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reloc.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sha.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/space.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/stabs.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/undo.Po@am__quote@
