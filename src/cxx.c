@@ -41,18 +41,18 @@ find_cxx_sym (struct prelink_info *info, GElf_Addr addr,
 {
   int n, ndeps = info->ent->ndepends + 1;
   int ndx, maxndx;
-  DSO *dso;
+  DSO *dso = NULL;
   Elf_Scn *scn;
 
-  if (fcs->ent == NULL
-      || addr < fcs->ent->base
-      || addr >= fcs->ent->end)
+  if (fcs->dso == NULL
+      || addr < fcs->dso->base
+      || addr >= fcs->dso->end)
     {
       for (n = 1; n < ndeps; ++n)
 	{
-	  fcs->ent = info->ent->depends[n - 1];
-	  if (addr >= fcs->ent->base
-	      && addr < fcs->ent->end)
+	  dso = info->dsos[n];
+	  if (addr >= dso->base
+	      && addr < dso->end)
 	    break;
 	}
 
@@ -61,12 +61,13 @@ find_cxx_sym (struct prelink_info *info, GElf_Addr addr,
 	  && addr < info->dso->end)
 	{
 	  n = 0;
-	  fcs->ent = info->ent;
+	  dso = info->dso;
 	}
 
       assert (n < ndeps);
       fcs->n = n;
-      fcs->dso = dso = info->dsos[n];
+      fcs->ent = n ? info->ent->depends[n - 1] : info->ent;
+      fcs->dso = dso;
       fcs->symsec = addr_to_sec (dso, dso->info[DT_SYMTAB]);
       if (fcs->symsec == -1)
 	{

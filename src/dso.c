@@ -1030,6 +1030,15 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 	dso->phdr[i].p_memsz += adjust;
       else
 	continue;
+      if (dso->phdr[i].p_type == PT_LOAD
+	  && (dso->phdr[i].p_vaddr - dso->phdr[i].p_offset)
+	     % dso->phdr[i].p_align)
+	{
+	  error (0, 0, "%s: PT_LOAD %08llx %08llx 0x%x would be not properly aligned",
+		 dso->filename, (long long) dso->phdr[i].p_offset,
+		 (long long) dso->phdr[i].p_vaddr, (int) dso->phdr[i].p_align);
+	  return 1;
+	}
       gelf_update_phdr (dso->elf, i, dso->phdr + i);
     }
   elf_flagphdr (dso->elf, ELF_C_SET, ELF_F_DIRTY);

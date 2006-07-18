@@ -415,8 +415,15 @@ prelink_get_relocations (struct prelink_info *info)
   int i, ret, status;
   char *p;
 
-  info->ent->base = dso->base;
-  info->ent->end = dso->end;
+  if (info->ent->type == ET_DYN)
+    {
+      assert (info->ent->base == dso->base);
+      if (info->ent->end < dso->end)
+	{
+	  error (0, 0, "%s: grew since it has been recorded", info->ent->filename);
+	  return 0;
+	}
+    }
 
   if (is_ldso_soname (info->dso->soname))
     return 1;
