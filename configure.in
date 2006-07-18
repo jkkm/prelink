@@ -54,7 +54,7 @@ AC_CHECK_FUNC(gelf_getvernaux,[newbu=true],[newbu=false])
 dnl This test must come as early as possible after the compiler configuration
 dnl tests, because the choice of the file model can (in principle) affect
 dnl whether functions and headers are available, whether they work, etc.
-if test "$newbu" = truex; then
+if test x"$newbu" = xtrue; then
   # Don't use LFS for libelf-0.x
   AC_SYS_LARGEFILE
 fi

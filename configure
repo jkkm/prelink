@@ -8150,7 +8150,7 @@ else
 fi
 
 
-if test "$newbu" = truex; then
+if test x"$newbu" = xtrue; then
   # Don't use LFS for libelf-0.x
   # Check whether --enable-largefile or --disable-largefile was given.
 if test "${enable_largefile+set}" = set; then

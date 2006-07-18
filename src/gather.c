@@ -15,6 +15,7 @@
    along with this program; if not, write to the Free Software Foundation,
    Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
+#include <config.h>
 #include <assert.h>
 #include <errno.h>
 #include <error.h>
@@ -298,14 +299,57 @@ gather_dso (DSO *dso, struct prelink_entry *ent)
 	}
       if (adjust)
 	{
-	  for (; sec < dso->ehdr.e_shnum; ++sec)
-	    if (dso->shdr[sec].sh_flags
-		& (SHF_ALLOC | SHF_WRITE | SHF_EXECINSTR))
+	  int align = 0, i, last;
+	  GElf_Addr start;
+
+	  for (i = rinfo.plt ? rinfo.plt : rinfo.first;
+	       i < dso->ehdr.e_shnum; i++)
+	    {
+	      if (dso->shdr[i].sh_addralign > align)
+		align = dso->shdr[i].sh_addralign;
+	    }
+
+	  if (rinfo.plt)
+	    start = dso->shdr[rinfo.plt].sh_addr
+		    + dso->shdr[rinfo.plt].sh_size;
+	  else
+	    start = dso->shdr[rinfo.first].sh_addr
+		    + dso->shdr[rinfo.first].sh_size;
+
+	  /* Need to make sure that all the remaining sections are properly
+	     aligned.  */
+	  if (align)
+	    adjust = (adjust + align - 1) & ~(align - 1);
+
+	  /* Need to make sure adjust doesn't cause different Phdr segments
+	     to overlap on the same page.  */
+	  last = -1;
+	  for (i = 0; i < dso->ehdr.e_phnum; ++i)
+	    if (dso->phdr[i].p_type == PT_LOAD
+	        && dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz >= start)
 	      {
-		if (adjust & (dso->shdr[sec].sh_addralign - 1))
-		  adjust = (adjust + dso->shdr[sec].sh_addralign - 1)
-			   & ~(dso->shdr[sec].sh_addralign - 1);
+		if (last != -1
+		    && (((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz
+			  - 1) ^ dso->phdr[i].p_vaddr)
+			& ~(dso->arch->max_page_size - 1))
+		    && !(((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz
+			   + adjust - 1)
+			  ^ (dso->phdr[i].p_vaddr + adjust))
+			 & ~(dso->arch->max_page_size - 1)))
+		  {
+		    if (align >= dso->arch->max_page_size)
+		      {
+			error (0, 0, "%s: Cannot grow reloc sections",
+			       ent->filename);
+			close_dso (dso);
+			return 1;
+		      }
+		    adjust = (adjust + dso->arch->max_page_size - 1)
+			     & ~(dso->arch->max_page_size - 1);
+		  }
+		last = i;
 	      }
+
 	  ent->end += adjust;
 	}
     }

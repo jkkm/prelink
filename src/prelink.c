@@ -15,6 +15,7 @@
    along with this program; if not, write to the Free Software Foundation,
    Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
+#include <config.h>
 #include <assert.h>
 #include <endian.h>
 #include <errno.h>
@@ -399,8 +400,7 @@ prelink_prepare (DSO *dso)
 	  if (dso->shdr[undo - 1].sh_type != SHT_NOBITS)
 	    dso->shdr[undo].sh_offset += dso->shdr[undo - 1].sh_size;
 	  dso->shdr[undo].sh_addralign = dso->undo.d_align;
-	  dso->shdr[undo].sh_entsize = gelf_fsize (dso->elf, ELF_T_SHDR, 1,
-						   EV_CURRENT);
+	  dso->shdr[undo].sh_entsize = 1;
 	  dso->shdr[undo].sh_size = dso->undo.d_size;
 	  newoffset = dso->shdr[undo].sh_offset + dso->undo.d_align - 1;
 	  newoffset &= ~(dso->shdr[undo].sh_addralign - 1);

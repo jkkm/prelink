@@ -31,6 +31,7 @@ Boston, MA 02111-1307, USA.  */
    expanded by creation of new hash table and transferring elements from
    the old table to the new table. */
 
+#include <config.h>
 #include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>

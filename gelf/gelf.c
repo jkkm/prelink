@@ -1,5 +1,5 @@
 /* Generic ELF wrapper for libelf which does not support gelf_ API.
-   Copyright (C) 2001 Red Hat, Inc.
+   Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -16,6 +16,7 @@
    along with this program; if not, write to the Free Software Foundation,
    Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
+#include <config.h>
 #include <elf.h>
 #include <libelf.h>
 #include <stdlib.h>
