@@ -423,7 +423,12 @@ PL_ARCH = {
   .rel_to_rela = i386_rel_to_rela,
   .need_rel_to_rela = i386_need_rel_to_rela,
   .arch_prelink = i386_arch_prelink,
-  .mmap_base = 0x40000000,
+  /* Although TASK_UNMAPPED_BASE is 0x40000000, we leave some
+     area so that mmap of /etc/ld.so.cache and ld.so's malloc
+     does not take some library's VA slot.
+     Also, if this guard area isn't too small, typically
+     even dlopened libraries will get the slots they desire.  */
+  .mmap_base = 0x41000000,
   .mmap_end =  0x50000000,
   .page_size = 0x1000
 };

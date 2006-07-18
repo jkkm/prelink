@@ -125,7 +125,10 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	}
       if (p == NULL || q == NULL)
 	{
-	  error (0, 0, "%s: Could not parse `%s'", ent->filename, line);
+	  if (strstr (line, "statically linked") != NULL)
+	    error (0, 0, "%s: Library without dependencies", ent->filename);
+	  else
+	    error (0, 0, "%s: Could not parse `%s'", ent->filename, line);
 	  goto error_out;
 	}
 
@@ -175,7 +178,9 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
       if (ent->depends[i] == NULL)
 	goto error_out;
 
-      if (ent->depends[i]->type != ET_NONE && ent->depends[i]->type != ET_DYN)
+      if (ent->depends[i]->type != ET_NONE
+	  && ent->depends[i]->type != ET_NUM
+	  && ent->depends[i]->type != ET_DYN)
 	{
 	  error (0, 0, "%s is not a shared library", depends [i]);
 	  goto error_out;
@@ -220,6 +225,7 @@ gather_lib (struct prelink_entry *ent)
 {
   DSO *dso;
 
+  ent->type = ET_NUM;
   dso = open_dso (ent->filename);
   if (dso == NULL)
     return 1;

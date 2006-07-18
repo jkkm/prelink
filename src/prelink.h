@@ -52,6 +52,7 @@ typedef struct
   GElf_Addr info[DT_NUM];
   GElf_Addr info_DT_GNU_PRELINKED;
   GElf_Addr info_DT_CHECKSUM;
+  GElf_Addr info_DT_VERNEED, info_DT_VERDEF, info_DT_VERSYM;
   int fd, fdro;
   int lastscn, dynamic;
   const char *soname;
@@ -217,6 +218,7 @@ struct prelink_info
   char *dynbss;
   GElf_Addr dynbss_base;
   size_t dynbss_size, symtab_entsize;
+  int symbol_count;
   GElf_Sym *symtab;
   GElf_Rela *conflict_rela;
   size_t conflict_rela_alloced, conflict_rela_size;
@@ -262,5 +264,7 @@ extern int force;
 extern int random_base;
 extern int conserve_memory;
 extern int verbose;
+extern int dry_run;
+extern int libs_only;
 
 #endif /* PRELINK_H */

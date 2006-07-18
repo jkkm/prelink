@@ -37,6 +37,8 @@ int reloc_only;
 int no_update;
 int random_base;
 int conserve_memory;
+int libs_only;
+int dry_run;
 const char *dynamic_linker;
 const char *ld_library_path;
 const char *prelink_conf = PRELINK_CONF;
@@ -50,14 +52,16 @@ static char argp_doc[] = "prelink -- program to relocate and prelink an ELF shar
 
 #define OPT_DYNAMIC_LINKER	0x80
 #define OPT_LD_LIBRARY_PATH	0x81
+#define OPT_LIBS_ONLY		0x82
 
 static struct argp_option options[] = {
   {"all",		'a', 0, 0,  "Prelink all binaries" },
   {"cache-file",	'C', "CACHE", 0, "Use CACHE as cache file" },
   {"config-file",	'c', "CONF", 0, "Use CONF as configuration file" },
-  {"conserve-memory",	'm', 0, 0,  "Allow libraries to overlap as long as they never appear in the same program" },
   {"force",		'f', 0, 0,  "Force prelinking" },
-  {"no-update",		'n', 0, 0,  "Don't update prelink cache" },
+  {"conserve-memory",	'm', 0, 0,  "Allow libraries to overlap as long as they never appear in the same program" },
+  {"no-update-cache",	'N', 0, 0,  "Don't update prelink cache" },
+  {"dry-run",		'n', 0, 0,  "Don't actually prelink anything" },
   {"print-cache",	'p', 0,	0,  "Print prelink cache" },
   {"random",		'R', 0, 0,  "Choose random base for libraries" },
   {"reloc-only",	'r', 0, 0,  "Relocate only, don't prelink" },
@@ -66,6 +70,7 @@ static struct argp_option options[] = {
 			        0,  "Special dynamic linker path" },
   {"ld-library-path",	OPT_LD_LIBRARY_PATH, "PATHLIST",
 			        0,  "What LD_LIBRARY_PATH should be used" },
+  {"libs-only",		OPT_LIBS_ONLY, 0, 0, "Prelink only libraries, no binaries" },
   { 0 }
 };
 
@@ -77,7 +82,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'a':
       all = 1;
       break;
-    case 'F':
+    case 'f':
       force = 1;
       break;
     case 'p':
@@ -95,8 +100,11 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'm':
       conserve_memory = 1;
       break;
-    case 'n':
+    case 'N':
       no_update = 1;
+      break;
+    case 'n':
+      dry_run = 1;
       break;
     case 'C':
       prelink_cache = arg;
@@ -109,6 +117,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
     case OPT_LD_LIBRARY_PATH:
       ld_library_path = arg;
+      break;
+    case OPT_LIBS_ONLY:
+      libs_only = 1;
       break;
     default:
       return ARGP_ERR_UNKNOWN;
@@ -145,6 +156,9 @@ main (int argc, char *argv[])
       prelink_all ();
       return 0;
     }
+
+  /* FIXME */
+  error (EXIT_FAILURE, 0, "prelinking without -a not supported yet");
 
   prelink_load_cache ();
 

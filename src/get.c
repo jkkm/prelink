@@ -50,7 +50,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       GElf_Addr l_addr;
     } deps[info->ent->ndepends + 1];
   char *r;
-  int i, ndeps = 0;
+  int i, ndeps = 0, undef = 0;
 
   /* Record the dependencies.  */
   while ((r = fgets (buffer, 8192, f)) != NULL)
@@ -92,7 +92,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       if (ndeps > info->ent->ndepends)
         {
 	  error (0, 0, "%s: Recorded %d dependencies, now seeing %d\n",
-		 dso->filename, info->ent->ndepends, ndeps - 1);
+		 info->ent->filename, info->ent->ndepends, ndeps - 1);
 	  goto error_out;
         }
 
@@ -101,7 +101,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	      && strcmp (info->ent->depends [ndeps - 1]->filename, filename)))
 	{
 	  error (0, 0, "%s: %s => %s does not match recorded dependency",
-		 dso->filename, soname, filename);
+		 info->ent->filename, soname, filename);
 	  goto error_out;
 	}
 
@@ -122,13 +122,13 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
   if (ndeps != info->ent->ndepends + 1)
     {
       error (0, 0, "%s: Recorded %d dependencies, now seeing %d\n",
-	     dso->filename, info->ent->ndepends, ndeps - 1);
+	     info->ent->filename, info->ent->ndepends, ndeps - 1);
       goto error_out;
     }
 
   if (r == NULL)
     {
-      error (0, 0, "%s: %s did not print any lookup lines", dso->filename,
+      error (0, 0, "%s: %s did not print any lookup lines", info->ent->filename,
 	     dynamic_linker);
       goto error_out;
     }
@@ -139,7 +139,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 			calloc (sizeof (struct prelink_conflict *), ndeps);
       if (info->conflicts == NULL)
 	{
-	  error (0, ENOMEM, "%s: Can't build list of conflicts", dso->filename);
+	  error (0, ENOMEM, "%s: Can't build list of conflicts", info->ent->filename);
 	  goto error_out;
 	}
     }
@@ -159,7 +159,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		      &symstart, &symoff, &valstart[0], &value[0],
 		      &reloc_type, &len) != 5 || reloc_type == 0)
 	    {
-	      error (0, 0, "%s: Could not parse `%s'", dso->filename, buffer);
+	      error (0, 0, "%s: Could not parse `%s'", info->ent->filename, buffer);
 	      goto error_out;
 	    }
 
@@ -170,7 +170,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	  if (symoff < info->symtab_start || symoff >= info->symtab_end)
 	    {
 	      error (0, 0, "%s: Symbol `%s' offset 0x%08llx does not point into .dynsym section",
-		     dso->filename, buffer + len, symoff);
+		     info->ent->filename, buffer + len, symoff);
 	      goto error_out;
 	    }
 	  for (i = 0, ent = NULL; i < ndeps; i++)
@@ -205,7 +205,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		  if (s->ent != ent || s->value != value[0])
 		    {
 		      error (0, 0, "%s: Symbol `%s' with the same reloc type resolves to different values each time",
-			     dso->filename, buffer + len);
+			     info->ent->filename, buffer + len);
 		      goto error_out;
 		    }
 		  s = NULL;
@@ -237,7 +237,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		      &valstart[1], &value[1], &reloc_type, &len) != 7
 	      || reloc_type == 0)
 	    {
-	      error (0, 0, "%s: Could not parse `%s'", dso->filename, buffer);
+	      error (0, 0, "%s: Could not parse `%s'", info->ent->filename, buffer);
 	      goto error_out;
 	    }
 
@@ -294,7 +294,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 			|| conflict->conflictval != value[1])
 		      {
 			error (0, 0, "%s: Symbol `%s' with the same reloc type resolves to different values each time",
-			       dso->filename, buffer + len);
+			       info->ent->filename, buffer + len);
 			goto error_out;
 		      }
 		    break;
@@ -320,6 +320,13 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		}
 	    }
 	}
+      else if (strncmp (buffer, "undefined symbol: ",
+			sizeof ("undefined symbol: ") - 1) == 0 && ! undef)
+	{
+	  undef = 1;
+	  error (0, 0, "Warning: %s has undefined non-weak symbols",
+		 info->ent->filename);
+	}
     } while (fgets (buffer, 8192, f) != NULL);
 
   info->sonames = malloc (ndeps * sizeof (const char *));
@@ -329,8 +336,6 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
   return 0;
 
 error_out:
-  free (info->conflicts);
-  info->conflicts = NULL;
   for (i = 0; i < ndeps; i++)
     free (deps[i].soname);
   return 1;
@@ -352,9 +357,9 @@ prelink_get_relocations (struct prelink_info *info)
   if (is_ldso_soname (info->dso->soname))
     return 1;
 
-  info->symbols = calloc (sizeof (struct prelink_symbol),
-			  (info->symtab_end - info->symtab_start)
-			  / info->symtab_entsize);
+  info->symbol_count = (info->symtab_end - info->symtab_start)
+		       / info->symtab_entsize;
+  info->symbols = calloc (sizeof (struct prelink_symbol), info->symbol_count);
 
   i = 0;
   argv[i++] = dynamic_linker;
@@ -363,12 +368,12 @@ prelink_get_relocations (struct prelink_info *info)
       argv[i++] = "--library-path";
       argv[i++] = ld_library_path;
     }
-  argv[i++] = dso->filename;
+  argv[i++] = info->ent->filename;
   argv[i] = NULL;
   envp[0] = "LD_TRACE_LOADED_OBJECTS=1";
   envp[1] = "LD_BIND_NOW=1";
-  p = alloca (sizeof "LD_TRACE_PRELINKING=" + strlen (dso->filename));
-  strcpy (stpcpy (p, "LD_TRACE_PRELINKING="), dso->filename);
+  p = alloca (sizeof "LD_TRACE_PRELINKING=" + strlen (info->ent->filename));
+  strcpy (stpcpy (p, "LD_TRACE_PRELINKING="), info->ent->filename);
   envp[2] = p;
   envp[3] = NULL;
 
@@ -377,7 +382,7 @@ prelink_get_relocations (struct prelink_info *info)
   if (f == NULL)
     {
       error (0, errno, "%s: Could not trace symbol resolving",
-	     dso->filename);
+	     info->ent->filename);
       return 0;
     }
 
@@ -388,7 +393,7 @@ prelink_get_relocations (struct prelink_info *info)
     {
       if (ret)
 	error (0, status == -1 ? errno : 0,
-	       "%s Could not trace symbol resolving", dso->filename);
+	       "%s Could not trace symbol resolving", info->ent->filename);
       return 0;
     }
 

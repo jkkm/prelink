@@ -534,6 +534,54 @@ prelink_set_checksum (struct prelink_info *info)
   return 0;
 }
 
+static void
+free_info (struct prelink_info *info)
+{
+  int i;
+
+  free (info->symtab);
+  free (info->dynbss);
+  free (info->conflict_rela);
+  if (info->conflicts)
+    {
+      for (i = 0; i < info->ent->ndepends + 1; ++i)
+        {
+	  struct prelink_conflict *c = info->conflicts[i];
+	  void *f;
+
+	  while (c != NULL)
+	    {
+	      f = c;
+	      c = c->next;
+	      free (f);
+	    }
+        }
+      free (info->conflicts);
+    }
+  if (info->sonames)
+    {
+      for (i = 0; i < info->ent->ndepends + 1; ++i)
+        free ((char *) info->sonames[i]);
+      free (info->sonames);
+    }
+  if (info->symbols)
+    {
+      for (i = 0; i < info->symbol_count; ++i)
+        {
+          struct prelink_symbol *s = info->symbols[i].next;
+          void *f;
+
+	  while (s != NULL)
+	    {
+	      f = s;
+	      s = s->next;
+	      free (f);
+	    }
+        }
+      free (info->symbols);
+    }
+}
+
 int
 prelink (DSO *dso, struct prelink_entry *ent)
 {
@@ -635,23 +683,11 @@ prelink (DSO *dso, struct prelink_entry *ent)
   if (dso->ehdr.e_type == ET_DYN
       && prelink_set_checksum (&info))
     goto error_out;
-  else if (dso->ehdr.e_type == ET_EXEC
-	   && prelinked == info.ent)
-    {
-      /* Don't put binaries into cache.  */
-      prelinked = prelinked->next;
-      free (info.ent);
-    }
 
-  free (info.symtab);
+  free_info (&info);
   return 0;
 
 error_out:
-  if (prelinked == info.ent)
-    {
-      prelinked = prelinked->next;
-      free (info.ent);
-    }
-  free (info.symtab);
+  free_info (&info);
   return 1;
 }

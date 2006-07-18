@@ -236,8 +236,10 @@ struct readonly_adjust
 {
   off_t nonalloc_adjust;
   off_t basemove_adjust;
+  off_t basemove2_adjust;
   GElf_Addr basemove_end;
   int moveend;
+  int moveend2;
 };
 
 static int
@@ -266,6 +268,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    {
 	      if (shdr[j].sh_addr >= add->sh_addr + add->sh_size)
 		{
+		  if (adjust->moveend2 >= j)
+		    ++adjust->moveend2;
 		  memmove (&shdr[j + 1], &shdr[j],
 			   (ehdr->e_shnum - j) * sizeof (GElf_Shdr));
 		  shdr[j] = *add;
@@ -322,6 +326,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		      || shdr[j].sh_addr > phdr[i].p_vaddr)
 		    after = j - 1;
 	      }
+	    if (adjust->moveend2 >= after + 1)
+	      ++adjust->moveend2;
 	    memmove (&shdr[after + 2], &shdr[after + 1],
 		     (ehdr->e_shnum - after - 1) * sizeof (GElf_Shdr));
 	    shdr[after + 1] = *add;
@@ -377,6 +383,64 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
       if (moveend < ehdr->e_shnum && moveend > 1
 	  && (shdr[moveend].sh_flags & (SHF_ALLOC | SHF_WRITE)))
 	{
+	  int k = moveend;
+
+	  if (add->sh_addr && ! adjust->basemove2_adjust
+	      && phdr[i].p_vaddr <= add->sh_addr
+	      && phdr[i].p_vaddr + phdr[i].p_filesz > add->sh_addr)
+	    {
+	      for (k = moveend; k < ehdr->e_shnum; k++)
+		{
+		  if (! (shdr[k].sh_flags & (SHF_ALLOC | SHF_WRITE)))
+		    {
+		      k = ehdr->e_shnum;
+		      break;
+		    }
+
+		  if (shdr[k].sh_addr > add->sh_addr)
+		    break;
+
+		  switch (shdr[k].sh_type)
+		    {
+		    case SHT_HASH:
+		    case SHT_DYNSYM:
+		    case SHT_REL:
+		    case SHT_RELA:
+		    case SHT_STRTAB:
+		    case SHT_NOTE:
+		    case SHT_GNU_verdef:
+		    case SHT_GNU_verneed:
+		    case SHT_GNU_versym:
+		      break;
+		    default:
+		      k = ehdr->e_shnum;
+		      break;
+		    }
+		}
+
+	      if (k < ehdr->e_shnum)
+	        {
+		  GElf_Addr a;
+
+		  a = shdr[k].sh_addr - add->sh_addr;
+		  assert (add->sh_addralign <= phdr[i].p_align);
+		  a = (add->sh_size - a + phdr[i].p_align - 1)
+		      & ~(phdr[i].p_align - 1);
+		  if (a < addr)
+		    {
+		      adjust->basemove2_adjust = a;
+		      adjust->moveend2 = k;
+		      addr = a;
+		    }
+		  else
+		    k = moveend;
+	        }
+	      else
+	        k = moveend;
+	    }
+
+	  for (j = 1; j < k; ++j)
+	    shdr[j].sh_addr -= addr;
 	  phdr[i].p_vaddr -= addr;
 	  phdr[i].p_paddr -= addr;
 	  phdr[i].p_filesz += addr;
@@ -394,17 +458,27 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		phdr[j].p_offset += addr;
 	    }
 	  adjust->basemove_adjust += addr;
-	  memmove (&shdr[moveend + 1], &shdr[moveend],
-		     (ehdr->e_shnum - moveend) * sizeof (GElf_Shdr));
-	  shdr[moveend] = *add;
-	  addr = shdr[moveend - 1].sh_addr + shdr[moveend - 1].sh_size;
-	  addr -= adjust->basemove_adjust;
-	  addr = (addr + add->sh_addralign - 1) & ~(add->sh_addralign - 1);
-	  shdr[moveend].sh_addr = addr;
-	  shdr[moveend].sh_offset = (addr - phdr[i].p_vaddr)
+	  if (k == moveend && adjust->moveend2 >= k)
+	    ++adjust->moveend2;
+	  memmove (&shdr[k + 1], &shdr[k],
+		     (ehdr->e_shnum - k) * sizeof (GElf_Shdr));
+	  shdr[k] = *add;
+	  if (k == moveend)
+	    {
+	      addr = shdr[k - 1].sh_addr + shdr[k - 1].sh_size;
+	      addr = (addr + add->sh_addralign - 1) & ~(add->sh_addralign - 1);
+	    }
+	  else
+	    {
+	      addr = (shdr[k + 1].sh_addr - add->sh_size)
+		     & ~(add->sh_addralign - 1);
+	    }
+	  
+	  shdr[k].sh_addr = addr;
+	  shdr[k].sh_offset = (addr - phdr[i].p_vaddr)
 				     + phdr[i].p_offset;
 	  ehdr->e_shnum++;
-	  return moveend;
+	  return k;
 	}
     }
 
@@ -444,6 +518,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
     if (! (shdr[i].sh_flags & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR)))
       break;
   assert (i < ehdr->e_shnum);
+  if (adjust->moveend2 >= i)
+    ++adjust->moveend2;
   memmove (&shdr[i + 1], &shdr[i],
 	   (ehdr->e_shnum - i) * sizeof (GElf_Shdr));
   shdr[i] = *add;
@@ -476,6 +552,35 @@ readonly_space_adjust (DSO *dso, struct readonly_adjust *adjust)
 	    adj = 1;
 	  }
       dso->ehdr.e_shoff += adjust->basemove_adjust;
+      if (adjust->basemove2_adjust)
+        {
+	  for (i = adjust->moveend; i < adjust->moveend2; ++i)
+	    {
+	      if (dso->shdr[i].sh_type == SHT_NULL)
+	        continue;
+	      if ((dso->info[DT_HASH] == dso->shdr[i].sh_addr
+		   && set_dynamic (dso, DT_HASH, dso->shdr[i].sh_addr
+					- adjust->basemove2_adjust, 1))
+		  || (dso->info[DT_SYMTAB] == dso->shdr[i].sh_addr
+		      && set_dynamic (dso, DT_SYMTAB, dso->shdr[i].sh_addr
+					- adjust->basemove2_adjust, 1))					
+		  || (dso->info[DT_STRTAB] == dso->shdr[i].sh_addr
+		      && set_dynamic (dso, DT_STRTAB, dso->shdr[i].sh_addr
+					- adjust->basemove2_adjust, 1))
+		  || (dso->info_DT_VERDEF == dso->shdr[i].sh_addr
+		      && set_dynamic (dso, DT_VERDEF, dso->shdr[i].sh_addr
+					- adjust->basemove2_adjust, 1))
+		  || (dso->info_DT_VERNEED == dso->shdr[i].sh_addr
+		      && set_dynamic (dso, DT_VERNEED, dso->shdr[i].sh_addr
+					- adjust->basemove2_adjust, 1))
+		  || (dso->info_DT_VERSYM == dso->shdr[i].sh_addr
+		      && set_dynamic (dso, DT_VERSYM, dso->shdr[i].sh_addr
+					- adjust->basemove2_adjust, 1)))
+		return 1;
+	      dso->shdr[i].sh_addr -= adjust->basemove2_adjust;
+	      dso->shdr[i].sh_offset -= adjust->basemove2_adjust;
+	    }
+        }
     }
 
   return 0;
@@ -614,6 +719,14 @@ prelink_build_conflicts (struct prelink_info *info)
 	  error (0, ENOMEM, "%s: Cannot build .dynbss", dso->filename);
 	  goto error_out;
 	}
+      /* emacs apparently has .rel.bss relocations against .data section,
+	 crap.  */
+      if (dso->shdr[bss].sh_type != SHT_NOBITS)
+	{
+	  error (0, 0, "%s: COPY relocations don't point into .bss section",
+		 dso->filename);
+	  goto error_out;
+	}
       for (i = 0; i < cr.count; ++i)
 	{
 	  struct prelink_symbol *s;
@@ -652,7 +765,10 @@ prelink_build_conflicts (struct prelink_info *info)
 	    }
 
 	  if (ndso->shdr[sec].sh_type == SHT_NOBITS)
-	    continue; /* We already initialized .dynbss with zeros.  */
+	    {
+	      /* We already initialized .dynbss with zeros.  */
+	      continue;
+	    }
 	  scn = elf_getscn (ndso->elf, sec);
 	  data = NULL;
 	  off = s->ent->base + s->value - ndso->shdr[sec].sh_addr;
@@ -719,6 +835,8 @@ prelink_exec (struct prelink_info *info)
   Elf32_Lib *liblist = NULL;
   struct readonly_adjust adjust;
   struct section_move *move = NULL;
+
+  memset (&gnu_reloc_data.d_buf, 0, sizeof (gnu_reloc_data));
 
   if (prelink_build_conflicts (info))
     return 1;
@@ -896,6 +1014,8 @@ prelink_exec (struct prelink_info *info)
 	{
 	  k = new[i];
 	  shdr[k].sh_size -= add[i+1].sh_size;
+	  if (adjust.moveend2 >= k + 1)
+	    ++adjust.moveend2;
 	  memmove (&shdr[k + 2], &shdr[k + 1],
 		   (ehdr.e_shnum - k - 1) * sizeof (GElf_Shdr));
 	  ++ehdr.e_shnum;
@@ -915,6 +1035,8 @@ prelink_exec (struct prelink_info *info)
       if (old_dynbss == -1)
 	{
 	  new_dynbss = move->old_to_new[old_bss];
+	  if (adjust.moveend2 >= new_dynbss)
+	    ++adjust.moveend2;
 	  memmove (&shdr[new_dynbss + 1], &shdr[new_dynbss],
 		   (ehdr.e_shnum - new_dynbss) * sizeof (GElf_Shdr));
 	  ++ehdr.e_shnum;
@@ -952,6 +1074,7 @@ prelink_exec (struct prelink_info *info)
       data = elf_getdata (elf_getscn (dso->elf, i), NULL);
       free (data->d_buf);
       memcpy (data, &gnu_reloc_data, sizeof (gnu_reloc_data));
+      gnu_reloc_data.d_buf = NULL;
       dso->shdr[i].sh_info = 0;
       dso->shdr[i].sh_name = shstrtabadd (dso, ".gnu.reloc");
       if (dso->shdr[i].sh_name == 0)
@@ -1019,74 +1142,6 @@ prelink_exec (struct prelink_info *info)
 	  if (set_dynamic (dso, DT_STRTAB, dso->shdr[i].sh_addr, 1))
 	    goto error_out;
 	}
-    }
-
-  /* Create the liblist.  */
-  i = new[new_liblist];
-  dso->shdr[i] = shdr[i];
-  dso->shdr[i].sh_name = shstrtabadd (dso, ".gnu.liblist");
-  if (dso->shdr[i].sh_name == 0)
-    goto error_out;
-  else
-    {
-      Elf_Data *data;
-
-      dso->shdr[i].sh_link
-	= new_dynstr ? new[new_dynstr] : move->old_to_new[dynstrndx];
-      data = elf_getdata (elf_getscn (dso->elf, i), NULL);
-      data->d_type = ELF_T_WORD;
-      data->d_size = (ndeps - 1) * sizeof (Elf32_Lib);
-      free (data->d_buf);
-      data->d_buf = liblist;
-      liblist = NULL;
-      data->d_off = 0;
-      data->d_align = sizeof (GElf_Word);
-      data->d_version = EV_CURRENT;
-      if (set_dynamic (dso, DT_GNU_LIBLIST, dso->shdr[i].sh_addr, 1))
-	goto error_out;
-      if (set_dynamic (dso, DT_GNU_LIBLISTSZ, dso->shdr[i].sh_size, 1))
-	goto error_out;
-    }
-
-  /* Create the conflict list if necessary.  */
-  if (new_conflict != -1)
-    {
-      Elf_Data *data;
-
-      i = new[new_conflict];
-      data = elf_getdata (elf_getscn (dso->elf, i), NULL);
-      data->d_type = ELF_T_RELA;
-      data->d_size = info->conflict_rela_size
-		     * gelf_fsize (dso->elf, ELF_T_RELA, 1, EV_CURRENT);
-      data->d_off = 0;
-      data->d_align = gelf_fsize (dso->elf, ELF_T_ADDR, 1, EV_CURRENT);
-      data->d_buf = realloc (data->d_buf, data->d_size);
-      data->d_version = EV_CURRENT;
-      if (data->d_buf == NULL)
-	{
-	  error (0, ENOMEM, "%s: Could not build .gnu.conflict section", dso->filename);
-	  goto error_out;
-	}
-      qsort (info->conflict_rela, info->conflict_rela_size, sizeof (GElf_Rela),
-	     rela_cmp);
-      for (j = 0; j < info->conflict_rela_size; ++j)
-	gelfx_update_rela (dso->elf, data, j, info->conflict_rela + j);
-      free (info->conflict_rela);
-      info->conflict_rela = NULL;
-
-      dso->shdr[i] = shdr[i];
-      for (j = 1; j < dso->ehdr.e_shnum; j++)
-	if (dso->shdr[j].sh_type == SHT_DYNSYM)
-	  break;
-      assert (j < dso->ehdr.e_shnum);
-      dso->shdr[i].sh_link = j;
-      dso->shdr[i].sh_name = shstrtabadd (dso, ".gnu.conflict");
-      if (dso->shdr[i].sh_name == 0)
-	goto error_out;
-      if (set_dynamic (dso, DT_GNU_CONFLICT, dso->shdr[i].sh_addr, 1))
-	goto error_out;
-      if (set_dynamic (dso, DT_GNU_CONFLICTSZ, dso->shdr[i].sh_size, 1))
-	goto error_out;
     }
 
   /* Create or update .dynbss if necessary.  */
@@ -1166,18 +1221,88 @@ prelink_exec (struct prelink_info *info)
 	    }
 	}
       data = elf_getdata (elf_getscn (dso->elf, new_dynbss), NULL);
-      if (data->d_buf != NULL)
-	free (data->d_buf);
+      free (data->d_buf);
       data->d_buf = info->dynbss;
       info->dynbss = NULL;
       data->d_off = info->dynbss_base - dso->shdr[new_dynbss].sh_addr;
       data->d_size = info->dynbss_size;
       data->d_type = ELF_T_BYTE;
-      data = elf_getdata (elf_getscn (dso->elf, new_dynbss + 1), NULL);
-      assert (data->d_buf == NULL);
-      assert (data->d_size == dso->shdr[new_dynbss].sh_size
-			      + dso->shdr[new_dynbss + 1].sh_size);
-      data->d_size -= dso->shdr[new_dynbss].sh_size;
+      if (old_dynbss == -1)
+        {
+	  data = elf_getdata (elf_getscn (dso->elf, new_dynbss + 1), NULL);
+	  assert (data->d_buf == NULL);
+	  assert (data->d_size == dso->shdr[new_dynbss].sh_size
+				  + dso->shdr[new_dynbss + 1].sh_size);
+	  data->d_size -= dso->shdr[new_dynbss].sh_size;
+	}
+    }
+
+  /* Create the liblist.  */
+  i = new[new_liblist];
+  dso->shdr[i] = shdr[i];
+  dso->shdr[i].sh_name = shstrtabadd (dso, ".gnu.liblist");
+  if (dso->shdr[i].sh_name == 0)
+    goto error_out;
+  else
+    {
+      Elf_Data *data;
+
+      dso->shdr[i].sh_link
+	= new_dynstr ? new[new_dynstr] : move->old_to_new[dynstrndx];
+      data = elf_getdata (elf_getscn (dso->elf, i), NULL);
+      data->d_type = ELF_T_WORD;
+      data->d_size = (ndeps - 1) * sizeof (Elf32_Lib);
+      free (data->d_buf);
+      data->d_buf = liblist;
+      liblist = NULL;
+      data->d_off = 0;
+      data->d_align = sizeof (GElf_Word);
+      data->d_version = EV_CURRENT;
+      if (set_dynamic (dso, DT_GNU_LIBLIST, dso->shdr[i].sh_addr, 1))
+	goto error_out;
+      if (set_dynamic (dso, DT_GNU_LIBLISTSZ, dso->shdr[i].sh_size, 1))
+	goto error_out;
+    }
+
+  /* Create the conflict list if necessary.  */
+  if (new_conflict != -1)
+    {
+      Elf_Data *data;
+
+      i = new[new_conflict];
+      data = elf_getdata (elf_getscn (dso->elf, i), NULL);
+      data->d_type = ELF_T_RELA;
+      data->d_size = info->conflict_rela_size
+		     * gelf_fsize (dso->elf, ELF_T_RELA, 1, EV_CURRENT);
+      data->d_off = 0;
+      data->d_align = gelf_fsize (dso->elf, ELF_T_ADDR, 1, EV_CURRENT);
+      data->d_buf = realloc (data->d_buf, data->d_size);
+      data->d_version = EV_CURRENT;
+      if (data->d_buf == NULL)
+	{
+	  error (0, ENOMEM, "%s: Could not build .gnu.conflict section", dso->filename);
+	  goto error_out;
+	}
+      qsort (info->conflict_rela, info->conflict_rela_size, sizeof (GElf_Rela),
+	     rela_cmp);
+      for (j = 0; j < info->conflict_rela_size; ++j)
+	gelfx_update_rela (dso->elf, data, j, info->conflict_rela + j);
+      free (info->conflict_rela);
+      info->conflict_rela = NULL;
+
+      dso->shdr[i] = shdr[i];
+      for (j = 1; j < dso->ehdr.e_shnum; j++)
+	if (dso->shdr[j].sh_type == SHT_DYNSYM)
+	  break;
+      assert (j < dso->ehdr.e_shnum);
+      dso->shdr[i].sh_link = j;
+      dso->shdr[i].sh_name = shstrtabadd (dso, ".gnu.conflict");
+      if (dso->shdr[i].sh_name == 0)
+	goto error_out;
+      if (set_dynamic (dso, DT_GNU_CONFLICT, dso->shdr[i].sh_addr, 1))
+	goto error_out;
+      if (set_dynamic (dso, DT_GNU_CONFLICTSZ, dso->shdr[i].sh_size, 1))
+	goto error_out;
     }
 
   if (rinfo.first && ! rinfo.gnureloc && rinfo.relcount)
@@ -1188,6 +1313,7 @@ prelink_exec (struct prelink_info *info)
   return 0;
 
 error_out:
+  free (gnu_reloc_data.d_buf);
   free (liblist);
   free (move);
   return 1;

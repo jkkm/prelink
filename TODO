@@ -1,7 +1,24 @@
 - undo mode
-- make sure there are no memory leaks
-- take a list of library directories from config file, prelink all libs
-  in those directories at once, then all binaries in given paths
-  (keep the prelink one library or one binary mode under some option)
+- handle hardlinks to executables/binaries
+  (currently, if say /usr/bin/gcc and /usr/bin/gcc3 are hardlinked
+   together, prelink will pick up the first one which it will prelink
+   and will leave /usr/bin/gcc3 as different file (and not prelinked).
+   For hardlinks within the same directory I think prelink could just
+   search that directory and link(2) the files afterwards, for hardlinks
+   not within one directory, it would basically need:
+   - canonicalize_file_name early
+   - if already in cache, but with different canonicalized filename,
+     create a special link-me-after entry in cache
+   - process them afterwards)
+- hack up other modes of operation than -a, allow specifying of
+  files/binaries on the command line rather than in config file
+- check all libraries brought in because of dependencies, if they would
+  be in the prelinking directories (so that one can e.g. disallow prelinking
+  libraries on NFS mounted filesystems etc.)
+- security audit:
+  - should we only limit prelinking in non-world writeable directories
+  - or should it use O_EXCL for creation of *.#prelink# files
+- see what needs to be done in relocate_dso about stabs and dwarf2
 - more ports
+- hack support for multi-ABI arches
 - more testing

@@ -20,7 +20,11 @@
 #include <error.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
+#include <utime.h>
 #include "prelink.h"
 
 #define RELOCATE_SCN(shf) \
@@ -56,6 +60,12 @@ read_dynamic (DSO *dso)
 		  dso->info_DT_CHECKSUM = dyn.d_un.d_val;
 		else if (dyn.d_tag == DT_GNU_PRELINKED)
 		  dso->info_DT_GNU_PRELINKED = dyn.d_un.d_val;
+		else if (dyn.d_tag == DT_VERDEF)
+		  dso->info_DT_VERDEF = dyn.d_un.d_val;
+		else if (dyn.d_tag == DT_VERNEED)
+		  dso->info_DT_VERNEED = dyn.d_un.d_val;
+		else if (dyn.d_tag == DT_VERSYM)
+		  dso->info_DT_VERSYM = dyn.d_un.d_val;
 	      }
 	    if (ndx < maxndx)
 	      break;
@@ -131,7 +141,9 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
   if (! RELOCATE_SCN (dso->shdr[dso->dynamic + 1].sh_flags))
     {
       /* FIXME: Handle this. May happen e.g. if there is no .bss.  */
-      abort ();
+      if (fatal)
+	error (0, 0, "%s: Not enough room to add .dynamic entry",
+	       dso->filename);
       return 1;
     }
   else if (dso->shdr[dso->dynamic].sh_addr
@@ -468,7 +480,7 @@ reopen_dso (DSO *dso, struct section_move *move)
 
   sprintf (filename, "%s.#prelink#", dso->filename);
 
-  fd = open (filename, O_RDWR|O_CREAT, 0755);
+  fd = open (filename, O_RDWR|O_CREAT, 0600);
   if (fd == -1)
     {
       error (0, errno, "Could not create temporary file %s", filename);
@@ -1121,6 +1133,23 @@ relocate_dso (DSO *dso, GElf_Addr base)
 static int
 close_dso_1 (DSO *dso)
 {
+  if (dso_is_rdwr (dso))
+    {
+      int i;
+
+      for (i = 1; i < dso->ehdr.e_shnum; ++i)
+        {
+	  Elf_Scn *scn = elf_getscn (dso->elf, i);
+	  Elf_Data *data = NULL;
+
+	  while ((data = elf_getdata (scn, data)) != NULL)
+	    {
+	      free (data->d_buf);
+	      data->d_buf = NULL;
+	    }
+        }
+    }
+
   elf_end (dso->elf);
   close (dso->fd);
   if (dso->elfro)
@@ -1163,6 +1192,8 @@ update_dso (DSO *dso)
     {
       char *name1, *name2;
       size_t len = strlen (dso->filename);
+      struct utimbuf u;
+      struct stat64 st;
       int i;
 
       name1 = alloca (len + 1);
@@ -1182,7 +1213,23 @@ update_dso (DSO *dso)
 	  close_dso (dso);
 	  return 1;
 	}
+      if (fstat64 (dso->fdro, &st) < 0)
+        {
+          error (0, errno, "Could not stat %s", dso->filename);
+          close_dso (dso);
+          return 1;
+        }
+      if (fchown (dso->fd, st.st_uid, st.st_gid) < 0
+          || fchmod (dso->fd, st.st_mode & 07777) < 0)
+        {
+          error (0, errno, "Could not set %s owner or mode", dso->filename);
+          close_dso (dso);
+          return 1;
+        }
       close_dso_1 (dso);
+      u.actime = time (NULL);
+      u.modtime = st.st_mtime;
+      utime (name2, &u);
       if (rename (name2, name1))
 	{
 	  error (0, errno, "Could not rename temporary to %s",

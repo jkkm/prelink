@@ -20,6 +20,8 @@
 #include <error.h>
 #include <fcntl.h>
 #include <string.h>
+#include <stdlib.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 #include "prelinktab.h"
@@ -37,7 +39,7 @@ find_ents (void **p, void *info)
   struct prelink_entry *e = * (struct prelink_entry **) p;
 
   if ((e->type == ET_DYN && e->done == 1)
-      || (e->type == ET_EXEC && e->done == 0))
+      || (e->type == ET_EXEC && e->done == 0 && ! libs_only))
     l->ents[l->nents++] = e;
 
   return 1;
@@ -48,6 +50,8 @@ prelink_ent (struct prelink_entry *ent)
 {
   int i;
   DSO *dso;
+  char *filename;
+  struct stat64 st;
 
   for (i = 0; i < ent->ndepends; ++i)
     if (ent->depends[i]->done == 1 && prelink_ent (ent->depends[i]))
@@ -63,11 +67,45 @@ prelink_ent (struct prelink_entry *ent)
 	return 0;
       }
 
+  filename = canonicalize_file_name (ent->filename);
+  if (filename == NULL)
+    {
+      error (0, errno, "Could not canonicalize filename %s", ent->filename);
+      ent->done = 0;
+      return 0;
+    }
+
   if (verbose)
-    printf ("Prelinking %s\n", ent->filename);
-  dso = open_dso (ent->filename);
+    {
+      if (dry_run)
+        printf ("Would prelink %s\n", filename);
+      else
+	printf ("Prelinking %s\n", filename);
+    }
+
+  dso = open_dso (filename);
   if (dso == NULL)
     goto error_out;
+
+  if (fstat64 (dso->fd, &st) < 0)
+    {
+      error (0, errno, "%s changed during prelinking", ent->filename);
+      goto error_out;
+    }
+
+  if (st.st_dev != ent->dev || st.st_ino != ent->ino)
+    {
+      error (0, 0, "%s changed during prelinking", ent->filename);
+      goto error_out;
+    }
+
+  if (dry_run)
+    {
+      close_dso (dso);
+      ent->done = 2;
+      return 0;
+    }
+
   if (prelink_prepare (dso))
     goto error_out;
   if (ent->type == ET_DYN && relocate_dso (dso, ent->base))
@@ -80,10 +118,12 @@ prelink_ent (struct prelink_entry *ent)
       goto error_out;
     }
   ent->done = 2;
+  free (filename);
   return 0;
 
 error_out:
   ent->done = 0;
+  free (filename);
   if (dso)
     close_dso (dso);
   return 0;
