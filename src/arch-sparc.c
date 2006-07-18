@@ -431,18 +431,17 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
           value = tls->modid;
           break;
         case R_SPARC_TLS_DTPOFF32:
-          value += rela->r_addend;
           break;
         case R_SPARC_TLS_TPOFF32:
-          value += rela->r_addend - tls->offset;
+          value -= tls->offset;
           break;
         case R_SPARC_TLS_LE_HIX22:
-          value += rela->r_addend - tls->offset;
+          value -= tls->offset;
 	  value = (read_ube32 (dso, rela->r_offset) & 0xffc00000)
 		  | (((~value) >> 10) & 0x3fffff);
 	  break;
         case R_SPARC_TLS_LE_LOX10:
-          value += rela->r_addend - tls->offset;
+          value -= tls->offset;
           value = (read_ube32 (dso, rela->r_offset) & 0xffffe000) | 0x1c00
 		  | (value & 0x3ff);
           break;

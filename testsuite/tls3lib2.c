@@ -3,13 +3,17 @@
 
 asm (".section trampoline, \"awx\"; .previous");
 
+#if !defined __sparc__ || defined __pic__ || defined __PIC__
+#define ieattr __attribute__((tls_model("initial-exec")))
+#else
+#define ieattr
+#endif
+
 static __thread long long dummy = 12;
 __thread struct A a2 = { 22, 23, 24 };
-__thread struct A a4 __attribute__((tls_model("initial-exec")))
-  = { 25, 26, 27 };
+__thread struct A a4 ieattr = { 25, 26, 27 };
 static __thread struct A local1 = { 28, 29, 30 };
-static __thread struct A local2 __attribute__((tls_model("initial-exec")))
-  = { 31, 32, 33 };
+static __thread struct A local2 ieattr = { 31, 32, 33 };
 
 void __attribute__((section ("trampoline"))) check2 (void)
 {
