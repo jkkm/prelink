@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -224,7 +224,8 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	  if ((shdr[j].sh_flags & SHF_ALLOC)
 	      && shdr[j].sh_addr >= add->sh_addr)
 	    {
-	      if (shdr[j].sh_addr >= add->sh_addr + add->sh_size)
+	      if (shdr[j].sh_addr >= add->sh_addr + add->sh_size
+		  && shdr[j - 1].sh_addr + shdr[j - 1].sh_size <= add->sh_addr)
 		{
 		  insert_readonly_section (ehdr, shdr, j, adjust);
 		  shdr[j] = *add;
