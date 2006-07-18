@@ -44,6 +44,11 @@
 #define SHT_GNU_LIBLIST		0x6ffffff7
 #endif
 
+#ifndef DT_GNU_HASH
+#define DT_GNU_HASH		0x6ffffef5
+#define SHT_GNU_HASH		0x6ffffff6
+#endif
+
 struct prelink_entry;
 struct prelink_info;
 struct PLArch;
@@ -75,6 +80,7 @@ typedef struct
   GElf_Addr info_DT_GNU_PRELINKED;
   GElf_Addr info_DT_CHECKSUM;
   GElf_Addr info_DT_VERNEED, info_DT_VERDEF, info_DT_VERSYM;
+  GElf_Addr info_DT_GNU_HASH;
 #define DT_GNU_PRELINKED_BIT 50
 #define DT_CHECKSUM_BIT 51
 #define DT_VERNEED_BIT 52
@@ -83,6 +89,7 @@ typedef struct
 #define DT_FILTER_BIT 55
 #define DT_AUXILIARY_BIT 56
 #define DT_LOPROC_BIT 57
+#define DT_GNU_HASH_BIT 58
   uint64_t info_set_mask;
   int fd, fdro;
   int lastscn, dynamic;

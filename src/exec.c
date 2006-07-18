@@ -61,7 +61,11 @@ update_dynamic_tags (DSO *dso, GElf_Shdr *shdr, GElf_Shdr *old_shdr,
 	  || (dynamic_info_is_set (dso, DT_VERSYM_BIT)
 	      && dso->info_DT_VERSYM == old_shdr[j].sh_addr
 	      && old_shdr[j].sh_type == SHT_GNU_versym
-	      && set_dynamic (dso, DT_VERSYM, shdr[i].sh_addr, 1)))
+	      && set_dynamic (dso, DT_VERSYM, shdr[i].sh_addr, 1))
+	  || (dynamic_info_is_set (dso, DT_GNU_HASH_BIT)
+	      && dso->info_DT_GNU_HASH == old_shdr[j].sh_addr
+	      && old_shdr[j].sh_type == SHT_GNU_HASH
+	      && set_dynamic (dso, DT_GNU_HASH, shdr[i].sh_addr, 1)))
 	return 1;
     }
 

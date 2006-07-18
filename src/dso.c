@@ -102,6 +102,11 @@ read_dynamic (DSO *dso)
 		  dso->info_set_mask |= (1ULL << DT_AUXILIARY_BIT);
 		else if (dyn.d_tag == DT_LOPROC)
 		  dso->info_set_mask |= (1ULL << DT_LOPROC_BIT);
+		else if (dyn.d_tag == DT_GNU_HASH)
+		  {
+		    dso->info_DT_GNU_HASH = dyn.d_un.d_val;
+		    dso->info_set_mask |= (1ULL << DT_GNU_HASH_BIT);
+		  }
 	      }
 	    if (ndx < maxndx)
 	      break;
@@ -1361,6 +1366,7 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 	    return 1;
 	  break;
 	case SHT_HASH:
+	case SHT_GNU_HASH:
 	case SHT_NOBITS:
 	case SHT_STRTAB:
 	  break;

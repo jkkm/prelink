@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -424,6 +424,7 @@ prelink_prepare (DSO *dso)
 	switch (dso->shdr[i].sh_type)
 	  {
 	  case SHT_HASH:
+	  case SHT_GNU_HASH:
 	  case SHT_DYNSYM:
 	  case SHT_REL:
 	  case SHT_RELA:

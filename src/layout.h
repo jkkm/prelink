@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2004, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -24,7 +24,7 @@ struct layout_libs
     struct prelink_entry **binlibs;
     struct prelink_entry *list;
     struct prelink_entry *fake;
-    GElf_Addr mmap_base, mmap_start, mmap_fin, mmap_end;
+    GElf_Addr mmap_base, mmap_start, mmap_fin, mmap_end, max_page_size;
     void *arch_data;
     int flags;
     int nlibs;

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002, 2003, 2004 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003, 2004, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -86,6 +86,12 @@ find_libs (void **p, void *info)
     e->done = 0;
   if (e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC)
     e->done = 2;
+  if (e->base & (l->max_page_size - 1))
+    {
+      e->done = 0;
+      e->end -= e->base;
+      e->base = 0;
+    }
 
   return 1;
 }
@@ -247,6 +253,7 @@ layout_libs (void)
       l.flags = arches[arch];
       l.libs = plibs;
       l.binlibs = pbinlibs;
+      l.max_page_size = plarch->max_page_size;
       htab_traverse (prelink_filename_htab, find_libs, &l);
       max_page_size = plarch->max_page_size;
 

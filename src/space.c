@@ -60,6 +60,7 @@ print_sections (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr)
       { SHT_GNU_verneed, "VERNEED" },
       { SHT_GNU_versym, "VERSYM" },
       { SHT_GNU_LIBLIST, "LIBLIST" },
+      { SHT_GNU_HASH, "GNU_HASH" },
       { 0, NULL }
     };
 
@@ -181,6 +182,7 @@ readonly_is_movable (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int k)
   switch (shdr[k].sh_type)
     {
     case SHT_HASH:
+    case SHT_GNU_HASH:
     case SHT_DYNSYM:
     case SHT_REL:
     case SHT_RELA:
@@ -527,6 +529,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	      switch (shdr[j].sh_type)
 		{
 		case SHT_HASH:
+		case SHT_GNU_HASH:
 		case SHT_DYNSYM:
 		case SHT_STRTAB:
 		case SHT_GNU_verdef:

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2005 Red Hat, Inc.
+/* Copyright (C) 2001, 2005, 2006 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -30,6 +30,7 @@
 #define N_STSYM		0x26
 #define N_LCSYM		0x28
 #define N_MAIN		0x2a
+#define N_BNSYM		0x2e
 #define N_PC		0x30
 #define N_NSYMS		0x32
 #define N_NOMAP		0x34
@@ -42,6 +43,7 @@
 #define N_BSLINE	0x48
 #define N_BROWS		0x48
 #define N_DEFD		0x4a
+#define N_ENSYM		0x4e
 #define N_EHDECL	0x50
 #define N_MOD2		0x50
 #define N_CATCH		0x54
@@ -143,6 +145,8 @@ adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
       case N_CATCH:
       case N_SO:
       case N_SOL:
+      case N_BNSYM:
+      case N_ENSYM:
 	value = read_32 (data->d_buf + off + 8);
 	sec = addr_to_sec (dso, value);
 	if (sec != -1)
