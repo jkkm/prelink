@@ -339,7 +339,8 @@ adjust_location_list (DSO *dso, unsigned char *ptr, size_t len,
 	case DW_OP_reg0 ... DW_OP_reg31:
 	case DW_OP_nop:
 	case DW_OP_push_object_address:
-	case DW_OP_calli:
+	case DW_OP_call_ref:
+	case DW_OP_GNU_push_tls_address:
 	  break;
 	case DW_OP_const1u:
 	case DW_OP_pick:

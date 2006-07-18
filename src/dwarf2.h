@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
    
    This program is free software; you can redistribute it and/or modify
@@ -169,14 +169,14 @@
 #define DW_AT_vtable_elem_location	0x4d
 #define DW_AT_allocated			0x4e
 #define DW_AT_associated		0x4f
-#define DW_AT_data_location		0x50 
+#define DW_AT_data_location		0x50
 #define DW_AT_stride			0x51
 #define DW_AT_entry_pc			0x52
 #define DW_AT_use_UTF8			0x53
 #define DW_AT_extension			0x54
 #define DW_AT_ranges			0x55
 #define DW_AT_trampoline		0x56
-#define DW_AT_call_column		0x57 
+#define DW_AT_call_column		0x57
 #define DW_AT_call_file			0x58
 #define DW_AT_call_line			0x59
 #define DW_AT_MIPS_fde			0x2001
@@ -347,8 +347,9 @@
 #define DW_OP_push_object_address	0x97
 #define DW_OP_call2			0x98
 #define DW_OP_call4			0x99
-#define DW_OP_calli			0x9a
-#define DW_OP_lo_user			0x80
+#define DW_OP_call_ref			0x9a
+#define DW_OP_GNU_push_tls_address	0xe0
+#define DW_OP_lo_user			0xe0
 #define DW_OP_hi_user			0xff
 
 #define DW_ATE_void			0x0

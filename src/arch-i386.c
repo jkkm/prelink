@@ -144,20 +144,14 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
       error (0, 0, "%s: R_386_PC32 relocs should not be present in prelinked REL sections",
 	     dso->filename);
       return 1;
-#if 0
-    case R_386_TLS_DTPMOD32:
-      write_le32 (dso, rel->r_offset, info->resolvetls ? info->resolvetls->modid : 0);
-      break;
     case R_386_TLS_DTPOFF32:
       write_le32 (dso, rel->r_offset, value);
       break;
+    /* XXX DTPMOD32 and TPOFF32 is impossible to predict unless prelink
+       sets the rules.  Also for TPOFF32 there is REL->RELA problem.  */
+    case R_386_TLS_DTPMOD32:
     case R_386_TLS_TPOFF32:
-      if (info->resolvetls)
-	write_le32 (dso, rel->r_offset, -(value - info->resolvetls->offset));
-      else
-	write_le32 (dso, rel->r_offset, 0);
       break;
-#endif
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
 	/* COPY relocs are handled specially in generic code.  */
@@ -198,20 +192,14 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_386_PC32:
       write_le32 (dso, rela->r_offset, value + rela->r_addend - rela->r_offset);
       break;
-#if 0
-    case R_386_TLS_DTPMOD32:
-      write_le32 (dso, rela->r_offset, info->resolvetls ? info->resolvetls->modid : 0);
-      break;
     case R_386_TLS_DTPOFF32:
-      write_le32 (dso, rela->r_offset, value);
+      write_le32 (dso, rela->r_offset, value + rela->r_addend);
       break;
+    /* XXX DTPMOD32 and TPOFF32 is impossible to predict unless prelink
+       sets the rules.  */
+    case R_386_TLS_DTPMOD32:
     case R_386_TLS_TPOFF32:
-      if (info->resolvetls)
-	write_le32 (dso, rela->r_offset, -(value - info->resolvetls->offset));
-      else
-	write_le32 (dso, rela->r_offset, 0);
       break;
-#endif
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
 	/* COPY relocs are handled specially in generic code.  */
@@ -339,13 +327,12 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
       error (0, 0, "%s: R_386_%s32 relocs should not be present in prelinked REL sections",
 	     dso->filename, GELF_R_TYPE (rel->r_info) == R_386_32 ? "" : "PC");
       return 1;
-#if 0
     case R_386_TLS_DTPMOD32:
     case R_386_TLS_DTPOFF32:
     case R_386_TLS_TPOFF32:
       if (conflict->reloc_class != RTYPE_CLASS_TLS || conflict->lookup.tls == NULL)
 	{
-	  error (0, 0, "%s: R_386_TLS_DTPMOD32 not resolving to STT_TLS symbol",
+	  error (0, 0, "%s: R_386_TLS not resolving to STT_TLS symbol",
 		 dso->filename);
 	  return 1;
 	}
@@ -356,20 +343,13 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
 	  ret->r_addend = conflict->lookup.tls->modid;
 	  break;
 	case R_386_TLS_DTPOFF32:
-	  XXX;
-      ret->r_addend
-      info->resolvetls ? info->resolvetls->modid : 0);
+	  ret->r_addend = value;
+	  break;
+	case R_386_TLS_TPOFF32:
+	  ret->r_addend = -(value - conflict->lookup.tls->offset);
+	  break;
+	}
       break;
-    case R_386_TLS_DTPOFF32:
-      write_le32 (dso, rela->r_offset, value);
-      break;
-    case R_386_TLS_TPOFF32:
-      if (info->resolvetls)
-	write_le32 (dso, rela->r_offset, -(value - info->resolvetls->offset));
-      else
-	write_le32 (dso, rela->r_offset, 0);
-      break;
-#endif
     case R_386_COPY:
       error (0, 0, "R_386_COPY should not be present in shared libraries");
       return 1;
@@ -420,6 +400,29 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_386_COPY:
       error (0, 0, "R_386_COPY should not be present in shared libraries");
       return 1;
+    case R_386_TLS_DTPMOD32:
+    case R_386_TLS_DTPOFF32:
+    case R_386_TLS_TPOFF32:
+      if (conflict->reloc_class != RTYPE_CLASS_TLS || conflict->lookup.tls == NULL)
+	{
+	  error (0, 0, "%s: R_386_TLS not resolving to STT_TLS symbol",
+		 dso->filename);
+	  return 1;
+	}
+      ret->r_info = GELF_R_INFO (0, R_386_32);
+      switch (GELF_R_TYPE (rela->r_info))
+	{
+	case R_386_TLS_DTPMOD32:
+	  ret->r_addend = conflict->lookup.tls->modid;
+	  break;
+	case R_386_TLS_DTPOFF32:
+	  ret->r_addend += value;
+	  break;
+	case R_386_TLS_TPOFF32:
+	  ret->r_addend = -(value - ret->r_addend - conflict->lookup.tls->offset);
+	  break;
+	}
+      break;
     default:
       error (0, 0, "%s: Unknown i386 relocation type %d", dso->filename,
 	     (int) GELF_R_TYPE (rela->r_info));
@@ -441,10 +444,13 @@ i386_rel_to_rela (DSO *dso, GElf_Rel *rel, GElf_Rela *rela)
     case R_386_RELATIVE:
     case R_386_32:
     case R_386_PC32:
+    case R_386_TLS_TPOFF32:
       rela->r_addend = (Elf32_Sword) read_ule32 (dso, rel->r_offset);
       break;
     case R_386_COPY:
     case R_386_GLOB_DAT:
+    case R_386_TLS_DTPOFF32:
+    case R_386_TLS_DTPMOD32:
       rela->r_addend = 0;
       break;
     }
@@ -605,6 +611,12 @@ i386_undo_prelink_rel (DSO *dso, GElf_Rel *rel, GElf_Addr reladdr)
 	return 0;
       error (0, 0, "%s: R_386_COPY reloc in shared library?", dso->filename);
       return 1;
+    case R_386_TLS_DTPMOD32:
+    case R_386_TLS_DTPOFF32:
+      write_le32 (dso, rel->r_offset, 0);
+      break;
+    case R_386_TLS_TPOFF32:
+      break;
     default:
       error (0, 0, "%s: Unknown i386 relocation type %d", dso->filename,
 	     (int) GELF_R_TYPE (rel->r_info));
@@ -627,10 +639,13 @@ i386_rela_to_rel (DSO *dso, GElf_Rela *rela, GElf_Rel *rel)
     case R_386_RELATIVE:
     case R_386_32:
     case R_386_PC32:
+    case R_386_TLS_TPOFF32:
       write_le32 (dso, rela->r_offset, rela->r_addend);
       break;
     case R_386_COPY:
     case R_386_GLOB_DAT:
+    case R_386_TLS_DTPMOD32:
+    case R_386_TLS_DTPOFF32:
       write_le32 (dso, rela->r_offset, 0);
       break;
     }
