@@ -172,9 +172,13 @@ prelink_prepare (DSO *dso)
     {
       Elf32_Shdr *shdr32;
       Elf64_Shdr *shdr64;
+      Elf_Data src, dst;
 
-      dso->undo.d_size = gelf_fsize (dso->elf, ELF_T_SHDR,
-				     dso->ehdr.e_shnum - 1, EV_CURRENT);
+      dso->undo.d_size = gelf_fsize (dso->elf, ELF_T_EHDR, 1, EV_CURRENT)
+			 + gelf_fsize (dso->elf, ELF_T_PHDR,
+				       dso->ehdr.e_phnum, EV_CURRENT)
+			 + gelf_fsize (dso->elf, ELF_T_SHDR,
+				       dso->ehdr.e_shnum - 1, EV_CURRENT);
       dso->undo.d_buf = malloc (dso->undo.d_size);
       if (dso->undo.d_buf == 0)
 	{
@@ -182,24 +186,92 @@ prelink_prepare (DSO *dso)
 		 dso->filename);
 	  return 1;
 	}
-      dso->undo.d_type = ELF_T_SHDR;
+      dso->undo.d_type = ELF_T_BYTE;
       dso->undo.d_off = 0;
       dso->undo.d_align = gelf_fsize (dso->elf, ELF_T_ADDR, 1, EV_CURRENT);
       dso->undo.d_version = EV_CURRENT;
+      src = dso->undo;
+      src.d_type = ELF_T_EHDR;
+      src.d_size = gelf_fsize (dso->elf, ELF_T_EHDR, 1, EV_CURRENT);
+      dst = src;
       switch (gelf_getclass (dso->elf))
 	{
 	case ELFCLASS32:
-	  shdr32 = (Elf32_Shdr *) dso->undo.d_buf;
-	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	    shdr32[i - 1] = *elf32_getshdr (dso->scn[i]);
+	  src.d_buf = elf32_getehdr (dso->elf);
+	  if (elf32_xlatetof (&dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
+	    {
+	      error (0, 0, "%s: Failed to create .gnu.prelink_undo section",
+		     dso->filename);
+	      return 1;
+	    }
 	  break;
 	case ELFCLASS64:
-	  shdr64 = (Elf64_Shdr *) dso->undo.d_buf;
-	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
-	    shdr64[i - 1] = *elf64_getshdr (dso->scn[i]);
+	  src.d_buf = elf64_getehdr (dso->elf);
+	  if (elf64_xlatetof (&dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
+	    {
+	      error (0, 0, "%s: Failed to create .gnu.prelink_undo section",
+		     dso->filename);
+	      return 1;
+	    }
 	  break;
 	default:
 	  return 1;
+	}
+      src.d_buf = dst.d_buf + src.d_size;
+      src.d_type = ELF_T_PHDR;
+      src.d_size = gelf_fsize (dso->elf, ELF_T_PHDR, dso->ehdr.e_phnum,
+			       EV_CURRENT);
+      dst = src;
+      switch (gelf_getclass (dso->elf))
+	{
+	case ELFCLASS32:
+	  src.d_buf = elf32_getphdr (dso->elf);
+	  if (elf32_xlatetof (&dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
+	    {
+	      error (0, 0, "%s: Failed to create .gnu.prelink_undo section",
+		     dso->filename);
+	      return 1;
+	    }
+	  break;
+	case ELFCLASS64:
+	  src.d_buf = elf64_getphdr (dso->elf);
+	  if (elf64_xlatetof (&dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
+	    {
+	      error (0, 0, "%s: Failed to create .gnu.prelink_undo section",
+		     dso->filename);
+	      return 1;
+	    }
+	  break;
+	}
+      src.d_buf = dst.d_buf + src.d_size;
+      src.d_type = ELF_T_SHDR;
+      src.d_size = gelf_fsize (dso->elf, ELF_T_SHDR,
+			       dso->ehdr.e_shnum - 1, EV_CURRENT);
+      dst = src;
+      switch (gelf_getclass (dso->elf))
+	{
+	case ELFCLASS32:
+	  shdr32 = (Elf32_Shdr *) src.d_buf;
+	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+	    shdr32[i - 1] = *elf32_getshdr (dso->scn[i]);
+	  if (elf32_xlatetof (&dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
+	    {
+	      error (0, 0, "%s: Failed to create .gnu.prelink_undo section",
+		     dso->filename);
+	      return 1;
+	    }
+	  break;
+	case ELFCLASS64:
+	  shdr64 = (Elf64_Shdr *) src.d_buf;
+	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+	    shdr64[i - 1] = *elf64_getshdr (dso->scn[i]);
+	  if (elf64_xlatetof (&dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
+	    {
+	      error (0, 0, "%s: Failed to create .gnu.prelink_undo section",
+		     dso->filename);
+	      return 1;
+	    }
+	  break;
 	}
     }
 
@@ -373,7 +445,7 @@ prelink_prepare (DSO *dso)
 					? rinfo.first : rinfo.plt].sh_name));
 	  return 1;
 	}
-                                                             
+
       for (i = rinfo.plt ? rinfo.plt : rinfo.first; i < dso->ehdr.e_shnum; i++)
 	{
 	  if (dso->shdr[i].sh_addralign > align)
@@ -391,10 +463,13 @@ prelink_prepare (DSO *dso)
       assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
       if (rinfo.rel_to_rela)
 	{
-	  GElf_Addr size = dso->shdr[rinfo.first].sh_size / 2 * 3;
-	  adjust1 = size - dso->shdr[rinfo.first].sh_size;
-	  if (convert_rel_to_rela (dso, rinfo.first))
-	    return 1;
+	  for (i = rinfo.first; i <= rinfo.last; ++i)
+	    {
+	      GElf_Addr size = dso->shdr[i].sh_size / 2 * 3;
+	      adjust1 += size - dso->shdr[i].sh_size;
+	      if (convert_rel_to_rela (dso, i))
+		return 1;
+	    }
 	}
       if (rinfo.rel_to_rela_plt)
 	{
@@ -417,7 +492,17 @@ prelink_prepare (DSO *dso)
 
       if (rinfo.rel_to_rela)
 	{
-	  dso->shdr[rinfo.first].sh_size += adjust1;
+	  GElf_Addr adjust3 = 0;
+	  for (i = rinfo.first; i <= rinfo.last; ++i)
+	    {
+	      GElf_Addr size = dso->shdr[i].sh_size / 2 * 3;
+
+	      dso->shdr[i].sh_addr += adjust3;
+	      dso->shdr[i].sh_offset += adjust3;
+	      adjust3 += size - dso->shdr[i].sh_size;
+	      dso->shdr[i].sh_size = size;
+	    }
+	  assert (adjust1 == adjust3);
 	  if (rinfo.plt)
 	    {
 	      dso->shdr[rinfo.plt].sh_addr += adjust1;

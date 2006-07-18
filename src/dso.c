@@ -104,7 +104,6 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
   Elf_Scn *scn;
   GElf_Dyn dyn;
   int ndx, maxndx;
-  int pt_dynamic, pt_load, i;
   uint64_t mask = dso->info_set_mask;
 
   assert (dso->shdr[dso->dynamic].sh_type == SHT_DYNAMIC);
@@ -152,27 +151,9 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
     }
   assert (ndx < maxndx);
 
-  pt_dynamic = -1;
-  pt_load = -1;
-  for (i = 0; i < dso->ehdr.e_phnum; ++i)
-    if (dso->phdr[i].p_type == PT_DYNAMIC)
-      pt_dynamic = i;
-    else if (dso->phdr[i].p_type == PT_LOAD
-	     && dso->phdr[i].p_offset + dso->phdr[i].p_filesz
-		== dso->shdr[dso->dynamic].sh_offset
-		   + dso->shdr[dso->dynamic].sh_size)
-      pt_load = i;
-
-  assert (pt_dynamic != -1);
-  assert (dso->phdr[pt_dynamic].p_vaddr == dso->shdr[dso->dynamic].sh_addr);
-  assert (dso->phdr[pt_dynamic].p_offset
-	  == dso->shdr[dso->dynamic].sh_offset);
-  assert (dso->phdr[pt_dynamic].p_filesz == dso->shdr[dso->dynamic].sh_size);
-
   if (ndx + 1 < maxndx)
     {
-      /* The easy case: DT_NULL is not the last dynamic
-	 entry.  */
+      /* DT_NULL is not the last dynamic entry.  */
       gelfx_update_dyn (dso->elf, data, ndx + 1, &dyn);
       dyn.d_tag = tag;
       dyn.d_un.d_ptr = value;
@@ -182,66 +163,10 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
       return 0;
     }
 
-  if (! RELOCATE_SCN (dso->shdr[dso->dynamic + 1].sh_flags))
-    {
-      /* FIXME: Handle this. May happen e.g. if there is no .bss.  */
-      if (fatal)
-	error (0, 0, "%s: Not enough room to add .dynamic entry",
-	       dso->filename);
-      return 1;
-    }
-  else if (dso->shdr[dso->dynamic].sh_addr
-	   + dso->shdr[dso->dynamic].sh_size
-	   + dso->shdr[dso->dynamic].sh_entsize
-	   > dso->shdr[dso->dynamic + 1].sh_addr)
-    {
-      /* FIXME: Can still try, if after .dynamic is empty .sbss,
-	 we could move it, provided that there is some gap before .bss.  */
-      if (fatal)
-	error (0, 0, "%s: Not enough room to add .dynamic entry",
-	       dso->filename);
-      return 1;
-    }
-
-  dso->shdr[dso->dynamic].sh_size += dso->shdr[dso->dynamic].sh_entsize;
-  data->d_buf = realloc (data->d_buf, dso->shdr[dso->dynamic].sh_size);
-  if (data->d_buf == NULL)
-    {
-      if (fatal)
-	error (0, ENOMEM, "%s: Could not add .dynamic entry", dso->filename);
-      return 1;
-    }
-  data->d_size = dso->shdr[dso->dynamic].sh_size;
-  /* Put in DT_NULL.  */
-  gelfx_update_dyn (dso->elf, data, ndx + 1, &dyn);
-  dyn.d_tag = tag;
-  dyn.d_un.d_ptr = value;
-  gelfx_update_dyn (dso->elf, data, ndx, &dyn);
-  elf_flagscn (scn, ELF_C_SET, ELF_F_DIRTY);
-  for (i = 1; i < dso->ehdr.e_shnum; i++)
-    if (dso->shdr[i].sh_offset
-	== dso->phdr[pt_dynamic].p_offset + dso->phdr[pt_dynamic].p_filesz)
-      {
-	if (adjust_dso_nonalloc (dso, 0,
-				 dso->phdr[pt_dynamic].p_offset
-				 + dso->phdr[pt_dynamic].p_filesz,
-				 dso->shdr[dso->dynamic].sh_entsize))
-	  return 1;
-	break;
-      }
-  dso->phdr[pt_dynamic].p_filesz += dso->shdr[dso->dynamic].sh_entsize;
-  dso->phdr[pt_dynamic].p_memsz += dso->shdr[dso->dynamic].sh_entsize;
-  gelf_update_phdr (dso->elf, pt_dynamic, dso->phdr + pt_dynamic);
-  if (pt_load != -1)
-    {
-      if (dso->phdr[pt_load].p_memsz == dso->phdr[pt_load].p_filesz)
-	dso->phdr[pt_load].p_memsz += dso->shdr[dso->dynamic].sh_entsize;
-      dso->phdr[pt_load].p_filesz += dso->shdr[dso->dynamic].sh_entsize;
-      gelf_update_phdr (dso->elf, pt_load, dso->phdr + pt_load);
-    }
-  dso->info_set_mask = mask;
-  elf_flagphdr (dso->elf, ELF_C_SET, ELF_F_DIRTY);
-  return 0;
+  if (fatal)
+    error (0, 0, "%s: Not enough room to add .dynamic entry",
+	   dso->filename);
+  return 1;
 }
 
 int

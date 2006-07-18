@@ -121,7 +121,7 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
   dso = info->dso;
   value = info->resolve (info, GELF_R_SYM (rel->r_info),
 			 GELF_R_TYPE (rel->r_info));
-  switch (GELF_R_TYPE (rel->r_info))    
+  switch (GELF_R_TYPE (rel->r_info))
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
@@ -172,7 +172,7 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   dso = info->dso;
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
@@ -202,7 +202,7 @@ static int
 i386_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
 			  char *buf)
 {
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
@@ -222,7 +222,7 @@ i386_apply_rel (struct prelink_info *info, GElf_Rel *rel, char *buf)
 
   value = info->resolve (info, GELF_R_SYM (rel->r_info),
 			 GELF_R_TYPE (rel->r_info));
-  switch (GELF_R_TYPE (rel->r_info))    
+  switch (GELF_R_TYPE (rel->r_info))
     {
     case R_386_NONE:
       break;
@@ -254,7 +254,7 @@ i386_apply_rela (struct prelink_info *info, GElf_Rela *rela, char *buf)
 
   value = info->resolve (info, GELF_R_SYM (rela->r_info),
 			 GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_386_NONE:
       break;
@@ -299,7 +299,7 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
     return 1;
   ret->r_offset = rel->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rel->r_info));
-  switch (GELF_R_TYPE (rel->r_info))    
+  switch (GELF_R_TYPE (rel->r_info))
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
@@ -343,7 +343,7 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     return 1;
   ret->r_offset = rela->r_offset;
   ret->r_info = GELF_R_INFO (0, GELF_R_TYPE (rela->r_info));
-  switch (GELF_R_TYPE (rela->r_info))    
+  switch (GELF_R_TYPE (rela->r_info))
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
@@ -448,11 +448,109 @@ i386_arch_prelink (DSO *dso)
 			 ".plt"))
 	break;
 
-      assert (i < dso->ehdr.e_shnum);
+      if (i == dso->ehdr.e_shnum)
+	return 0;
       data = dso->shdr[i].sh_addr + 0x16;
       write_le32 (dso, dso->info[DT_PLTGOT] + 4, data);
     }
 
+  return 0;
+}
+
+static int
+i386_arch_undo_prelink (DSO *dso)
+{
+  int i;
+
+  if (dso->info[DT_PLTGOT])
+    {
+      /* Clear got[1] if it contains address of .plt + 0x16.  */
+      int sec = addr_to_sec (dso, dso->info[DT_PLTGOT]);
+      Elf32_Addr data;
+
+      if (sec == -1)
+	return 1;
+
+      for (i = 1; i < dso->ehdr.e_shnum; i++)
+	if (dso->shdr[i].sh_type == SHT_PROGBITS
+	    && ! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+				 dso->shdr[i].sh_name),
+			 ".plt"))
+	break;
+
+      if (i == dso->ehdr.e_shnum)
+	return 0;
+      data = read_ule32 (dso, dso->info[DT_PLTGOT] + 4);
+      if (data == dso->shdr[i].sh_addr + 0x16)
+	write_le32 (dso, dso->info[DT_PLTGOT] + 4, 0);
+    }
+
+  return 0;
+}
+
+static int
+i386_undo_prelink_rel (DSO *dso, GElf_Rel *rel, GElf_Addr reladdr)
+{
+  int sec;
+
+  if (GELF_R_TYPE (rel->r_info) == R_386_RELATIVE
+      || GELF_R_TYPE (rel->r_info) == R_386_NONE)
+    /* Fast path: nothing to do.  */
+    return 0;
+  switch (GELF_R_TYPE (rel->r_info))
+    {
+    case R_386_JMP_SLOT:
+      sec = addr_to_sec (dso, rel->r_offset);
+      if (sec == -1
+	  || strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			     dso->shdr[sec].sh_name), ".got"))
+	{
+	  error (0, 0, "%s: R_386_JMP_SLOT not pointing into .got section",
+		 dso->filename);
+	  return 1;
+	}
+      else
+	{
+	  Elf32_Addr data = read_ule32 (dso, dso->shdr[sec].sh_addr + 4);
+
+	  assert (rel->r_offset >= dso->shdr[sec].sh_addr + 12);
+	  assert (((rel->r_offset - dso->shdr[sec].sh_addr) & 3) == 0);
+	  write_le32 (dso, rel->r_offset,
+		      4 * (rel->r_offset - dso->shdr[sec].sh_addr - 12)
+		      + data);
+	}
+      break;
+    case R_386_GLOB_DAT:
+      sec = addr_to_sec (dso, rel->r_offset);
+
+      write_le32 (dso, rel->r_offset, 0);
+      if (sec != -1)
+	{
+	  if (strcmp (strptr (dso, dso->ehdr.e_shstrndx,
+			      dso->shdr[sec].sh_name),
+		      ".got"))
+	    {
+	      rel->r_info = GELF_R_INFO (GELF_R_SYM (rel->r_info), R_386_32);
+	      return 2;
+	    }
+	}
+      break;
+    case R_386_32:
+    case R_386_PC32:
+      error (0, 0, "%s: R_386_%s32 relocs should not be present in prelinked REL sections",
+	     GELF_R_TYPE (rel->r_info) == R_386_32 ? "" : "PC", dso->filename);
+      return 1;
+    case R_386_COPY:
+      if (dso->ehdr.e_type == ET_EXEC)
+	/* COPY relocs are handled specially in generic code.  */
+	return 0;
+      error (0, 0, "%s: R_386_COPY reloc in shared library?", dso->filename);
+      return 1;
+    default:
+      error (0, 0, "%s: Unknown i386 relocation type %d", dso->filename,
+	     (int) GELF_R_TYPE (rel->r_info));
+      return 1;
+    }
   return 0;
 }
 
@@ -498,6 +596,8 @@ PL_ARCH = {
   .reloc_class = i386_reloc_class,
   .max_reloc_size = 4,
   .arch_prelink = i386_arch_prelink,
+  .arch_undo_prelink = i386_arch_undo_prelink,
+  .undo_prelink_rel = i386_undo_prelink_rel,
   /* Although TASK_UNMAPPED_BASE is 0x40000000, we leave some
      area so that mmap of /etc/ld.so.cache and ld.so's malloc
      does not take some library's VA slot.

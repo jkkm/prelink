@@ -27,16 +27,130 @@
 #include "prelink.h"
 #include "reloc.h"
 
+static int
+undo_prelink_rel (DSO *dso, int n)
+{
+  Elf_Data *data = NULL;
+  Elf_Scn *scn = dso->scn[n];
+  GElf_Rel rel;
+  int sec;
+
+  while ((data = elf_getdata (scn, data)) != NULL)
+    {
+      int ndx, maxndx;
+      GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
+
+      maxndx = data->d_size / dso->shdr[n].sh_entsize;
+      for (ndx = 0; ndx < maxndx;
+	   ++ndx, addr += dso->shdr[n].sh_entsize)
+	{
+	  gelfx_getrel (dso->elf, data, ndx, &rel);
+	  sec = addr_to_sec (dso, rel.r_offset);
+	  if (sec == -1)
+	    continue;
+
+	  switch (dso->arch->undo_prelink_rel (dso, &rel, addr))
+	    {
+	    case 2:
+	      gelfx_update_rel (dso->elf, data, ndx, &rel);
+	      break;
+	    case 0:
+	      break;
+	    default:
+	      return 1;
+	    }
+	}
+    }
+  return 0;
+}
+
+static int
+undo_prelink_rela (DSO *dso, int n)
+{
+  Elf_Data *data = NULL;
+  Elf_Scn *scn = dso->scn[n];
+  GElf_Rela rela;
+  int sec;
+
+  while ((data = elf_getdata (scn, data)) != NULL)
+    {
+      int ndx, maxndx;
+      GElf_Addr addr = dso->shdr[n].sh_addr + data->d_off;
+
+      maxndx = data->d_size / dso->shdr[n].sh_entsize;
+      for (ndx = 0; ndx < maxndx;
+	   ++ndx, addr += dso->shdr[n].sh_entsize)
+	{
+	  gelfx_getrela (dso->elf, data, ndx, &rela);
+	  sec = addr_to_sec (dso, rela.r_offset);
+	  if (sec == -1)
+	    continue;
+
+	  switch (dso->arch->undo_prelink_rela (dso, &rela, addr))
+	    {
+	    case 2:
+	      gelfx_update_rela (dso->elf, data, ndx, &rela);
+	      break;
+	    case 0:
+	      break;
+	    default:
+	      return 1;
+	    }
+	}
+    }
+  return 0;
+}
+
+static int
+remove_dynamic_prelink_tags (DSO *dso)
+{
+  Elf_Data *data;
+  Elf_Scn *scn;
+  GElf_Dyn dyn;
+  int ndx;
+
+  assert (dso->shdr[dso->dynamic].sh_type == SHT_DYNAMIC);
+  scn = dso->scn[dso->dynamic];
+  data = elf_getdata (scn, NULL);
+  assert (elf_getdata (scn, data) == NULL);
+  ndx = data->d_size / dso->shdr[dso->dynamic].sh_entsize;
+  while (--ndx >= 0)
+    {
+      gelfx_getdyn (dso->elf, data, ndx, &dyn);
+      switch (dyn.d_tag)
+        {
+        case DT_NULL:
+	  continue;
+        case DT_CHECKSUM:
+        case DT_GNU_PRELINKED:
+        case DT_GNU_LIBLIST:
+        case DT_GNU_LIBLISTSZ:
+        case DT_GNU_CONFLICT:
+        case DT_GNU_CONFLICTSZ:
+	  dyn.d_tag = DT_NULL;
+	  dyn.d_un.d_val = 0;
+	  gelfx_update_dyn (dso->elf, data, ndx, &dyn);
+	  elf_flagscn (scn, ELF_C_SET, ELF_F_DIRTY);
+	  break;
+        default:
+	  ndx = 0;
+	  break;
+        }      
+    }
+  return 0;
+}
+
 int
 prelink_undo (DSO *dso)
 {
+  GElf_Ehdr ehdr;
   GElf_Shdr *shdr;
-  int undo, shnum, i, j, k;
-  int rel_to_rela = 0, rel_to_rela_plt = 0;
+  GElf_Phdr *phdr;
+  int undo, i, j;
   Elf_Data src, dst, *d;
   Elf_Scn *scn;
   struct section_move *move;
-  const char *p;
+  struct reloc_info rinfo;
 
   for (undo = 1; undo < dso->ehdr.e_shnum; ++undo)
     if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[undo].sh_name),
@@ -49,15 +163,135 @@ prelink_undo (DSO *dso)
       return 1;
     }
 
-  shnum = dso->shdr[undo].sh_size / dso->shdr[undo].sh_entsize + 1;
-  shdr = alloca (sizeof (GElf_Shdr) * shnum);
-  memset (shdr, 0, sizeof (GElf_Shdr));
   scn = dso->scn[undo];
   d = elf_getdata (scn, NULL);
   assert (d != NULL && elf_getdata (scn, d) == NULL);
+
   src = *d;
-  src.d_type = ELF_T_SHDR;
+  src.d_type = ELF_T_EHDR;
   src.d_align = dso->shdr[undo].sh_addralign;
+  src.d_size = gelf_fsize (dso->elf, ELF_T_EHDR, 1, EV_CURRENT);
+  dst = src;
+  if (src.d_size > d->d_size)
+    {
+      error (0, 0, "%s: .gnu.prelink_undo section too small",
+	     dso->filename);
+      return 1;
+    }
+  switch (gelf_getclass (dso->elf))
+    {
+    case ELFCLASS32:
+      dst.d_buf = alloca (dst.d_size);
+      break;
+    case ELFCLASS64:
+      dst.d_buf = &ehdr;
+      break;
+    default:
+      return 1;
+    }
+  if (gelf_xlatetom (dso->elf, &dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
+    {
+      error (0, 0, "%s: Could not read .gnu.prelink_undo section",
+	     dso->filename);
+      return 1;
+    }
+  if (gelf_getclass (dso->elf) == ELFCLASS32)
+    {
+      Elf32_Ehdr *ehdr32 = (Elf32_Ehdr *) dst.d_buf;
+
+      memcpy (ehdr.e_ident, ehdr32->e_ident, sizeof (ehdr.e_ident));
+#define COPY(name) ehdr.name = ehdr32->name
+      COPY (e_type);
+      COPY (e_machine);
+      COPY (e_version);
+      COPY (e_entry);
+      COPY (e_phoff);
+      COPY (e_shoff);
+      COPY (e_flags);
+      COPY (e_ehsize);
+      COPY (e_phentsize);
+      COPY (e_phnum);
+      COPY (e_shentsize);
+      COPY (e_shnum);
+      COPY (e_shstrndx);
+    }
+
+  if (memcmp (ehdr.e_ident, dso->ehdr.e_ident, sizeof (ehdr.e_ident))
+      || ehdr.e_type != dso->ehdr.e_type
+      || ehdr.e_machine != dso->ehdr.e_machine
+      || ehdr.e_version != dso->ehdr.e_version
+      || ehdr.e_flags != dso->ehdr.e_flags
+      || ehdr.e_ehsize != dso->ehdr.e_ehsize
+      || ehdr.e_phentsize != dso->ehdr.e_phentsize
+      || ehdr.e_shentsize != dso->ehdr.e_shentsize)
+    {
+      error (0, 0, "%s: ELF headers changed since prelinking",
+	     dso->filename);
+      return 1;
+    }
+
+  if (ehdr.e_phnum > dso->ehdr.e_phnum)
+    {
+      error (0, 0, "%s: Number of program headers is less than before prelinking",
+	     dso->filename);
+      return 1;
+    }
+
+  if (d->d_size != (src.d_size
+		    + gelf_fsize (dso->elf, ELF_T_PHDR, ehdr.e_phnum,
+				  EV_CURRENT)
+		    + gelf_fsize (dso->elf, ELF_T_SHDR, ehdr.e_shnum - 1,
+				  EV_CURRENT)))
+    {
+      error (0, 0, "%s: Incorrect size of .gnu.prelink_undo section",
+	     dso->filename);
+      return 1;
+    }
+
+  phdr = alloca (sizeof (GElf_Phdr) * ehdr.e_phnum);
+  src.d_type = ELF_T_PHDR;
+  src.d_buf += src.d_size;
+  src.d_size = gelf_fsize (dso->elf, ELF_T_PHDR, ehdr.e_phnum, EV_CURRENT);
+  dst = src;
+  switch (gelf_getclass (dso->elf))
+    {
+    case ELFCLASS32:
+      dst.d_buf = alloca (dst.d_size);
+      break;
+    case ELFCLASS64:
+      dst.d_buf = &ehdr;
+      break;
+    }
+  if (gelf_xlatetom (dso->elf, &dst, &src, dso->ehdr.e_ident[EI_DATA]) == NULL)
+    {
+      error (0, 0, "%s: Could not read .gnu.prelink_undo section",
+	     dso->filename);
+      return 1;
+    }
+
+  if (gelf_getclass (dso->elf) == ELFCLASS32)
+    {
+      Elf32_Phdr *phdr32 = (Elf32_Phdr *) dst.d_buf;
+
+      for (i = 1; i < ehdr.e_phnum; ++i)
+	{
+#define COPY(name) phdr[i].name = phdr32[i].name
+	  COPY(p_type);
+	  COPY(p_flags);
+	  COPY(p_offset);
+	  COPY(p_vaddr);
+	  COPY(p_paddr);
+	  COPY(p_filesz);
+	  COPY(p_memsz);
+	  COPY(p_align);
+	}
+    }
+
+  shdr = alloca (sizeof (GElf_Shdr) * ehdr.e_shnum);
+  memset (shdr, 0, sizeof (GElf_Shdr));
+  src.d_type = ELF_T_SHDR;
+  src.d_buf += src.d_size;
+  src.d_size = gelf_fsize (dso->elf, ELF_T_SHDR, ehdr.e_shnum, EV_CURRENT);
   dst = src;
   switch (gelf_getclass (dso->elf))
     {
@@ -81,7 +315,7 @@ prelink_undo (DSO *dso)
     {
       Elf32_Shdr *shdr32 = (Elf32_Shdr *) dst.d_buf;
 
-      for (i = 1; i < shnum; ++i)
+      for (i = 1; i < ehdr.e_shnum; ++i)
 	{
 #define COPY(name) shdr[i].name = shdr32[i - 1].name
 	  COPY (sh_name);
@@ -98,7 +332,7 @@ prelink_undo (DSO *dso)
     }
 
   move = init_section_move (dso);
-  move->new_shnum = shnum;
+  move->new_shnum = ehdr.e_shnum;
   for (i = 1; i < move->old_shnum; ++i)
     move->old_to_new[i] = -1;
   for (i = 1; i < move->new_shnum; ++i)
@@ -158,14 +392,6 @@ prelink_undo (DSO *dso)
 	      }
 	  }
 
-	if (! strcmp (name, ".rel.dyn") || ! strcmp (name, ".rela.dyn"))
-	  {
-	    error (0, 0, "%s: Cannot undo objects not linked with -z combreloc",
-		   dso->filename);
-	    free (move);
-	    return 1;
-	  }
-
 	error (0, 0, "%s: Section %s not created by prelink created after prelinking",
 	       dso->filename, name);
 	free (move);
@@ -189,9 +415,10 @@ prelink_undo (DSO *dso)
       return 1;
     }
 
-#if 0
-  if (dso->arch->arch_undo_prelink && dso->arch->arch_undo_prelink (dso))
-    goto error_out;
+  free (move);
+
+  if (find_reloc_sections (dso, &rinfo))
+    return 1;
 
   for (i = 1; i < dso->ehdr.e_shnum; i++)
     {
@@ -205,23 +432,76 @@ prelink_undo (DSO *dso)
         {
         case SHT_REL:
           if (undo_prelink_rel (dso, i))
-            goto error_out;
+            return 1;
           break;
         case SHT_RELA:
           if (undo_prelink_rela (dso, i))
-            goto error_out;
+            return 1;
           break;
         }
     }
 
-  /* Clear .dynamic entries added by prelink.  */  
-#endif
+  if (dso->arch->arch_undo_prelink && dso->arch->arch_undo_prelink (dso))
+    return 1;
 
   if (dso->ehdr.e_type == ET_DYN)
     {
-      /* XXX */
+      GElf_Addr adjust = 0, diff;
+
+      for (i = dso->ehdr.e_shnum - 1; i > 0; --i)
+	if (shdr[i].sh_flags & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR))
+	  {
+	    adjust = shdr[i].sh_addr - dso->shdr[i].sh_addr;
+	    break;
+	  }
+      while (i > 0)
+	{
+	  /* Change here PROGBITS .plt into NOBITS if needed.  */
+	  /* Convert RELA to REL if needed.  */
+	  diff = shdr[i].sh_addr - dso->shdr[i].sh_addr;
+	  if (diff != adjust)
+	    {
+	      assert (diff >= adjust);
+	      if (adjust_dso (dso, dso->shdr[i + 1].sh_addr, adjust - diff))
+		return 1;
+	      adjust = diff;
+	    }
+	  --i;
+	}
+      if (adjust && adjust_dso (dso, 0, adjust))
+	return 1;
     }
 
-  free (move);      
+  /* Clear .dynamic entries added by prelink, update others.  */
+  if (remove_dynamic_prelink_tags (dso)
+      || update_dynamic_rel (dso, &rinfo))
+    return 1;
+
+  /* Shrink .shstrtab.  */
+  i = dso->ehdr.e_shstrndx;
+  if (shdr[i].sh_size < dso->shdr[i].sh_size)
+    {
+      scn = dso->scn[i];
+      d = elf_getdata (scn, NULL);
+      assert (d != NULL && elf_getdata (scn, d) == NULL);
+      assert (d->d_size == dso->shdr[i].sh_size);
+      d->d_size = shdr[i].sh_size;
+    }
+
+  /* Now restore the rest.  */
+  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+    {
+      if (shdr[i].sh_flags & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR))
+	assert (shdr[i].sh_addr == dso->shdr[i].sh_addr);
+      dso->shdr[i] = shdr[i];
+    }
+  for (i = 1; i < ehdr.e_phnum; ++i)
+    dso->phdr[i] = phdr[i];
+  assert (dso->ehdr.e_entry == ehdr.e_entry);
+  assert (dso->ehdr.e_shnum == ehdr.e_shnum);
+  assert (dso->ehdr.e_shstrndx == ehdr.e_shstrndx);
+  dso->ehdr.e_phoff = ehdr.e_phoff;
+  dso->ehdr.e_shoff = ehdr.e_shoff;
+  dso->ehdr.e_phnum = ehdr.e_phnum;
   return 0;
 }

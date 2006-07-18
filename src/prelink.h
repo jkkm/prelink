@@ -128,6 +128,9 @@ struct PLArch
 #define RTYPE_CLASS_COPY	(8|2)
   int (*reloc_class) (int);
   int (*arch_prelink) (DSO *dso);
+  int (*arch_undo_prelink) (DSO *dso);
+  int (*undo_prelink_rel) (DSO *dso, GElf_Rel *rel, GElf_Addr reladdr);
+  int (*undo_prelink_rela) (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr);
   int (*layout_libs_pre) (struct layout_libs *l);
   int (*layout_libs_post) (struct layout_libs *l);
   GElf_Addr mmap_base, mmap_end;

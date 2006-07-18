@@ -279,7 +279,7 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 	  dso->shdr[plt].sh_addr + dso->shdr[plt].sh_size;
       else
 	info[dt_RELSZ]->d_un.d_val =
-	  dso->shdr[rel].sh_addr + dso->shdr[rel].sh_size;
+	  dso->shdr[rinfo->last].sh_addr + dso->shdr[rinfo->last].sh_size;
       info[dt_RELSZ]->d_un.d_val -= info[dt_REL]->d_un.d_ptr;
 
       if (!rinfo->reldyn_rela && dso->shdr[rel ?: plt].sh_type == SHT_RELA)
@@ -292,6 +292,16 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
 	  if (info_DT_RELCOUNT)
 	    info_DT_RELCOUNT->d_tag = DT_RELACOUNT;
 	}
+      else if (rinfo->reldyn_rela && dso->shdr[rel ?: plt].sh_type == SHT_REL)
+	{
+	  info[DT_RELENT]->d_un.d_val =
+	    gelf_fsize (dso->elf, ELF_T_REL, 1, EV_CURRENT);
+	  info[DT_REL]->d_tag = DT_REL;
+	  info[DT_RELSZ]->d_tag = DT_RELSZ;
+	  info[DT_RELENT]->d_tag = DT_RELENT;
+	  if (info_DT_RELCOUNT)
+	    info_DT_RELCOUNT->d_tag = DT_RELCOUNT;
+	}
     }
 
   if (plt)
@@ -303,6 +313,11 @@ update_dynamic_rel (DSO *dso, struct reloc_info *rinfo)
       if (!rinfo->plt_rela && dso->shdr[plt].sh_type == SHT_RELA)
 	{
 	  info[DT_PLTREL]->d_un.d_val = DT_RELA;
+	  info[DT_PLTRELSZ]->d_un.d_val = dso->shdr[plt].sh_size;
+	}
+      else if (rinfo->plt_rela && dso->shdr[plt].sh_type == SHT_REL)
+	{
+	  info[DT_PLTREL]->d_un.d_val = DT_REL;
 	  info[DT_PLTRELSZ]->d_un.d_val = dso->shdr[plt].sh_size;
 	}
     }
