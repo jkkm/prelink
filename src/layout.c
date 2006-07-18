@@ -152,7 +152,7 @@ refs_rnd_cmp (const void *A, const void *B)
     return -1;
   if (a->layend - a->base < b->layend - b->base)
     return 1;
-  if (a->refs)
+  if (a->refs && b->refs)
     {
       i = strcmp (a->soname, b->soname);
       if (i)

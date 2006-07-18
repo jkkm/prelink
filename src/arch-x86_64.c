@@ -524,8 +524,8 @@ PL_ARCH = {
      does not take some library's VA slot.
      Also, if this guard area isn't too small, typically
      even dlopened libraries will get the slots they desire.  */
-  .mmap_base = 0x3000000000,
-  .mmap_end =  0x4000000000,
+  .mmap_base = 0x3000000000LL,
+  .mmap_end =  0x4000000000LL,
   .max_page_size = 0x100000,
   .page_size = 0x1000
 };

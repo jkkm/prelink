@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -88,11 +88,13 @@ prelink_init_cache (void)
 }
 
 struct prelink_entry *
-prelink_find_entry (const char *filename, dev_t dev, ino64_t ino, int insert)
+prelink_find_entry (const char *filename, const struct stat64 *stp,
+		    int insert)
 {
   struct prelink_entry e, *ent = NULL;
   void **filename_slot;
   void **devino_slot;
+  struct stat64 st;
 
   e.filename = filename;
   filename_slot = htab_find_slot (prelink_filename_htab, &e, INSERT);
@@ -102,21 +104,18 @@ prelink_find_entry (const char *filename, dev_t dev, ino64_t ino, int insert)
   if (*filename_slot != NULL)
     return (struct prelink_entry *) *filename_slot;
 
-  if (! dev)
+  if (! stp)
     {
-      struct stat64 st;
-
       if (stat64 (filename, &st) < 0)
 	{
 	  error (0, errno, "Could not stat %s", filename);
 	  return NULL;
 	}
-      dev = st.st_dev;
-      ino = st.st_ino;
+      stp = &st;
     }
 
-  e.dev = dev;
-  e.ino = ino;
+  e.dev = stp->st_dev;
+  e.ino = stp->st_ino;
   devino_slot = htab_find_slot (prelink_devino_htab, &e, INSERT);
   if (devino_slot == NULL)
     goto error_out;
@@ -174,8 +173,11 @@ prelink_find_entry (const char *filename, dev_t dev, ino64_t ino, int insert)
       return NULL;
     }
 
-  ent->dev = dev;
-  ent->ino = ino;
+  ent->dev = stp->st_dev;
+  ent->ino = stp->st_ino;
+  ent->ctime = stp->st_ctime;
+  ent->mtime = stp->st_mtime;
+  
   *filename_slot = ent;
   *devino_slot = ent;
   ++prelink_entry_count;
@@ -194,6 +196,7 @@ prelink_load_entry (const char *filename)
   void **filename_slot;
   void **devino_slot, *dummy = NULL;
   struct stat64 st;
+  uint32_t ctime = 0, mtime = 0;
 
   e.filename = filename;
   filename_slot = htab_find_slot (prelink_filename_htab, &e, INSERT);
@@ -213,6 +216,8 @@ prelink_load_entry (const char *filename)
     {
       e.dev = st.st_dev;
       e.ino = st.st_ino;
+      ctime = (uint32_t) st.st_ctime;
+      mtime = (uint32_t) st.st_mtime;
       devino_slot = htab_find_slot (prelink_devino_htab, &e, INSERT);
       if (devino_slot == NULL)
 	goto error_out;
@@ -238,6 +243,8 @@ prelink_load_entry (const char *filename)
 
   ent->dev = e.dev;
   ent->ino = e.ino;
+  ent->ctime = ctime;
+  ent->mtime = mtime;
   *filename_slot = ent;
   *devino_slot = ent;
   ++prelink_entry_count;
@@ -247,6 +254,30 @@ error_out:
   free (ent);
   error (0, ENOMEM, "Could not insert %s into hash table", filename);
   return NULL;
+}
+
+static int
+deps_cmp (const void *A, const void *B)
+{
+  struct prelink_entry *a = * (struct prelink_entry **) A;
+  struct prelink_entry *b = * (struct prelink_entry **) B;
+
+  if (a == NULL && b != NULL)
+    return 1;
+  if (a != NULL && b == NULL)
+    return -1;
+
+  if (a->type == ET_NONE && b->type != ET_NONE)
+    return 1;
+  if (a->type != ET_NONE && b->type == ET_NONE)
+    return -1;
+
+  /* Libraries with fewest dependencies first.  */
+  if (a->ndepends < b->ndepends)
+    return -1;
+  if (a->ndepends > b->ndepends)
+    return 1;
+  return 0;
 }
 
 int
@@ -276,8 +307,14 @@ prelink_load_cache (void)
   cache_size = st.st_size;
   if (memcmp (cache->magic, PRELINK_CACHE_MAGIC,
 	      sizeof (PRELINK_CACHE_MAGIC) - 1))
-    error (EXIT_FAILURE, 0, "%s: is not prelink cache file",
-	   prelink_cache);
+    {
+      if (memcmp (cache->magic, PRELINK_CACHE_NAME,
+		  sizeof (PRELINK_CACHE_NAME) - 1))
+	error (EXIT_FAILURE, 0, "%s: is not prelink cache file",
+	       prelink_cache);
+      munmap (cache, cache_size);
+      return 0;
+    }
   dep = (uint32_t *) & cache->entry[cache->nlibs];
   string_start = ((long) dep) - ((long) cache)
 		 + cache->ndeps * sizeof (uint32_t);
@@ -295,13 +332,13 @@ prelink_load_cache (void)
 
       ents[i] = prelink_load_entry (((char *) cache)
 				    + cache->entry[i].filename);
-      if (ents[i] == NULL)
-	error (EXIT_FAILURE, ENOMEM, "Cannot read cache file %s",
-	       prelink_cache);
     }
 
   for (i = 0; i < cache->nlibs; i++)
     {
+      if (ents[i] == NULL)
+	continue;
+
       if (ents[i]->type != ET_NONE)
 	continue;
 
@@ -312,10 +349,23 @@ prelink_load_cache (void)
 		      ? ET_CACHE_EXEC : ET_CACHE_DYN;
       ents[i]->flags = cache->entry[i].flags;
 
+      /* If mtime is equal to ctime, assume the filesystem does not store
+	 ctime.  */
+      if (quick
+	  && (ents[i]->ctime == ents[i]->mtime
+	      || ents[i]->ctime != cache->entry[i].ctime
+	      || ents[i]->mtime != cache->entry[i].mtime))
+	ents[i]->type = ET_NONE;
+
       for (j = cache->entry[i].depends; dep[j] != i; ++j)
 	if (dep[j] >= cache->nlibs)
 	  error (EXIT_FAILURE, 0, "%s: bogus prelink cache file",
 		 prelink_cache);
+	else if (ents[dep[j]] == NULL)
+	  ents[i]->type = ET_NONE;
+
+      if (ents[i]->type == ET_NONE)
+	continue;
 
       ents[i]->ndepends = j - cache->entry[i].depends;
       if (ents[i]->ndepends)
@@ -329,6 +379,26 @@ prelink_load_cache (void)
 
 	  for (j = 0; j < ents[i]->ndepends; ++j)
 	    ents[i]->depends[j] = ents[dep[cache->entry[i].depends + j]];
+	}
+    }
+
+  if (quick)
+    {
+      qsort (ents, cache->nlibs, sizeof (struct prelink_entry *), deps_cmp);
+      for (i = 0; i < cache->nlibs; ++i)
+	{
+	  if (ents[i] == NULL || ents[i]->type == ET_NONE)
+	    continue;
+
+	  for (j = 0; j < ents[i]->ndepends; ++j)
+	    if (ents[i]->depends[j]->type == ET_NONE)
+	      {
+		ents[i]->type = ET_NONE;
+		free (ents[i]->depends);
+		ents[i]->depends = NULL;
+		ents[i]->ndepends = 0;
+		break;
+	      }
 	}
     }
 
@@ -401,12 +471,11 @@ prelink_save_cache_check (struct prelink_entry *ent)
     switch (ent->depends[i]->type)
       {
       case ET_DYN:
-	if (ent->depends[i]->done < 2)
+	if (ent->depends[i]->done < 2
+	    || (quick && (ent->depends[i]->flags & PCF_PRELINKED)))
 	  return 1;
 	break;
       case ET_CACHE_DYN:
-	if (prelink_save_cache_check (ent->depends[i]))
-	  return 1;
 	break;
       default:
 	return 1;
@@ -421,8 +490,7 @@ find_ents (void **p, void *info)
   struct collect_ents *l = (struct collect_ents *) info;
   struct prelink_entry *e = * (struct prelink_entry **) p;
 
-  if (((e->type == ET_DYN || (conserve_memory && e->type == ET_EXEC))
-       && e->done == 2)
+  if (((e->type == ET_DYN || e->type == ET_EXEC) && e->done == 2)
       || ((e->type == ET_CACHE_DYN || e->type == ET_CACHE_EXEC)
 	  && ! prelink_save_cache_check (e)))
     {
@@ -469,6 +537,8 @@ prelink_save_cache (int do_warn)
       strings = stpcpy (strings, l.ents[i]->canon_filename) + 1;
       data[i].checksum = l.ents[i]->checksum;
       data[i].flags = l.ents[i]->flags;
+      data[i].ctime = l.ents[i]->ctime;
+      data[i].mtime = l.ents[i]->mtime;
       if (l.ents[i]->type == ET_EXEC || l.ents[i]->type == ET_CACHE_EXEC)
 	{
 	  data[i].base = 0;
@@ -496,7 +566,8 @@ prelink_save_cache (int do_warn)
       deps[ndeps++] = i;
     }
 
-  fd = open (prelink_cache, O_WRONLY | O_CREAT, 0644);
+  unlink (prelink_cache);
+  fd = open (prelink_cache, O_WRONLY | O_CREAT | O_EXCL, 0644);
   if (fd < 0)
     {
       error (0, errno, "Could not write prelink cache");

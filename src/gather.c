@@ -212,9 +212,17 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
   ent->ndepends = ndepends;
   for (i = 0; i < ndepends; ++i)
     {
-      ent->depends[i] = prelink_find_entry (depends [i], 0, 0, 1);
+      ent->depends[i] = prelink_find_entry (depends [i], NULL, 1);
       if (ent->depends[i] == NULL)
 	goto error_out;
+
+      if (ent->depends[i]->type == ET_CACHE_DYN)
+	{
+	  ent->depends[i]->type = ET_NONE;
+	  free (ent->depends[i]->depends);
+	  ent->depends[i]->depends = NULL;
+	  ent->depends[i]->ndepends = 0;
+	}
 
       if (ent->depends[i]->type != ET_NONE
 	  && ent->depends[i]->type != ET_BAD
@@ -433,7 +441,7 @@ gather_exec (DSO *dso, const struct stat64 *st)
       goto error_out;
     }
 
-  ent = prelink_find_entry (dso->filename, st->st_dev, st->st_ino, 1);
+  ent = prelink_find_entry (dso->filename, st, 1);
   if (ent == NULL)
     goto error_out;
 
@@ -501,8 +509,8 @@ gather_func (const char *name, const struct stat64 *st, int type,
       DSO *dso;
       struct prelink_entry *ent;
 
-      ent = prelink_find_entry (name, st->st_dev, st->st_ino, 0);
-      if (ent != NULL)
+      ent = prelink_find_entry (name, st, 0);
+      if (ent != NULL && ent->type != ET_NONE)
 	{
 	  ent->u.explicit = 1;
 	  return 0;
@@ -564,8 +572,8 @@ gather_binlib (const char *name, const struct stat64 *st)
       return 1;
     }
 
-  ent = prelink_find_entry (name, st->st_dev, st->st_ino, 0);
-  if (ent != NULL)
+  ent = prelink_find_entry (name, st, 0);
+  if (ent != NULL && ent->type != ET_NONE)
     {
       ent->u.explicit = 1;
       return 0;
@@ -641,7 +649,7 @@ unsupported_type:
       return gather_exec (dso, st);
     }
 
-  ent = prelink_find_entry (name, st->st_dev, st->st_ino, 1);
+  ent = prelink_find_entry (name, st, 1);
   if (ent == NULL)
     {
       close_dso (dso);

@@ -47,6 +47,7 @@ int one_file_system;
 int enable_cxx_optimizations = 1;
 int exec_shield;
 int undo, verify;
+int quick;
 long long seed;
 GElf_Addr mmap_reg_start = ~(GElf_Addr) 0;
 GElf_Addr mmap_reg_end = ~(GElf_Addr) 0;
@@ -82,6 +83,7 @@ static struct argp_option options[] = {
   {"no-update-cache",	'N', 0, 0,  "Don't update prelink cache" },
   {"dry-run",		'n', 0, 0,  "Don't actually prelink anything" },
   {"print-cache",	'p', 0,	0,  "Print prelink cache" },
+  {"quick",		'q', 0, 0,  "Quick scan" },
   {"random",		'R', 0, 0,  "Choose random base for libraries" },
   {"reloc-only",	'r', "BASE_ADDRESS", 0,  "Relocate library to given address, don't prelink" },
   {"undo",		'u', 0, 0,  "Undo prelink" },
@@ -116,6 +118,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
     case 'p':
       print_cache = 1;
+      break;
+    case 'q':
+      quick = 1;
       break;
     case 'v':
       ++verbose;
@@ -224,6 +229,8 @@ main (int argc, char *argv[])
     error (EXIT_FAILURE, 0, "--verify and either --undo or --all options are incompatible");
   if (dry_run && verify)
     error (EXIT_FAILURE, 0, "--dry-run and --verify options are incompatible");
+  if ((undo || verify) && quick)
+    error (EXIT_FAILURE, 0, "--undo and --quick options are incompatible"); 
 
   prelink_init_cache ();
 
@@ -301,6 +308,9 @@ main (int argc, char *argv[])
       return failures;
     }
 
+  if (quick)
+    prelink_load_cache ();
+
   if (gather_config (prelink_conf))
     return EXIT_FAILURE;
 
@@ -311,7 +321,7 @@ main (int argc, char *argv[])
   if (undo)
     return undo_all ();
 
-  if (! all)
+  if (! all && ! quick)
     prelink_load_cache ();
 
   layout_libs ();

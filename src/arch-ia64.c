@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2002 Red Hat, Inc.
+/* Copyright (C) 2001, 2002, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -513,8 +513,8 @@ PL_ARCH = {
      does not take some library's VA slot.
      Also, if this guard area isn't too small, typically
      even dlopened libraries will get the slots they desire.  */
-  .mmap_base = 0x2000000010000000,
-  .mmap_end =  0x4000000000000000,
+  .mmap_base = 0x2000000010000000LL,
+  .mmap_end =  0x4000000000000000LL,
   .max_page_size = 0x10000,
   /* The kernel can be configured for 4K, 8K, 16K and 64K,
      but most kernels have at least 8K.  */

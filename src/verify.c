@@ -113,7 +113,7 @@ prelink_verify (const char *filename)
   if (gather_object (filename, 0, 0))
     goto failure;
 
-  ent = prelink_find_entry (filename, st.st_dev, st.st_ino, 0);
+  ent = prelink_find_entry (filename, &st, 0);
   if (ent == NULL)
     {
       error (0, 0, "%s disappeared while running --verify", filename);

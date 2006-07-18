@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/stat.h>
 
 #ifndef DT_GNU_LIBLIST
 #define DT_GNU_LIBLIST		0x6ffffef9
@@ -158,12 +159,7 @@ struct PLArch
      It doesn't need to be the absolutely smallest supported one,
      prelink only optimizes for such page_size.  */
   GElf_Addr max_page_size, page_size;
-}
-#ifdef __x86_64__
-/* AMD64 ABI braindamage.  */
-__attribute__((aligned(16)))
-#endif
-;
+} __attribute__((aligned(64)));
 
 DSO * open_dso (const char *name);
 DSO * fdopen_dso (int fd, const char *name);
@@ -225,9 +221,12 @@ struct prelink_cache_entry
   uint32_t filename;
   uint32_t depends;
   uint32_t checksum;
+#define PCF_PRELINKED	0x20000
 #define PCF_ELF64	0x10000
 #define PCF_MACHINE	0x0ffff
   uint32_t flags;
+  uint32_t ctime;
+  uint32_t mtime;
   uint64_t base;
   uint64_t end;
 };
@@ -235,7 +234,7 @@ struct prelink_cache_entry
 struct prelink_cache
 {
 #define PRELINK_CACHE_NAME "prelink-ELF"
-#define PRELINK_CACHE_VER "0.1.1"
+#define PRELINK_CACHE_VER "0.3.0"
 #define PRELINK_CACHE_MAGIC PRELINK_CACHE_NAME PRELINK_CACHE_VER
   const char magic [sizeof (PRELINK_CACHE_MAGIC) - 1];
   uint32_t nlibs;
@@ -273,6 +272,7 @@ struct prelink_entry
       int explicit;
       int tmp;
     } u;
+  uint32_t ctime, mtime;
   struct prelink_entry **depends;
   struct prelink_entry *prev, *next;
   struct opd_lib *opd;
@@ -361,7 +361,7 @@ int prelink_load_cache (void);
 int prelink_print_cache (void);
 int prelink_save_cache (int do_warn);
 struct prelink_entry *
-  prelink_find_entry (const char *filename, dev_t dev, ino64_t ino,
+  prelink_find_entry (const char *filename, const struct stat64 *stp,
 		      int insert);
 struct prelink_conflict *
   prelink_conflict (struct prelink_info *info, GElf_Word r_sym,
@@ -411,6 +411,7 @@ extern int enable_cxx_optimizations;
 extern int exec_shield;
 extern int undo;
 extern int verify;
+extern int quick;
 extern long long seed;
 extern GElf_Addr mmap_reg_start, mmap_reg_end;
 

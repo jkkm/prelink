@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2003 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -110,6 +110,7 @@ prelink_ent (struct prelink_entry *ent)
 	}
     }
   ent->done = 2;
+  ent->flags |= PCF_PRELINKED;
 
   /* Redo hardlinks.  */
   for (hardlink = ent->hardlink; hardlink; hardlink = hardlink->next)
@@ -191,6 +192,8 @@ prelink_ent (struct prelink_entry *ent)
     {
       ent->dev = st.st_dev;
       ent->ino = st.st_ino;
+      ent->ctime = st.st_ctime;
+      ent->mtime = st.st_mtime;
     }
   return 0;
 
