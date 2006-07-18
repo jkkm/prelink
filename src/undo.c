@@ -175,7 +175,7 @@ undo_sections (DSO *dso, int undo, struct section_move *move,
       dst.d_buf = alloca (dst.d_size);
       break;
     case ELFCLASS64:
-      dst.d_buf = &ehdr;
+      dst.d_buf = ehdr;
       break;
     default:
       return 1;

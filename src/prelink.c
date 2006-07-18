@@ -774,6 +774,7 @@ prelink_dso (struct prelink_info *info)
       dso->shdr[liblist].sh_size = data->d_size;
     }
 
+  recompute_nonalloc_offsets (dso);
   return 0;
 
 error_out:

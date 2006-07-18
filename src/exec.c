@@ -996,6 +996,8 @@ prelink_exec (struct prelink_info *info)
       dso->undo.d_buf = NULL;
     }
 
+  recompute_nonalloc_offsets (dso);
+
   if (update_dynamic_tags (dso, dso->shdr, old_shdr, move))
     goto error_out;
 

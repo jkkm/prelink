@@ -177,6 +177,7 @@ int adjust_nonalloc (DSO *dso, GElf_Ehdr *ehdr, GElf_Shdr *shdr, int first,
 		     GElf_Addr start, GElf_Addr adjust);
 int adjust_dso_nonalloc (DSO *dso, int first, GElf_Addr start,
 			 GElf_Addr adjust);
+int recompute_nonalloc_offsets (DSO *dso);
 int adjust_stabs (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
 int adjust_dwarf2 (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
 int adjust_mdebug (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
