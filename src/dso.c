@@ -1684,13 +1684,13 @@ set_security_context (DSO *dso, const char *temp_name, const char *name)
 	    return 0;
 
 	  error (0, errno, "Could not get security context for %s",
-		 dso->filename);
+		 name);
 	  return 1;
 	}
       if (setfilecon (temp_name, scontext) < 0)
 	{
 	  error (0, errno, "Could not set security context for %s",
-		 dso->filename);
+		 name);
 	  freecon (scontext);
 	  return 1;
 	}
