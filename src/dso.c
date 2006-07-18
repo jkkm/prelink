@@ -31,6 +31,10 @@
 #define RELOCATE_SCN(shf) \
   ((shf) & (SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR))
 
+#ifndef ELF_F_PERMISSIVE
+# define ELF_F_PERMISSIVE 0
+#endif
+
 void
 read_dynamic (DSO *dso)
 {
@@ -182,7 +186,7 @@ check_dso (DSO *dso)
 	+ (dso->shdr[i - 1].sh_type == SHT_NOBITS
 	   ? 0 : dso->shdr[i - 1].sh_size) > dso->shdr[i].sh_offset)
       {
-	if (dso->undoing
+	if (dso->permissive
 	    && ! RELOCATE_SCN (dso->shdr[i - 1].sh_flags)
 	    && ! RELOCATE_SCN (dso->shdr[i].sh_flags))
 	  continue;
@@ -269,7 +273,7 @@ fdopen_dso (int fd, const char *name)
       goto error_out;
     }
 
-  elf_flagelf (elf, ELF_C_SET, ELF_F_LAYOUT);
+  elf_flagelf (elf, ELF_C_SET, ELF_F_LAYOUT | ELF_F_PERMISSIVE);
 
   memset (dso, 0, sizeof(DSO));
   dso->elf = elf;
@@ -618,11 +622,9 @@ reopen_dso (DSO *dso, struct section_move *move)
 
     }
 
-#if 0
   /* Some gelf_newehdr implementations don't return the resulting
-     ElfNN_Ehdr.  */
-  e_ident = (char *) gelf_newehdr (elf, gelf_getclass (dso->elf));
-#else
+     ElfNN_Ehdr, so we have to do it the hard way instead of:
+     e_ident = (char *) gelf_newehdr (elf, gelf_getclass (dso->elf));  */
   switch (gelf_getclass (dso->elf))
     {
     case ELFCLASS32:
@@ -635,7 +637,7 @@ reopen_dso (DSO *dso, struct section_move *move)
       e_ident = NULL;
       break;
     }
-#endif
+
   if (e_ident == NULL
       /* This is here just for the gelfx wrapper, so that gelf_update_ehdr
 	 already has the correct ELF class.  */
@@ -647,7 +649,7 @@ reopen_dso (DSO *dso, struct section_move *move)
       goto error_out;
     }
   ehdr = dso->ehdr;
-  elf_flagelf (elf, ELF_C_SET, ELF_F_LAYOUT);
+  elf_flagelf (elf, ELF_C_SET, ELF_F_LAYOUT | ELF_F_PERMISSIVE);
   for (i = 0; i < ehdr.e_phnum; ++i)
     gelf_update_phdr (elf, i, dso->phdr + i);
 
@@ -1389,6 +1391,10 @@ write_dso (DSO *dso)
 	  || dso->shdr[i].sh_type == SHT_DYNSYM)
 	set_stt_section_values (dso, i);
     }
+
+  if (! dso->permissive && ELF_F_PERMISSIVE)
+    elf_flagelf (dso->elf, ELF_C_CLR, ELF_F_PERMISSIVE);
+
   if (elf_update (dso->elf, ELF_C_WRITE) == -1)
     return 2;
   return 0;

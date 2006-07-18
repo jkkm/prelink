@@ -266,6 +266,9 @@ main (int argc, char *argv[])
 	      continue;
 	    }
 
+	  if (reloc_only)
+	    dso->permissive = 1;
+
 	  if (update_dso (dso))
 	    ++failures;
 	}

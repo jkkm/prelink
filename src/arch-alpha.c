@@ -304,6 +304,15 @@ alpha_need_rel_to_rela (DSO *dso, int first, int last)
 static int
 alpha_arch_prelink (DSO *dso)
 {
+  /* Correct sh_entsize on .plt sections.  */
+  if (dso->info[DT_PLTGOT])
+    {
+      int sec = addr_to_sec (dso, dso->info[DT_PLTGOT] + 16);
+      assert (sec != -1);
+      if (dso->shdr[sec].sh_type == SHT_PROGBITS
+	  && dso->shdr[sec].sh_entsize == 32)
+	dso->shdr[sec].sh_entsize = 0;
+    }
   return 0;
 }
 
