@@ -476,8 +476,7 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 	    }
 	  
 	  shdr[k].sh_addr = addr;
-	  shdr[k].sh_offset = (addr - phdr[i].p_vaddr)
-				     + phdr[i].p_offset;
+	  shdr[k].sh_offset = (addr - phdr[i].p_vaddr) + phdr[i].p_offset;
 	  ehdr->e_shnum++;
 	  return k;
 	}
@@ -552,6 +551,7 @@ readonly_space_adjust (DSO *dso, struct readonly_adjust *adjust)
 	    dso->shdr[i].sh_offset += adjust->basemove_adjust;
 	    adj = 1;
 	  }
+
       dso->ehdr.e_shoff += adjust->basemove_adjust;
       if (adjust->basemove2_adjust)
         {
@@ -985,7 +985,7 @@ prelink_exec (struct prelink_info *info)
   int new_reloc = -1, new_plt = -1, new_dynstr = -1;
   int old_dynbss = -1, old_bss = -1, new_dynbss = -1;
   int old[5], new[5];
-  int addcnt;
+  int addcnt, undo = 0;
   struct reloc_info rinfo;
   DSO *dso = info->dso;
   GElf_Ehdr ehdr;
@@ -1054,6 +1054,8 @@ prelink_exec (struct prelink_info *info)
 				 dso->shdr[i].sh_name);
       if (! strcmp (name, ".dynbss"))
 	old_dynbss = i;
+      else if (! strcmp (name, ".gnu.prelink_undo"))
+	undo = -1;
       if (! strcmp (name, ".gnu.conflict"))
 	{
 	  old_conflict = i;
@@ -1204,6 +1206,15 @@ prelink_exec (struct prelink_info *info)
 	}
       else
 	new_dynbss = move->old_to_new[old_dynbss];
+    }
+
+  if (undo != -1)
+    {
+      undo = move->old_to_new[dso->ehdr.e_shstrndx];
+      memmove (&shdr[undo + 1], &shdr[undo],
+	       (ehdr.e_shnum - undo) * sizeof (GElf_Shdr));
+      ++ehdr.e_shnum;
+      add_section (move, undo);
     }
 
   i = ehdr.e_shnum;
@@ -1466,6 +1477,39 @@ prelink_exec (struct prelink_info *info)
   if (rinfo.first && ! rinfo.gnureloc && rinfo.relcount)
     set_dynamic (dso, dso->shdr[rinfo.first].sh_type == SHT_RELA
 		      ? DT_RELACOUNT : DT_RELCOUNT, rinfo.relcount, 0);
+
+  if (undo != -1)
+    {
+      Elf_Scn *scn;
+      Elf_Data *data;
+      GElf_Addr newoffset;
+
+      memset (&dso->shdr[undo], 0, sizeof (GElf_Shdr));
+      dso->shdr[undo].sh_name = shstrtabadd (dso, ".gnu.prelink_undo");
+      if (dso->shdr[undo].sh_name == 0)
+	return 1;
+      dso->shdr[undo].sh_type = SHT_PROGBITS;
+      dso->shdr[undo].sh_offset = dso->shdr[undo - 1].sh_offset;
+      if (dso->shdr[undo - 1].sh_type != SHT_NOBITS)
+	dso->shdr[undo].sh_offset += dso->shdr[undo - 1].sh_size;
+      dso->shdr[undo].sh_addralign = dso->undo.d_align;
+      dso->shdr[undo].sh_entsize = gelf_fsize (dso->elf, ELF_T_SHDR, 1,
+					       EV_CURRENT);
+      dso->shdr[undo].sh_size = dso->undo.d_size;
+      newoffset = dso->shdr[undo].sh_offset + dso->undo.d_align - 1;
+      newoffset &= ~(dso->shdr[undo].sh_addralign - 1);
+      if (adjust_dso_nonalloc (dso, undo + 1, dso->shdr[undo].sh_offset,
+			       dso->undo.d_size + newoffset
+			       - dso->shdr[undo].sh_offset))
+	return 1;
+      dso->shdr[undo].sh_offset = newoffset;
+      scn = elf_getscn (dso->elf, undo);
+      data = elf_getdata (scn, NULL);
+      assert (data != NULL && elf_getdata (scn, data) == NULL);
+      free (data->d_buf);
+      *data = dso->undo;
+      dso->undo.d_buf = NULL;
+    }
 
   free (move);
   return 0;

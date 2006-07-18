@@ -540,7 +540,7 @@ reopen_dso (DSO *dso, struct section_move *move)
 
   sprintf (filename, "%s.#prelink#", dso->filename);
 
-  fd = open (filename, O_RDWR|O_CREAT, 0600);
+  fd = open (filename, O_RDWR|O_CREAT|O_EXCL, 0600);
   if (fd == -1)
     {
       error (0, errno, "Could not create temporary file %s", filename);
@@ -1231,6 +1231,7 @@ close_dso_1 (DSO *dso)
     free ((char *) dso->soname);
   free ((char *) dso->filename);
   free (dso->adjust);
+  free (dso->undo.d_buf);
   free (dso);
   return 0;
 }

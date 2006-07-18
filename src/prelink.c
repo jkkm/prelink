@@ -116,9 +116,56 @@ int
 prelink_prepare (DSO *dso)
 {
   struct reloc_info rinfo;
-  int liblist = 0, libstr = 0, newlibstr = 0;
+  int liblist = 0, libstr = 0, newlibstr = 0, undo = 0, newundo = 0;
   int i;
   
+  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+    {
+      const char *name
+	= strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[i].sh_name);
+      if (! strcmp (name, ".gnu.liblist"))
+	liblist = i;
+      else if (! strcmp (name, ".gnu.libstr"))
+	libstr = i;
+      else if (! strcmp (name, ".gnu.prelink_undo"))
+	undo = i;
+    }
+
+  if (undo == 0)
+    {
+      Elf32_Shdr *shdr32;
+      Elf64_Shdr *shdr64;
+
+      dso->undo.d_size = gelf_fsize (dso->elf, ELF_T_SHDR,
+				     dso->ehdr.e_shnum - 1, EV_CURRENT);
+      dso->undo.d_buf = malloc (dso->undo.d_size);
+      if (dso->undo.d_buf == 0)
+	{
+	  error (0, ENOMEM, "%s: Could not create .gnu.prelink_undo section",
+		 dso->filename);
+	  return 1;
+	}
+      dso->undo.d_type = ELF_T_SHDR;
+      dso->undo.d_off = 0;
+      dso->undo.d_align = gelf_fsize (dso->elf, ELF_T_ADDR, 1, EV_CURRENT);
+      dso->undo.d_version = EV_CURRENT;
+      switch (gelf_getclass (dso->elf))
+	{
+	case ELFCLASS32:
+	  shdr32 = (Elf32_Shdr *) dso->undo.d_buf;
+	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+	    shdr32[i - 1] = *elf32_getshdr (elf_getscn (dso->elf, i));
+	  break;
+	case ELFCLASS64:
+	  shdr64 = (Elf64_Shdr *) dso->undo.d_buf;
+	  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+	    shdr64[i - 1] = *elf64_getshdr (elf_getscn (dso->elf, i));
+	  break;
+	default:
+	  return 1;
+	}
+    }
+
   if (dso->ehdr.e_type != ET_DYN)
     return 0;
 
@@ -128,21 +175,11 @@ prelink_prepare (DSO *dso)
   if (find_reloc_sections (dso, &rinfo))
     return 1;
 
-  for (i = 1; i < dso->ehdr.e_shnum; ++i)
-    {
-      const char *name
-	= strptr (dso, dso->ehdr.e_shstrndx, dso->shdr[i].sh_name);
-      if (! strcmp (name, ".gnu.liblist"))
-	liblist = i;
-      else if (! strcmp (name, ".gnu.libstr"))
-	libstr = i;
-    }
-
-  if (rinfo.gnureloc && liblist && libstr
+  if (rinfo.gnureloc && liblist && libstr && undo
       && ! rinfo.rel_to_rela && ! rinfo.rel_to_rela_plt)
       return 0;
 
-  if (! liblist || ! libstr || (rinfo.first && ! rinfo.gnureloc))
+  if (! liblist || ! libstr || ! undo || (rinfo.first && ! rinfo.gnureloc))
     {
       Elf_Data data, *d;
       GElf_Shdr shdr;
@@ -183,6 +220,15 @@ prelink_prepare (DSO *dso)
 	}
       else
 	libstr = move->old_to_new[libstr];
+
+      if (! undo)
+	{
+	  add_section (move, libstr + 1);
+	  undo = libstr + 1;
+	  newundo = 1;
+	}
+      else
+	undo = move->old_to_new[undo];
 
       if (reopen_dso (dso, move))
 	{
@@ -232,6 +278,38 @@ prelink_prepare (DSO *dso)
 	    dso->shdr[libstr].sh_offset += dso->shdr[libstr - 1].sh_size;
 	  dso->shdr[libstr].sh_addralign = 1;
         }
+      if (newundo)
+	{
+	  Elf_Scn *scn;
+	  Elf_Data *data;
+	  GElf_Addr newoffset;
+
+	  memset (&dso->shdr[undo], 0, sizeof (GElf_Shdr));
+	  dso->shdr[undo].sh_name = shstrtabadd (dso, ".gnu.prelink_undo");
+	  if (dso->shdr[undo].sh_name == 0)
+	    return 1;
+	  dso->shdr[undo].sh_type = SHT_PROGBITS;
+	  dso->shdr[undo].sh_offset = dso->shdr[undo - 1].sh_offset;
+	  if (dso->shdr[undo - 1].sh_type != SHT_NOBITS)
+	    dso->shdr[undo].sh_offset += dso->shdr[undo - 1].sh_size;
+	  dso->shdr[undo].sh_addralign = dso->undo.d_align;
+	  dso->shdr[undo].sh_entsize = gelf_fsize (dso->elf, ELF_T_SHDR, 1,
+						   EV_CURRENT);
+	  dso->shdr[undo].sh_size = dso->undo.d_size;
+	  newoffset = dso->shdr[undo].sh_offset + dso->undo.d_align - 1;
+	  newoffset &= ~(dso->shdr[undo].sh_addralign - 1);
+	  if (adjust_dso_nonalloc (dso, undo + 1, dso->shdr[undo].sh_offset,
+				   dso->undo.d_size + newoffset
+				   - dso->shdr[undo].sh_offset))
+	    return 1;
+	  dso->shdr[undo].sh_offset = newoffset;
+	  scn = elf_getscn (dso->elf, undo);
+	  data = elf_getdata (scn, NULL);
+	  assert (data != NULL && elf_getdata (scn, data) == NULL);
+	  free (data->d_buf);
+	  *data = dso->undo;
+	  dso->undo.d_buf = NULL;
+	}
     }
   else if (reopen_dso (dso, NULL))
     return 1;

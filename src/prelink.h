@@ -65,6 +65,7 @@ typedef struct
   const char *filename;
   struct PLArch *arch;
   struct PLAdjust *adjust;
+  Elf_Data undo;
   int nadjust;
   GElf_Shdr shdr[0];
 } DSO;
