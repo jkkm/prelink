@@ -406,8 +406,8 @@ prelink_get_relocations (struct prelink_info *info)
       if (ld_library_path == NULL)
         ld_library_path = "";
     }
-  command = alloca (strlen (dynamic_linker) + strlen (info->dso->filename) + strlen (ld_library_path)
-		    + sizeof ("LD_LIBRARY_PATH=%s LD_TRACE_LOADED_OBJECTS=1 LD_TRACE_PRELINKING=1 LD_BIND_NOW=1 %s '%s' 2>&1") - 1);
+  command = alloca (strlen (dynamic_linker) + 2 * strlen (info->dso->filename) + strlen (ld_library_path)
+		    + sizeof ("LD_LIBRARY_PATH=%s LD_TRACE_LOADED_OBJECTS=1 LD_TRACE_PRELINKING=%s LD_BIND_NOW=1 %s '%s' 2>&1") - 1);
   sprintf (command, "LD_LIBRARY_PATH=%s %s --verify '%s' >/dev/null", ld_library_path, dynamic_linker,
 	   info->dso->filename);
   ret = system (command);

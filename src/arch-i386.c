@@ -304,10 +304,8 @@ i386_prelink_conflict_rela (struct prelink_info *info, GElf_Rela *rela)
       printf (" %08x [%08x] -> [%08x]\n", rela->r_offset, read_ule32(dso, rela->r_offset), value);
 #endif
       break;
-    case R_386_PC32:
-      value -= rela->r_offset;
-      /* Fallthrough */
     case R_386_32:
+    case R_386_PC32:
       value += rela->r_addend;
       ret->r_addend = value;
 #ifdef DEBUG
