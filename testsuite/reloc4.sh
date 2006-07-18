@@ -14,6 +14,9 @@ $CC -O2 -o reloc4.tmp $srcdir/reloc4.c
 $CC -shared -fpic -o reloc4lib1.so reloc4lib1.tmp.c
 $CC -shared -fpic -o reloc4lib2.so reloc4lib2.tmp.c reloc4lib1.so
 $CC -shared -fpic -o reloc4lib3.so reloc4lib3.tmp.c reloc4lib2.so
+cp -a reloc4lib1.so reloc4lib1.so.orig
+cp -a reloc4lib2.so reloc4lib2.so.orig
+cp -a reloc4lib3.so reloc4lib3.so.orig
 $CCLINK -o reloc4 reloc4.tmp.c -Wl,--rpath-link,. reloc4lib3.so
 rm -f reloc4*.tmp reloc4*.tmp.c
 echo $PRELINK -vm ./reloc4 > reloc4.log

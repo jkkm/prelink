@@ -26,7 +26,6 @@ struct reloc_info
   int last; /* Last dynamic SHT_REL* section not counting .rel*.plt.  */
   int plt; /* .rel*.plt section.  */
   int overlap; /* 1 if DT_REL{,A}SZ range includes DT_PLTRELSZ range.  */
-  int reldyn; /* .rel*.dyn section exists already.  */
   int reldyn_rela; /* first..last sections were originally RELA.  */
   int plt_rela; /* plt section was originally RELA.  */
   int rel_to_rela; /* first..last sections have to be converted REL->RELA.  */
@@ -35,7 +34,6 @@ struct reloc_info
 };
 
 int find_reloc_sections (DSO *dso, struct reloc_info *rinfo);
-int build_rel_dyn (DSO *dso, Elf_Data *data, struct reloc_info *rinfo);
 int convert_rel_to_rela (DSO *dso, int i);
 int update_dynamic_rel (DSO *dso, struct reloc_info *rinfo);
 

@@ -75,15 +75,12 @@ prelink_exec (struct prelink_info *info)
   struct reloc_info rinfo;
   DSO *dso = info->dso;
   GElf_Ehdr ehdr;
-  Elf_Data rel_dyn_data;
   GElf_Phdr phdr[dso->ehdr.e_phnum + 1];
   GElf_Shdr old_shdr[dso->ehdr.e_shnum], new_shdr[dso->ehdr.e_shnum + 20];
   GElf_Shdr *shdr, add[5];
   Elf32_Lib *liblist = NULL;
   struct readonly_adjust adjust;
   struct section_move *move = NULL;
-
-  memset (&rel_dyn_data.d_buf, 0, sizeof (rel_dyn_data));
 
   if (prelink_build_conflicts (info))
     return 1;
@@ -185,12 +182,6 @@ prelink_exec (struct prelink_info *info)
   memset (add, 0, sizeof (add));
   memset (old, 0, sizeof (old));
   memset (new, 0, sizeof (new));
-
-  if (rinfo.first && ! rinfo.reldyn)
-    {
-      if (build_rel_dyn (dso, &rel_dyn_data, &rinfo))
-	goto error_out;
-    }
 
   i = 0;
   if (rinfo.rel_to_rela)
@@ -512,22 +503,6 @@ prelink_exec (struct prelink_info *info)
   /* Create .rel*.dyn if necessary.  */
   rinfo.first = move->old_to_new[rinfo.first];
   assert (new_reloc == -1 || rinfo.first == new[new_reloc]);
-
-  if (rinfo.first && ! rinfo.reldyn)
-    {
-      Elf_Data *data;
-
-      i = rinfo.first;
-      data = elf_getdata (dso->scn[i], NULL);
-      free (data->d_buf);
-      memcpy (data, &rel_dyn_data, sizeof (rel_dyn_data));
-      rel_dyn_data.d_buf = NULL;
-      dso->shdr[i].sh_info = 0;
-      dso->shdr[i].sh_name = shstrtabadd (dso, data->d_type == ELF_T_REL
-					       ? ".rel.dyn" : ".rela.dyn");
-      if (dso->shdr[i].sh_name == 0)
-	goto error_out;
-    }
 
   if (rinfo.rel_to_rela)
     {
@@ -901,7 +876,6 @@ prelink_exec (struct prelink_info *info)
   return 0;
 
 error_out:
-  free (rel_dyn_data.d_buf);
   free (liblist);
   free (move);
   return 1;

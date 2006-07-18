@@ -3,6 +3,8 @@ rm -f reloc6 reloc6lib*.so reloc6.log
 rm -f prelink.cache
 $CC -shared -O2 -fpic -o reloc6lib1.so $srcdir/reloc3lib1.c
 $CC -shared -O2 -fpic -o reloc6lib2.so $srcdir/reloc1lib2.c reloc6lib1.so
+cp -a reloc6lib1.so reloc6lib1.so.orig
+cp -a reloc6lib2.so reloc6lib2.so.orig
 $CCLINK -o reloc6 $srcdir/reloc3.c -Wl,--rpath-link,. reloc6lib2.so
 $CCLINK -o reloc6.nop $srcdir/reloc3.c -Wl,--rpath-link,. reloc6lib2.so
 echo $PRELINK -vm ./reloc6 > reloc6.log

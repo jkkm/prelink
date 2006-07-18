@@ -217,6 +217,11 @@ prelink_undo (DSO *dso)
   /* Clear .dynamic entries added by prelink.  */  
 #endif
 
+  if (dso->ehdr.e_type == ET_DYN)
+    {
+      /* XXX */
+    }
+
   free (move);      
   return 0;
 }

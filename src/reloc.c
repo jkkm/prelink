@@ -30,7 +30,6 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
 {
   int first, last, rela, i;
   GElf_Addr start, end, pltstart, pltend;
-  const char *name;
 
   memset (rinfo, 0, sizeof (*rinfo));
 
@@ -139,164 +138,12 @@ find_reloc_sections (DSO *dso, struct reloc_info *rinfo)
       --last;
     }
 
-  name = strptr (dso, dso->ehdr.e_shstrndx,
-		 dso->shdr[first].sh_name);
-  if (! strcmp (name, ".rel.dyn") || ! strcmp (name, ".rela.dyn"))
-    rinfo->reldyn = 1;
   rinfo->first = first;
   rinfo->last = last;
   if (! rela
       && dso->arch->need_rel_to_rela != NULL
       && dso->arch->need_rel_to_rela (dso, first, last))
     rinfo->rel_to_rela = 1;
-  return 0;
-}
-
-static struct PLArch *arch;
-
-struct sort_rel_dyn {
-  GElf_Rela rela;
-  GElf_Addr offset;
-};
-
-static int
-rel_dyn_cmp1 (const void *A, const void *B)
-{
-  struct sort_rel_dyn *a = (struct sort_rel_dyn *)A;
-  struct sort_rel_dyn *b = (struct sort_rel_dyn *)B;
-  int relativea, relativeb;
-
-  relativea = GELF_R_TYPE (a->rela.r_info) == arch->R_RELATIVE;
-  relativeb = GELF_R_TYPE (b->rela.r_info) == arch->R_RELATIVE;
-
-  if (relativea < relativeb)
-    return 1;
-  if (relativea > relativeb)
-    return -1;
-  if (GELF_R_SYM (a->rela.r_info) < GELF_R_SYM (b->rela.r_info))
-    return -1;
-  if (GELF_R_SYM (a->rela.r_info) > GELF_R_SYM (b->rela.r_info))
-    return 1;
-  if (a->rela.r_offset < b->rela.r_offset)
-    return -1;
-  if (a->rela.r_offset > b->rela.r_offset)
-    return 1;
-  return 0;
-}
-
-static int
-rel_dyn_cmp2 (const void *A, const void *B)
-{
-  struct sort_rel_dyn *a = (struct sort_rel_dyn *)A;
-  struct sort_rel_dyn *b = (struct sort_rel_dyn *)B;
-  int plta, pltb;
-
-  if (a->offset < b->offset)
-    return -1;
-  if (a->offset > b->offset)
-    return 1;
-  plta = (GELF_R_TYPE (a->rela.r_info) == arch->R_COPY) * 2
-	 + (GELF_R_TYPE (a->rela.r_info) == arch->R_JMP_SLOT);
-  pltb = (GELF_R_TYPE (b->rela.r_info) == arch->R_COPY) * 2
-	 + (GELF_R_TYPE (b->rela.r_info) == arch->R_JMP_SLOT);
-  if (plta < pltb)
-    return -1;
-  if (plta > pltb)
-    return 1;
-  if (a->rela.r_offset < b->rela.r_offset)
-    return -1;
-  if (a->rela.r_offset > b->rela.r_offset)
-    return 1;
-  return 0;
-}
-
-int
-build_rel_dyn (DSO *dso, Elf_Data *data, struct reloc_info *rinfo)
-{
-  int first = rinfo->first, last = rinfo->last;
-  int i, j, count, rela;
-  Elf_Data *d, *dlast = NULL;
-  Elf_Scn *scn;
-  off_t offset;
-  size_t size;
-  char *ptr;
-  struct sort_rel_dyn *array, *a;
-
-  size = dso->shdr[last].sh_addr + dso->shdr[last].sh_size
-	 - dso->shdr[first].sh_addr;
-  count = size / dso->shdr[first].sh_entsize;
-  array = alloca (count * sizeof (struct sort_rel_dyn));
-  memset (array, 0, count * sizeof (struct sort_rel_dyn));
-  ptr = calloc (1, size);
-  rela = dso->shdr[first].sh_type == SHT_RELA;
-  if (ptr == NULL)
-    {
-      error (0, ENOMEM, "%s: Cannot build .rel*.dyn section",
-	     dso->filename);
-      return 1;
-    }
-
-  for (i = first, a = array; i <= last; i++)
-    {
-      d = NULL;
-      scn = dso->scn[i];
-      offset = dso->shdr[i].sh_addr - dso->shdr[first].sh_addr;
-      while ((d = elf_getdata (scn, d)) != NULL)
-	{
-	  int ndx, maxndx;
-
-	  dlast = d;
-	  maxndx = d->d_size / dso->shdr[i].sh_entsize;
-	  if (rela)
-	    {
-	      for (ndx = 0; ndx < maxndx; ++ndx, ++a)
-		gelfx_getrela (dso->elf, d, ndx, &a->rela);
-	    }
-	  else
-	    {
-	      for (ndx = 0; ndx < maxndx; ++ndx, ++a)
-		gelfx_getrel (dso->elf, d, ndx, (GElf_Rel *)&a->rela);
-            }
-	}
-    }
-
-  arch = dso->arch;
-  /* First sort so that R_*_RELATIVE records come last, then so that
-     relocs with the same symbol are together and within the same symbol
-     according to r_offset.  */
-  qsort (array, count, sizeof (struct sort_rel_dyn), rel_dyn_cmp1);
-  for (i = 0;
-       i < count && GELF_R_TYPE (array[i].rela.r_info) == arch->R_RELATIVE;
-       ++i);
-
-  /* Number of R_*_RELATIVE relocs.  */
-  rinfo->relcount = i;
-
-  for (j = i;
-       i < count && GELF_R_TYPE (array[i].rela.r_info) != arch->R_RELATIVE;
-       i++)
-    {
-      if (GELF_R_SYM (array[i].rela.r_info)
-	  != GELF_R_SYM (array[j].rela.r_info))
-	j = i;
-      array[i].offset = array[j].rela.r_offset;
-    }
-
-  /* Now second sort, which will sort things by increasing r_offset, with
-     the exception that relocs against the same symbol will be together.  */
-  qsort (array + rinfo->relcount, count - rinfo->relcount,
-	 sizeof (struct sort_rel_dyn), rel_dyn_cmp2);
-  data->d_buf = ptr;
-  data->d_off = 0;
-  data->d_size = size;
-  data->d_version = dlast->d_version;
-  data->d_align = dlast->d_align;
-  data->d_type = dlast->d_type;
-  for (i = 0, a = array; i < count; i++, a++)
-    if (rela)
-      gelfx_update_rela (dso->elf, data, i, &a->rela);
-    else
-      gelfx_update_rel (dso->elf, data, i, (GElf_Rel *)&a->rela);
   return 0;
 }
 

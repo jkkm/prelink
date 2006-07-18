@@ -215,34 +215,18 @@ prelink_prepare (DSO *dso)
       libstr = -1;
     }
 
-  if (rinfo.reldyn && liblist && libstr && undo
+  if (liblist && libstr && undo
       && ! rinfo.rel_to_rela && ! rinfo.rel_to_rela_plt)
       return 0;
 
-  if (! liblist || ! libstr || ! undo || (rinfo.first && ! rinfo.reldyn))
+  if (! liblist || ! libstr || ! undo)
     {
-      Elf_Data data, *d;
-      GElf_Shdr shdr;
+      Elf_Data data;
       struct section_move *move;
 
       move = init_section_move (dso);
       if (move == NULL)
 	return 1;
-
-      if (rinfo.first && ! rinfo.reldyn)
-	{
-	  if (build_rel_dyn (dso, &data, &rinfo))
-	    {
-	      free (move);
-	      return 1;
-	    }
-
-	  for (i = rinfo.last; i >= rinfo.first + 1; i--)
-	    remove_section (move, i);
-	  shdr = dso->shdr[rinfo.first];
-	  shdr.sh_info = 0;
-	  shdr.sh_size = data.d_size;
-	}
 
       if (! liblist)
 	{
@@ -286,22 +270,6 @@ prelink_prepare (DSO *dso)
 	}
 
       free (move);
-      if (rinfo.first && ! rinfo.reldyn)
-	{
-	  dso->shdr[rinfo.first] = shdr;
-	  d = elf_getdata (dso->scn[rinfo.first], NULL);
-	  free (d->d_buf);
-	  memcpy (d, &data, sizeof (data));
-	  if (rinfo.plt)
-	    rinfo.plt -= rinfo.last - rinfo.first;
-	  rinfo.last = rinfo.first;
-	  dso->shdr[rinfo.first].sh_name
-	    = shstrtabadd (dso, data.d_type == ELF_T_REL
-				? ".rel.dyn" : ".rela.dyn");
-	  if (dso->shdr[rinfo.first].sh_name == 0)
-	    return 1;
-	}
-
       if (liblist)
 	{
 	  memset (&dso->shdr[liblist], 0, sizeof (GElf_Shdr));
@@ -462,10 +430,6 @@ prelink_prepare (DSO *dso)
       if (update_dynamic_rel (dso, &rinfo))
 	return 1;
     }
-
-  if (rinfo.first && ! rinfo.reldyn && rinfo.relcount)
-    set_dynamic (dso, dso->shdr[rinfo.first].sh_type == SHT_RELA
-		      ? DT_RELACOUNT : DT_RELCOUNT, rinfo.relcount, 0);
 
   return 0;
 }

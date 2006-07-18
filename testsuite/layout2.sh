@@ -3,6 +3,7 @@ rm -f layout2 layout2lib*.so layout2.log
 i=1
 while [ $i -lt 6 ]; do
   $CXX -shared -fpic -o layout2lib$i.so $srcdir/layoutlib.C
+  cp -a layout2lib$i.so layout2lib$i.so.orig
   i=`expr $i + 1`
 done
 $CXXLINK -o layout2 $srcdir/layout.C layout2lib*.so

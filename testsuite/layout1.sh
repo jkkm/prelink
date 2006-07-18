@@ -4,6 +4,7 @@ rm -f layout1 layoutlib*.so layout1.log
 i=10
 while [ $i -lt 74 ]; do
   $CXX -shared -fpic -o layout1lib$i.so $srcdir/layoutlib.C
+  cp -a layout1lib$i.so layout1lib$i.so.orig
   i=`expr $i + 1`
 done
 $CXXLINK -o layout1 $srcdir/layout.C layout1lib*.so
