@@ -543,8 +543,17 @@ reopen_dso (DSO *dso, struct section_move *move)
   fd = open (filename, O_RDWR|O_CREAT|O_EXCL, 0600);
   if (fd == -1)
     {
-      error (0, errno, "Could not create temporary file %s", filename);
-      goto error_out;
+      if (errno == EEXIST)
+	{
+	  unlink (filename);
+	  fd = open (filename, O_RDWR|O_CREAT|O_EXCL, 0600);
+	}
+
+      if (fd == -1)
+	{
+	  error (0, errno, "Could not create temporary file %s", filename);
+	  goto error_out;
+	}
     }
 
   elf = elf_begin (fd, ELF_C_WRITE, NULL);

@@ -32,6 +32,7 @@ prelink_undo (DSO *dso)
 {
   GElf_Shdr *shdr;
   int undo, shnum, i, j, k;
+  int gnureloc_first = 0, gnureloc_last = 0;
   Elf_Data src, dst, *d;
   Elf_Scn *scn;
   struct section_move *move;
@@ -124,7 +125,8 @@ prelink_undo (DSO *dso)
   for (i = 1; i < move->old_shnum; ++i)
     if (move->old_to_new[i] == -1)
       {
-	const char *name = strptr (dso->ehdr.e_shstrndx, dso->shdr[i].sh_name);
+	const char *name = strptr (dso, dso->ehdr.e_shstrndx,
+				   dso->shdr[i].sh_name);
 
         if (! strcmp (name, ".gnu.prelink_undo")
 	    || ! strcmp (name, ".gnu.conflict")
@@ -160,11 +162,73 @@ prelink_undo (DSO *dso)
 	  {
 	    for (j = 1; j < move->new_shnum; ++j)
 	      if (move->new_to_old[j] == -1
-		  && (dso->shdr[j].sh_type == SHT_REL
-		      || dso->shdr[j].sh_type == SHT_RELA)
-		      
+		  && (shdr[j].sh_type == SHT_REL
+		      || shdr[j].sh_type == SHT_RELA)
+		  && dso->shdr[i].sh_addralign == shdr[j].sh_addralign
+		  && dso->shdr[i].sh_flags == shdr[j].sh_flags)
+		break;
+	    if (j < move->new_shnum)
+	      {
+		GElf_Addr size;
+
+	        for (k = j + 1; k < move->new_shnum; ++k)
+		  {
+		    const char *name2;
+
+		    if (move->new_to_old[k] != -1
+			&& shdr[j].sh_type != shdr[k].sh_type
+			&& shdr[j].sh_addralign != shdr[k].sh_addralign
+			&& shdr[j].sh_flags != shdr[k].sh_flags)
+		      break;
+
+		    name2 = strptr (dso, dso->ehdr.e_shstrndx,
+				    shdr[k].sh_name);
+		    if (! strcmp (name2, ".rel.plt")
+			|| ! strcmp (name2, ".rela.plt"))
+		      break;
+		  }
+		size = shdr[k - 1].sh_addr - shdr[j].sh_addr;
+		size += shdr[k - 1].sh_size;
+		assert (sizeof (Elf32_Rel) * 3 == sizeof (Elf32_Rela) * 2);
+		assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
+		if (dso->shdr[i].sh_size == size
+		    || (dso->shdr[i].sh_type == SHT_RELA
+			&& shdr[j].sh_type == SHT_REL
+			&& dso->shdr[i].sh_size * 2 == size * 3))
+		  {
+		    move->old_to_new[i] = j;
+		    move->new_to_old[j] = i;
+		    gnureloc_first = j;
+		    gnureloc_last = k - 1;
+		    continue;
+		  }
+	      }
 	  }
+
+	error (0, 0, "%s: Section %s not created by prelink created after prelinking",
+	       dso->filename, name);
+	free (move);
+	return 1;
       }
 
+  for (i = 1; i < move->new_shnum; ++i)
+    if (move->new_to_old[i] == -1
+	&& (i <= gnureloc_first || i > gnureloc_last))
+      {
+	const char *name = strptr (dso, dso->ehdr.e_shstrndx, shdr[i].sh_name);
+
+	error (0, 0, "%s: Section %s removed after prelinking", dso->filename,
+	       name);
+	free (move);
+	return 1;
+      }
+
+  if (reopen_dso (dso, move))
+    {
+      free (move);
+      return 1;
+    }
+
+  free (move);      
   return 0;
 }

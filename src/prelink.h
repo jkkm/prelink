@@ -26,12 +26,21 @@
 #include <stdio.h>
 
 #ifndef DT_GNU_LIBLIST
-#define DT_GNU_LIBLIST		0x6ffffef7
+#define DT_GNU_LIBLIST		0x6ffffef9
 #define DT_GNU_LIBLISTSZ	0x6ffffdf7
-#define DT_GNU_CONFLICT		0x6ffffef6
+#define DT_GNU_CONFLICT		0x6ffffef8
 #define DT_GNU_CONFLICTSZ	0x6ffffdf6
 #define DT_GNU_PRELINKED	0x6ffffdf5
-#define SHT_GNU_LIBLIST		0x6ffffff1
+#define SHT_GNU_LIBLIST		0x6ffffff7
+#endif
+
+#if DT_GNU_LIBLIST == 0x6ffffef7
+#undef DT_GNU_LIBLIST
+#undef DT_GNU_CONFLICT
+#undef SHT_GNU_LIBLIST
+#define DT_GNU_LIBLIST		0x6ffffef9
+#define DT_GNU_CONFLICT		0x6ffffef8
+#define SHT_GNU_LIBLIST		0x6ffffff7
 #endif
 
 struct prelink_info;
