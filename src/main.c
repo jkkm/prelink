@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -43,7 +43,7 @@ int dry_run;
 int dereference;
 int one_file_system;
 int enable_cxx_optimizations = 1;
-int undo;
+int undo, verify;
 GElf_Addr mmap_reg_start = ~(GElf_Addr) 0;
 GElf_Addr mmap_reg_end = ~(GElf_Addr) 0;
 const char *dynamic_linker;
@@ -55,7 +55,7 @@ const char *argp_program_version = "prelink 1.0";
 
 const char *argp_program_bug_address = "<jakub@redhat.com>";
                         
-static char argp_doc[] = "prelink -- program to relocate and prelink an ELF shared library";
+static char argp_doc[] = "prelink -- program to relocate and prelink ELF shared libraries and programs";
 
 #define OPT_DYNAMIC_LINKER	0x80
 #define OPT_LD_LIBRARY_PATH	0x81
@@ -79,6 +79,7 @@ static struct argp_option options[] = {
   {"reloc-only",	'r', "BASE_ADDRESS", 0,  "Relocate library to given address, don't prelink" },
   {"undo",		'u', 0, 0,  "Undo prelink" },
   {"verbose",		'v', 0, 0,  "Produce verbose output" },
+  {"verify",		'y', 0, 0,  "Verify file consistency by undoing and redoing prelink and printing original to standard output" },
   {"dynamic-linker",	OPT_DYNAMIC_LINKER, "DYNAMIC_LINKER",
 			        0,  "Special dynamic linker path" },
   {"ld-library-path",	OPT_LD_LIBRARY_PATH, "PATHLIST",
@@ -142,6 +143,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'u':
       undo = 1;
       break;
+    case 'y':
+      verify = 1;
+      break;
     case OPT_DYNAMIC_LINKER:
       dynamic_linker = arg;
       break;
@@ -188,9 +192,12 @@ main (int argc, char *argv[])
 
   if (all && reloc_only)
     error (EXIT_FAILURE, 0, "--all and --reloc-only options are incompatible");
-
-  if (undo && reloc_only)
+  if ((undo || verify) && reloc_only)
     error (EXIT_FAILURE, 0, "--undo and --reloc-only options are incompatible");
+  if (verify && (undo || all))
+    error (EXIT_FAILURE, 0, "--verify and either --undo or --all options are incompatible");
+  if (dry_run && verify)
+    error (EXIT_FAILURE, 0, "--dry-run and --verify options are incompatible");
 
   prelink_init_cache ();
 
@@ -203,6 +210,13 @@ main (int argc, char *argv[])
 
   if (remaining == argc && ! all)
     error (EXIT_FAILURE, 0, "no files given and --all not used");
+
+  if (verify)
+    {
+      if (remaining + 1 != argc)
+	error (EXIT_FAILURE, 0, "only one library or binary can be verified in a single command");
+      return prelink_verify (argv[remaining]);
+    }
 
   if (reloc_only || (undo && ! all))
     {
@@ -245,6 +259,12 @@ main (int argc, char *argv[])
 	      continue;
 	    }
 
+	  if (dry_run)
+	    {
+	      close_dso (dso);
+	      continue;
+	    }
+
 	  if (update_dso (dso))
 	    ++failures;
 	}
@@ -258,6 +278,9 @@ main (int argc, char *argv[])
   while (remaining < argc)
     if (gather_object (argv[remaining++], dereference, one_file_system))
       return EXIT_FAILURE;
+
+  if (undo)
+    return undo_all ();
 
   if (! all)
     prelink_load_cache ();

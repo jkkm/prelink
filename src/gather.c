@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -93,8 +93,11 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	    liblist = NULL;
 	  else
 	    memcpy (liblist, data->d_buf, dso->shdr[i].sh_size);
-	  break;
+	  if (! undo)
+	    break;
 	}
+      else if (undo && ! strcmp (name, ".gnu.prelink_undo"))
+	ent->done = 2;
     }
 
   close_dso (dso);
@@ -221,7 +224,7 @@ gather_deps (DSO *dso, struct prelink_entry *ent)
 	&& gather_lib (ent->depends[i]))
       goto error_out;
 
-  if (liblist && nliblist == ndepends)
+  if (! undo && liblist && nliblist == ndepends)
     {
       for (i = 0; i < ndepends; ++i)
 	if (liblist[i].l_time_stamp != ent->depends[i]->timestamp
@@ -310,7 +313,7 @@ gather_dso (DSO *dso, struct prelink_entry *ent)
   if (gather_deps (dso, ent))
     return 1;
 
-  if (ent->done && ! prelinked)
+  if (ent->done && ! prelinked && ! undo)
     ent->done = 0;
   ent->type = ET_DYN;
   return 0;
@@ -571,7 +574,7 @@ unsupported_type:
 
       for (i = 0; i < dso->ehdr.e_phnum; ++i)
 	if (dso->phdr[i].p_type == PT_INTERP)
-      break;
+	  break;
 
       /* If there are no PT_INTERP segments, it is statically linked.  */
       if (i == dso->ehdr.e_phnum)

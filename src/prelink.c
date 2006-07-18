@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -801,7 +801,8 @@ prelink_set_timestamp (struct prelink_info *info)
 {
   DSO *dso = info->dso;
 
-  info->ent->timestamp = (GElf_Word) time (NULL);
+  if (! verify)
+    info->ent->timestamp = (GElf_Word) time (NULL);
   dso->info_DT_GNU_PRELINKED = info->ent->timestamp;
   if (prelink_set_checksum (dso))
     return 1;

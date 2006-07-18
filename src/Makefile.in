@@ -95,7 +95,7 @@ prelink_SOURCES = cache.c conflict.c cxx.c data.c doit.c dso.c dwarf2.c	     \
 		  dwarf2.h exec.c execle_open.c fptr.c fptr.h get.c gather.c \
 		  hashtab.c hashtab.h layout.c main.c mdebug.c prelink.c     \
 		  prelink.h prelinktab.h reloc.c reloc.h space.c stabs.c     \
-		  undo.c crc32.c $(prelink_SYSDEPS)
+		  undo.c undoall.c verify.c crc32.c $(prelink_SYSDEPS)
 
 prelink_LDADD = @LIBGELF@
 
@@ -114,10 +114,11 @@ data.$(OBJEXT) doit.$(OBJEXT) dso.$(OBJEXT) dwarf2.$(OBJEXT) \
 exec.$(OBJEXT) execle_open.$(OBJEXT) fptr.$(OBJEXT) get.$(OBJEXT) \
 gather.$(OBJEXT) hashtab.$(OBJEXT) layout.$(OBJEXT) main.$(OBJEXT) \
 mdebug.$(OBJEXT) prelink.$(OBJEXT) reloc.$(OBJEXT) space.$(OBJEXT) \
-stabs.$(OBJEXT) undo.$(OBJEXT) crc32.$(OBJEXT) arch-i386.$(OBJEXT) \
-arch-alpha.$(OBJEXT) arch-ppc.$(OBJEXT) arch-sparc.$(OBJEXT) \
-arch-sparc64.$(OBJEXT) arch-x86_64.$(OBJEXT) arch-s390.$(OBJEXT) \
-arch-s390x.$(OBJEXT) arch-arm.$(OBJEXT) arch-ia64.$(OBJEXT)
+stabs.$(OBJEXT) undo.$(OBJEXT) undoall.$(OBJEXT) verify.$(OBJEXT) \
+crc32.$(OBJEXT) arch-i386.$(OBJEXT) arch-alpha.$(OBJEXT) \
+arch-ppc.$(OBJEXT) arch-sparc.$(OBJEXT) arch-sparc64.$(OBJEXT) \
+arch-x86_64.$(OBJEXT) arch-s390.$(OBJEXT) arch-s390x.$(OBJEXT) \
+arch-arm.$(OBJEXT) arch-ia64.$(OBJEXT)
 prelink_DEPENDENCIES = 
 prelink_LDFLAGS = 
 CFLAGS = @CFLAGS@
@@ -139,7 +140,8 @@ DEP_FILES =  .deps/arch-alpha.P .deps/arch-arm.P .deps/arch-i386.P \
 .deps/doit.P .deps/dso.P .deps/dwarf2.P .deps/exec.P \
 .deps/execle_open.P .deps/fptr.P .deps/gather.P .deps/get.P \
 .deps/hashtab.P .deps/layout.P .deps/main.P .deps/mdebug.P \
-.deps/prelink.P .deps/reloc.P .deps/space.P .deps/stabs.P .deps/undo.P
+.deps/prelink.P .deps/reloc.P .deps/space.P .deps/stabs.P .deps/undo.P \
+.deps/undoall.P .deps/verify.P
 SOURCES = $(prelink_SOURCES)
 OBJECTS = $(prelink_OBJECTS)
 

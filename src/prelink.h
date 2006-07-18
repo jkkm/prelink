@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -75,7 +75,7 @@ typedef struct
   int fd, fdro;
   int lastscn, dynamic;
   const char *soname;
-  const char *filename;
+  const char *filename, *temp_filename;
   struct PLArch *arch;
   struct PLAdjust *adjust;
   /* .mdebug has absolute file offsets in it.  */
@@ -173,6 +173,7 @@ int adjust_mdebug (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust);
 int finalize_mdebug (DSO *dso);
 int relocate_dso (DSO *dso, GElf_Addr base);
 int update_dso (DSO *dso);
+int write_dso (DSO *dso);
 int close_dso (DSO *dso);
 GElf_Addr adjust_old_to_new (DSO *dso, GElf_Addr addr);
 GElf_Addr adjust_new_to_old (DSO *dso, GElf_Addr addr);
@@ -342,6 +343,8 @@ int is_ldso_soname (const char *soname);
 
 int prelink_undo (DSO *dso);
 
+int prelink_verify (const char *filename);
+
 int gather_object (const char *dir, int deref, int onefs);
 int gather_config (const char *config);
 int gather_check_libs (void);
@@ -357,6 +360,8 @@ int layout_libs (void);
 
 int prelink_all (void);
 
+int undo_all (void);
+
 extern const char *dynamic_linker;
 extern const char *ld_library_path;
 extern const char *prelink_cache;
@@ -370,6 +375,7 @@ extern int dry_run;
 extern int libs_only;
 extern int enable_cxx_optimizations;
 extern int undo;
+extern int verify;
 extern GElf_Addr mmap_reg_start, mmap_reg_end;
 
 #endif /* PRELINK_H */

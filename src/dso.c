@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -399,11 +399,10 @@ adjust_symtab_section_indices (DSO *dso, int n, int old_shnum, int *old_to_new)
 		  if (! sym.st_size &&
 		      sym.st_info == ELF32_ST_INFO (STB_LOCAL, STT_SECTION))
 		    {
-		      sym.st_info = ELF32_ST_INFO (STB_LOCAL, STT_NOTYPE);
 		      sym.st_value = 0;
-		      sym.st_shndx = SHN_UNDEF;
 		      gelfx_update_sym (dso->elf, data, ndx, &sym);
 		      changed = 1;
+		      continue;
 		    }
 		  else
 		    {
@@ -430,6 +429,50 @@ adjust_symtab_section_indices (DSO *dso, int n, int old_shnum, int *old_to_new)
 
   if (changed)
     elf_flagscn (scn, ELF_C_SET, ELF_F_DIRTY);
+
+  return 0;
+}
+
+static int
+set_stt_section_values (DSO *dso, int n)
+{
+  Elf_Data *data = NULL;
+  Elf_Scn *scn = dso->scn[n];
+  GElf_Sym sym;
+  int ndx, maxndx, sec = 0;
+
+  while ((data = elf_getdata (scn, data)) != NULL)
+    {
+      maxndx = data->d_size / dso->shdr[n].sh_entsize;
+      for (ndx = 0; ndx < maxndx; ++ndx, ++sec)
+	{
+	  gelfx_getsym (dso->elf, data, ndx, &sym);
+	  if (sec == 0)
+	    {
+	      if (sym.st_info != ELF32_ST_INFO (STB_LOCAL, STT_NOTYPE)
+		  || sym.st_size != 0 || sym.st_other != 0
+		  || sym.st_value != 0 || sym.st_shndx != SHN_UNDEF
+		  || sym.st_name != 0)
+		return 0;
+	      continue;
+	    }
+	  if (sym.st_info == ELF32_ST_INFO (STB_LOCAL, STT_SECTION)
+	      && sym.st_size == 0 && sym.st_other == 0
+	      && sym.st_name == 0)
+	    {
+	      if (sec >= dso->ehdr.e_shnum)
+		sym.st_value = 0;
+	      else
+		sym.st_value = dso->shdr[sec].sh_addr;
+	      sym.st_shndx = sec;
+	      gelfx_update_sym (dso->elf, data, ndx, &sym);
+	      continue;
+	    }
+	  break;
+	}
+      if (ndx < maxndx)
+        break;
+    }
 
   return 0;
 }
@@ -496,7 +539,7 @@ remove_section (struct section_move *move, int sec)
 int
 reopen_dso (DSO *dso, struct section_move *move)
 {
-  char filename[strlen (dso->filename) + sizeof (".#prelink#")];
+  char filename[strlen (dso->filename) + sizeof ("/dev/shm/.#prelink#.XXXXXX")];
   int adddel = 0;
   int free_move = 0;
   Elf *elf = NULL;
@@ -516,17 +559,18 @@ reopen_dso (DSO *dso, struct section_move *move)
       assert (dso->ehdr.e_shnum == move->old_shnum);
     }
 
-  sprintf (filename, "%s.#prelink#", dso->filename);
+  sprintf (filename, "%s.#prelink#.XXXXXX", dso->filename);
 
-  fd = open (filename, O_RDWR|O_CREAT|O_EXCL, 0600);
+  fd = mkstemp (filename);
   if (fd == -1)
     {
-      if (errno == EEXIST)
+      strcpy (filename, "/tmp/#prelink#.XXXXXX");
+      fd = mkstemp (filename);
+      if (fd == -1)
 	{
-	  unlink (filename);
-	  fd = open (filename, O_RDWR|O_CREAT|O_EXCL, 0600);
+	  strcpy (filename, "/dev/shm/#prelink#.XXXXXX");
+	  fd = mkstemp (filename);
 	}
-
       if (fd == -1)
 	{
 	  error (0, errno, "Could not create temporary file %s", filename);
@@ -628,6 +672,12 @@ reopen_dso (DSO *dso, struct section_move *move)
     }
 
   ehdr.e_shnum = move->new_shnum;
+  dso->temp_filename = strdup (filename);
+  if (dso->temp_filename == NULL)
+    {
+      error (0, ENOMEM, "%s: Could not save temporary filename", dso->filename);
+      goto error_out;
+    }
   dso->elfro = dso->elf;
   dso->elf = elf;
   dso->fdro = dso->fd;
@@ -712,7 +762,10 @@ error_out:
   if (elf)
     elf_end (elf);
   if (fd != -1)
-    close (fd);
+    {
+      unlink (filename);
+      close (fd);
+    }
   return 1;
 }
 
@@ -1245,14 +1298,34 @@ close_dso (DSO *dso)
 
   if (rdwr)
     {
-      char *name;
-      size_t len = strlen (dso->filename);
-      name = alloca (len + sizeof (".#prelink#"));
-      memcpy (name, dso->filename, len);
-      memcpy (name + len, ".#prelink#", sizeof (".#prelink#"));
-      unlink (name);
+      assert (dso->temp_filename != NULL);
+      unlink (dso->temp_filename);
     }
   close_dso_1 (dso);
+  return 0;
+}
+
+int
+write_dso (DSO *dso)
+{
+  int i;
+
+  if (check_dso (dso)
+      || (dso->mdebug_orig_offset && finalize_mdebug (dso)))
+    return 1;
+
+  gelf_update_ehdr (dso->elf, &dso->ehdr);
+  for (i = 0; i < dso->ehdr.e_phnum; ++i)
+    gelf_update_phdr (dso->elf, i, dso->phdr + i);
+  for (i = 0; i < dso->ehdr.e_shnum; ++i)
+    {
+      gelfx_update_shdr (dso->elf, dso->scn[i], dso->shdr + i);
+      if (dso->shdr[i].sh_type == SHT_SYMTAB
+	  || dso->shdr[i].sh_type == SHT_DYNSYM)
+	set_stt_section_values (dso, i);
+    }
+  if (elf_update (dso->elf, ELF_C_WRITE) == -1)
+    return 2;
   return 0;
 }
 
@@ -1264,35 +1337,24 @@ update_dso (DSO *dso)
   if (rdwr)
     {
       char *name1, *name2;
-      size_t len = strlen (dso->filename);
       struct utimbuf u;
       struct stat64 st;
-      int i;
 
-      if (check_dso (dso)
-	  || (dso->mdebug_orig_offset && finalize_mdebug (dso)))
-	{
-	  close_dso (dso);
-	  return 1;
-	}
-
-      name1 = alloca (len + 1);
-      name2 = alloca (len + sizeof (".#prelink#"));
-      memcpy (name1, dso->filename, len + 1);
-      memcpy (name2, dso->filename, len);
-      memcpy (name2 + len, ".#prelink#", sizeof (".#prelink#"));
-      gelf_update_ehdr (dso->elf, &dso->ehdr);
-      for (i = 0; i < dso->ehdr.e_phnum; ++i)
-	gelf_update_phdr (dso->elf, i, dso->phdr + i);
-      for (i = 0; i < dso->ehdr.e_shnum; ++i)
-	gelfx_update_shdr (dso->elf, dso->scn[i], dso->shdr + i);
-      if (elf_update (dso->elf, ELF_C_WRITE) == -1)
-	{
+      switch (write_dso (dso))
+        {
+        case 2:
 	  error (0, 0, "Could not write %s: %s", dso->filename,
 		 elf_errmsg (-1));
+	  /* FALLTHROUGH */
+	case 1:
 	  close_dso (dso);
 	  return 1;
-	}
+	case 0:
+	  break;
+        }
+
+      name1 = strdupa (dso->filename);
+      name2 = strdupa (dso->temp_filename);
       if (fstat64 (dso->fdro, &st) < 0)
 	{
 	  error (0, errno, "Could not stat %s", dso->filename);
@@ -1312,8 +1374,7 @@ update_dso (DSO *dso)
       utime (name2, &u);
       if (rename (name2, name1))
 	{
-	  error (0, errno, "Could not rename temporary to %s",
-		 name1);
+	  error (0, errno, "Could not rename temporary to %s", name1);
 	  return 1;
 	}
     }

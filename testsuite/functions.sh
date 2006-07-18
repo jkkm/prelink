@@ -15,5 +15,9 @@ comparelibs() {
     $PRELINK -u $i.new || exit
     cmp -s $i.orig $i.new || exit
     rm -f $i.new
+    echo $PRELINK -y $i \> $i.new
+    $PRELINK -y $i > $i.new || exit
+    cmp -s $i.orig $i.new || exit
+    rm -f $i.new
   done
 }
