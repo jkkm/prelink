@@ -371,7 +371,7 @@ execstack_query (DSO *dso)
 	stack = (dso->phdr[i].p_flags & PF_X) ? 'X' : '-';
         break;
       }
-  printf ("%-39s %c\n", dso->filename, stack);
+  printf ("%c %s\n", stack, dso->filename);
   close_dso (dso);
   return 0;
 }
