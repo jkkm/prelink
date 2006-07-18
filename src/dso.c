@@ -316,11 +316,25 @@ fdopen_dso (int fd, const char *name)
     }
   for (i = 1; i < ehdr.e_shnum; ++i)
     {
+      if (dso->shdr[i].sh_link >= ehdr.e_shnum)
+	{
+	  error (0, 0, "%s: bogus sh_link value %d", name,
+		 dso->shdr[i].sh_link);
+	  goto error_out;
+	}
       dso->shdr[i].sh_link = invsections[dso->shdr[i].sh_link];
       if (dso->shdr[i].sh_type == SHT_REL
 	  || dso->shdr[i].sh_type == SHT_RELA
 	  || (dso->shdr[i].sh_flags & SHF_INFO_LINK))
-	dso->shdr[i].sh_info = invsections[dso->shdr[i].sh_info];
+	{
+	  if (dso->shdr[i].sh_info >= ehdr.e_shnum)
+	    {
+	      error (0, 0, "%s: bogus sh_info value %d", name,
+		     dso->shdr[i].sh_info);
+	      goto error_out;
+	    }
+	  dso->shdr[i].sh_info = invsections[dso->shdr[i].sh_info];
+	}
     }
   dso->ehdr.e_shstrndx = invsections[dso->ehdr.e_shstrndx];
 
@@ -743,6 +757,12 @@ reopen_dso (DSO *dso, struct section_move *move)
 	{
 	  if (dso->shdr[i].sh_link)
 	    {
+	      if (dso->shdr[i].sh_link >= move->old_shnum)
+		{
+		  error (0, 0, "%s: bogus sh_link value %d", dso->filename,
+			 dso->shdr[i].sh_link);
+		  goto error_out;
+		}
 	      if (move->old_to_new[dso->shdr[i].sh_link] == -1)
 		{
 		  error (0, 0, "Section sh_link points to has been removed");
@@ -756,6 +776,12 @@ reopen_dso (DSO *dso, struct section_move *move)
 		  || dso->shdr[i].sh_type == SHT_RELA
 		  || (dso->shdr[i].sh_flags & SHF_INFO_LINK)))
 	    {
+	      if (dso->shdr[i].sh_info >= move->old_shnum)
+		{
+		  error (0, 0, "%s: bogus sh_info value %d", dso->filename,
+			 dso->shdr[i].sh_info);
+		  goto error_out;
+		}
 	      if (move->old_to_new[dso->shdr[i].sh_info] == -1)
 		{
 		  error (0, 0, "Section sh_info points to has been removed");

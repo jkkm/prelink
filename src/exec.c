@@ -793,7 +793,7 @@ prelink_exec (struct prelink_info *info)
       Elf_Data *data;
 
       dso->shdr[i].sh_link
-	= new_dynstr ? new[new_dynstr] : move->old_to_new[dynstrndx];
+	= new_dynstr != -1 ? new[new_dynstr] : move->old_to_new[dynstrndx];
       data = elf_getdata (dso->scn[i], NULL);
       data->d_type = ELF_T_WORD;
       data->d_size = (ndeps - 1) * sizeof (Elf32_Lib);
