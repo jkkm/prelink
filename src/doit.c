@@ -24,35 +24,89 @@
 #include <unistd.h>
 #include "prelinktab.h"
 
-struct collect_libs
+struct collect_ents
   {
-    struct prelink_entry **libs;
-    int nlibs;
+    struct prelink_entry **ents;
+    int nents;
   };
 
 static int
-find_libs (void **p, void *info)
+find_ents (void **p, void *info)
 {
-  struct collect_libs *l = (struct collect_libs *) info;
+  struct collect_ents *l = (struct collect_ents *) info;
   struct prelink_entry *e = * (struct prelink_entry **) p;
 
-  if (e->type == ET_DYN && e->done == 1)
-    l->libs[l->nlibs++] = e;
+  if ((e->type == ET_DYN && e->done == 1)
+      || (e->type == ET_EXEC && e->done == 0))
+    l->ents[l->nents++] = e;
 
   return 1;
 }
 
 int
-prelink_libs (void)
+prelink_ent (struct prelink_entry *ent)
 {
-  struct collect_libs l;
+  int i;
+  DSO *dso;
 
-  l.libs =
+  for (i = 0; i < ent->ndepends; ++i)
+    if (ent->depends[i]->done == 1 && prelink_ent (ent->depends[i]))
+      return 1;
+
+  for (i = 0; i < ent->ndepends; ++i)
+    if (ent->depends[i]->done != 2)
+      {
+	ent->done = 0;
+	if (verbose)
+	  error (0, 0, "Could not prelink %s because its dependency %s could not be prelinked",
+		 ent->filename, ent->depends[i]->filename);
+	return 0;
+      }
+
+  if (verbose)
+    printf ("Prelinking %s\n", ent->filename);
+  dso = open_dso (ent->filename);
+  if (dso == NULL)
+    goto error_out;
+  if (prelink_prepare (dso))
+    goto error_out;
+  if (ent->type == ET_DYN && relocate_dso (dso, ent->base))
+    goto error_out;
+  if (prelink (dso, ent))
+    goto error_out;
+  if (update_dso (dso))
+    {
+      dso = NULL;
+      goto error_out;
+    }
+  ent->done = 2;
+  return 0;
+
+error_out:
+  ent->done = 0;
+  if (dso)
+    close_dso (dso);
+  return 0;
+}
+
+int
+prelink_all (void)
+{
+  struct collect_ents l;
+  int i;
+
+  l.ents =
     (struct prelink_entry **) alloca (prelink_entry_count
 				      * sizeof (struct prelink_entry *));
-  l.nlibs = 0;
-  htab_traverse (prelink_filename_htab, find_libs, &l);
+  l.nents = 0;
+  htab_traverse (prelink_filename_htab, find_ents, &l);
 
-  for (i = 
+  for (i = 0; i < l.nents; ++i)
+    if (l.ents[i]->done == 1 && prelink_ent (l.ents[i]))
+      return 1;
+    else if (l.ents[i]->done == 0 && l.ents[i]->type == ET_EXEC
+	     && prelink_ent (l.ents[i]))
+      return 1;
+
   return 0;
 }

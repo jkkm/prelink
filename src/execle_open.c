@@ -61,6 +61,7 @@ execve_open (const char *path, char *const argv[], char *const envp[])
 	  dup2 (p[1], 1);
 	  close (p[1]);
 	}
+      dup2 (1, 2);
       execve (path, argv, envp);
       _exit (127);
     }

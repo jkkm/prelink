@@ -176,7 +176,7 @@ layout_libs (void)
       while (j < l.nlibs && l.libs[j]->done) ++j;
     }
 
-  if (verbose)
+  if (verbose && l.nlibs > j)
     printf ("Laying out %d libraries in virtual address space %0*llx-%0*llx\n",
 	    l.nlibs - j, class == ELFCLASS32 ? 8 : 16, (long long) mmap_base,
 	    class == ELFCLASS32 ? 8 : 16, (long long) mmap_end);
@@ -437,9 +437,10 @@ not_found:
     {
       printf ("Assigned virtual address space slots for libraries:\n");
       for (i = 0; i < l.nlibs; ++i)
-	printf ("%-60s %0*llx-%0*llx\n", l.libs[i]->filename,
-		class == ELFCLASS32 ? 8 : 16, (long long) l.libs[i]->base,
-		class == ELFCLASS32 ? 8 : 16, (long long) l.libs[i]->end);
+	if (l.libs[i]->done >= 1)
+	  printf ("%-60s %0*llx-%0*llx\n", l.libs[i]->filename,
+		  class == ELFCLASS32 ? 8 : 16, (long long) l.libs[i]->base,
+		  class == ELFCLASS32 ? 8 : 16, (long long) l.libs[i]->end);
     }
 
 #ifdef DEBUG_LAYOUT

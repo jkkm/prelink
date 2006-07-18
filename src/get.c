@@ -40,19 +40,17 @@ static int
 prelink_record_relocations (struct prelink_info *info, FILE *f)
 {
   char buffer[8192];
-  struct prelink_entry *ent;
-  struct stat64 st;
   DSO *dso = info->dso;
+  struct prelink_entry *ent;
   struct deps
     {
       struct prelink_entry *ent;
       char *soname;
       GElf_Addr start;
       GElf_Addr l_addr;
-    } *deps = NULL;
-  int ndeps = 0, nalloc = 0;
+    } deps[info->ent->ndepends + 1];
   char *r;
-  int i;
+  int i, ndeps = 0;
 
   /* Record the dependencies.  */
   while ((r = fgets (buffer, 8192, f)) != NULL)
@@ -90,60 +88,51 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       *filename = '\0';
       filename += sizeof (" => ") - 1;
       *p = '\0';
-      for (ent = prelinked; ent; ent = ent->next)
-	if (! strcmp (ent->filename, filename))
-	  break;
-      if (ent == NULL)
+
+      if (ndeps > info->ent->ndepends)
+        {
+	  error (0, 0, "%s: Recorded %d dependencies, now seeing %d\n",
+		 dso->filename, info->ent->ndepends, ndeps - 1);
+	  goto error_out;
+        }
+
+      if ((! ndeps && strcmp (info->ent->filename, filename))
+	  || (ndeps
+	      && strcmp (info->ent->depends [ndeps - 1]->filename, filename)))
 	{
-	  /* Try harder...  */
-	  if (stat64 (filename, &st) < 0)
-	    {
-	      error (0, errno, "%s: Could not stat", filename);
-	      goto error_out;
-	    }
-	  for (ent = prelinked; ent; ent = ent->next)
-	    if (ent->dev == st.st_dev && ent->ino == st.st_ino)
-	      break;
-	}
-      if (ent == NULL)
-	{
-	  error (0, 0, "Could not find %s => %s in the list of prelinked libraries",
-		 soname, filename);
+	  error (0, 0, "%s: %s => %s does not match recorded dependency",
+		 dso->filename, soname, filename);
 	  goto error_out;
 	}
-      if (ndeps == nalloc)
-	{
-	  nalloc += 5;
-	  deps = (struct deps *) realloc (deps, nalloc * sizeof (struct deps));
-	}
+
+      if (! ndeps)
+        deps[ndeps].ent = info->ent;
+      else
+        deps[ndeps].ent = info->ent->depends[ndeps - 1];
       deps[ndeps].soname = strdup (soname);
       if (deps[ndeps].soname == NULL)
 	{
 	  error (0, ENOMEM, "Could not record `%s' SONAME", soname);
 	  goto error_out;
 	}
-      deps[ndeps].ent = ent;
       deps[ndeps].start = start;
       deps[ndeps++].l_addr = l_addr;
     }
-  if (ndeps == 0)
+
+  if (ndeps != info->ent->ndepends + 1)
     {
-      error (0, 0, "%s: %s did not print any library line", dso->filename,
-	     dynamic_linker);
+      error (0, 0, "%s: Recorded %d dependencies, now seeing %d\n",
+	     dso->filename, info->ent->ndepends, ndeps - 1);
       goto error_out;
     }
-  if (deps[0].ent != prelinked)
-    {
-      error (0, 0, "%s: %s did not print the traced object first", dso->filename,
-	     dynamic_linker);
-      goto error_out;
-    }
+
   if (r == NULL)
     {
       error (0, 0, "%s: %s did not print any lookup lines", dso->filename,
 	     dynamic_linker);
       goto error_out;
     }
+
   if (dso->ehdr.e_type == ET_EXEC)
     {
       info->conflicts = (struct prelink_conflict **)
@@ -194,12 +183,14 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		value[0] -= deps[i].start - deps[i].l_addr;
 		break;
 	      }
+
 	  if (ent == NULL && valstart[0])
 	    {
 	      error (0, 0, "Could not find base 0x%08llx in the list of bases `%s'",
 		     valstart[0], buffer);
 	      goto error_out;
 	    }
+
 	  if (ent == info->ent)
 	    value[0] = adjust_old_to_new (info->dso, value[0]);
 
@@ -331,25 +322,10 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	}
     } while (fgets (buffer, 8192, f) != NULL);
 
-  if (ndeps > 1)
-    {
-      prelinked->depends = malloc (sizeof (struct prelink_entry *)
-				   * (ndeps - 1));
-      if (prelinked->depends == NULL)
-	{
-	  error (0, ENOMEM, "Could not record dependencies");
-	  goto error_out;
-	}
-      prelinked->ndepends = ndeps - 1;
-      for (i = 1; i < ndeps; i++)
-	prelinked->depends[i - 1] = deps[i].ent;
-    }
-
   info->sonames = malloc (ndeps * sizeof (const char *));
   for (i = 0; i < ndeps; i++)
     info->sonames[i] = deps[i].soname;
 
-  free (deps);
   return 0;
 
 error_out:
@@ -357,92 +333,64 @@ error_out:
   info->conflicts = NULL;
   for (i = 0; i < ndeps; i++)
     free (deps[i].soname);
-  free (deps);
   return 1;
 }
 
 int
 prelink_get_relocations (struct prelink_info *info)
 {
-  char *command;
   FILE *f;
-  struct prelink_entry *ent;
-  struct stat64 st;
   DSO *dso = info->dso;
-  int ret, status;
+  const char *argv[5];
+  const char *envp[4];
+  int i, ret, status;
+  char *p;
 
-  ent = (struct prelink_entry *) calloc (sizeof (struct prelink_entry), 1);
-  ent->filename = strdup (dso->filename);
-  ent->soname = strdup (dso->soname);
-  ent->timestamp = 0;
-  ent->checksum = 0;
-  ent->base = dso->base;
-  ent->end = dso->end;
-  if (stat64 (ent->filename, &st) < 0)
-    {
-      error (0, errno, "%s: Could not stat", ent->filename);
-      return 0;
-    }
-  ent->dev = st.st_dev;
-  ent->ino = st.st_ino;
-  ent->next = prelinked;
-  prelinked = ent;
-  info->ent = ent;
+  info->ent->base = dso->base;
+  info->ent->end = dso->end;
 
   if (is_ldso_soname (info->dso->soname))
     return 1;
-  if (strchr (info->dso->filename, '\''))
-    {
-      error (0, 0, "%s: Filename containing single quotes not supported",
-	     info->dso->filename);
-      return 0;
-    }
-
-  if (ld_library_path == NULL)
-    {
-      ld_library_path = getenv ("LD_LIBRARY_PATH");
-      if (ld_library_path == NULL)
-        ld_library_path = "";
-    }
-  command = alloca (strlen (dynamic_linker) + 2 * strlen (info->dso->filename) + strlen (ld_library_path)
-		    + sizeof ("LD_LIBRARY_PATH=%s LD_TRACE_LOADED_OBJECTS=1 LD_TRACE_PRELINKING=%s LD_BIND_NOW=1 %s '%s' 2>&1") - 1);
-  sprintf (command, "LD_LIBRARY_PATH=%s %s --verify '%s' >/dev/null", ld_library_path, dynamic_linker,
-	   info->dso->filename);
-  ret = system (command);
-  if (ret == -1 || ! WIFEXITED (ret) || (WEXITSTATUS (ret) & ~2))
-    {
-      error (0, 0, "%s: Statically linked or not supported by %s dynamic linker",
-	     info->dso->filename, dynamic_linker);
-      return 0;
-    }
-  ret = 2;
 
   info->symbols = calloc (sizeof (struct prelink_symbol),
 			  (info->symtab_end - info->symtab_start)
 			  / info->symtab_entsize);
 
-  sprintf (command, "LD_LIBRARY_PATH=%s LD_TRACE_LOADED_OBJECTS=1 LD_TRACE_PRELINKING=%s LD_BIND_NOW=1 %s '%s' 2>&1",
-	   ld_library_path, info->dso->filename, dynamic_linker,
-	   info->dso->filename);
+  i = 0;
+  argv[i++] = dynamic_linker;
+  if (ld_library_path)
+    {
+      argv[i++] = "--library-path";
+      argv[i++] = ld_library_path;
+    }
+  argv[i++] = dso->filename;
+  argv[i] = NULL;
+  envp[0] = "LD_TRACE_LOADED_OBJECTS=1";
+  envp[1] = "LD_BIND_NOW=1";
+  p = alloca (sizeof "LD_TRACE_PRELINKING=" + strlen (dso->filename));
+  strcpy (stpcpy (p, "LD_TRACE_PRELINKING="), dso->filename);
+  envp[2] = p;
+  envp[3] = NULL;
 
-  f = popen (command, "r");
+  ret = 2;
+  f = execve_open (dynamic_linker, (char * const *)argv, (char * const *)envp);
   if (f == NULL)
     {
       error (0, errno, "%s: Could not trace symbol resolving",
-	     info->dso->filename);
+	     dso->filename);
       return 0;
     }
+
   if (prelink_record_relocations (info, f))
     ret = 0;
-  status = pclose (f);
-  if (status == -1 || ! WIFEXITED (status) || WEXITSTATUS (status))
+
+  if ((status = execve_close (f)))
     {
       if (ret)
-	{
-	  error (0, status == -1 ? errno : 0,
-		 "%s Could not trace symbol resolving", info->dso->filename);
-	}
+	error (0, status == -1 ? errno : 0,
+	       "%s Could not trace symbol resolving", dso->filename);
       return 0;
     }
+
   return ret;
 }

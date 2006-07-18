@@ -213,8 +213,9 @@ prelink_prepare (DSO *dso)
 	  if (dso->shdr[liblist].sh_name == 0)
 	    return 1;
 	  dso->shdr[liblist].sh_type = SHT_GNU_LIBLIST;
-	  dso->shdr[liblist].sh_offset = dso->shdr[liblist - 1].sh_offset
-					 + dso->shdr[liblist - 1].sh_size;
+	  dso->shdr[liblist].sh_offset = dso->shdr[liblist - 1].sh_offset;
+	  if (dso->shdr[liblist - 1].sh_type != SHT_NOBITS)
+	    dso->shdr[liblist].sh_offset += dso->shdr[liblist - 1].sh_size;
 	  dso->shdr[liblist].sh_link = libstr;
 	  dso->shdr[liblist].sh_addralign = sizeof (GElf_Word);
 	  dso->shdr[liblist].sh_entsize = sizeof (Elf32_Lib);
@@ -226,8 +227,9 @@ prelink_prepare (DSO *dso)
 	  if (dso->shdr[libstr].sh_name == 0)
 	    return 1;
 	  dso->shdr[libstr].sh_type = SHT_STRTAB;
-	  dso->shdr[libstr].sh_offset = dso->shdr[libstr - 1].sh_offset
-					 + dso->shdr[libstr - 1].sh_size;
+	  dso->shdr[libstr].sh_offset = dso->shdr[libstr - 1].sh_offset;
+	  if (dso->shdr[libstr - 1].sh_type != SHT_NOBITS)
+	    dso->shdr[libstr].sh_offset += dso->shdr[libstr - 1].sh_size;
 	  dso->shdr[libstr].sh_addralign = 1;
         }
     }
@@ -426,11 +428,8 @@ prelink_dso (struct prelink_info *info)
       GElf_Addr adjust = dso->shdr[libstr].sh_size - oldsize;
 
       oldoffset = dso->shdr[libstr].sh_offset;
-      if (adjust_dso_nonalloc (dso, oldoffset, adjust))
+      if (adjust_dso_nonalloc (dso, libstr + 1, oldoffset, adjust))
 	goto error_out;
-      dso->shdr[libstr].sh_offset = oldoffset;
-      if (liblist + 1 == libstr && dso->shdr[liblist].sh_size == 0)
-	dso->shdr[liblist].sh_offset = oldoffset;
     }
 
   scn = elf_getscn (dso->elf, liblist);
@@ -460,7 +459,7 @@ prelink_dso (struct prelink_info *info)
 	  newoffset = (newoffset + data->d_align - 1) & ~(data->d_align - 1);
 	  adjust += newoffset - dso->shdr[liblist].sh_offset;
 	}
-      if (adjust_dso_nonalloc (dso, oldoffset, adjust))
+      if (adjust_dso_nonalloc (dso, liblist + 1, oldoffset, adjust))
 	goto error_out;
       dso->shdr[liblist].sh_offset = newoffset;
       dso->shdr[liblist].sh_size = data->d_size;
@@ -536,7 +535,7 @@ prelink_set_checksum (struct prelink_info *info)
 }
 
 int
-prelink (DSO *dso)
+prelink (DSO *dso, struct prelink_entry *ent)
 {
   int i;
   Elf_Scn *scn;
@@ -563,6 +562,7 @@ prelink (DSO *dso)
     }
 
   memset (&info, 0, sizeof (info));
+  info.ent = ent;
   info.symtab_entsize = dso->shdr[i].sh_entsize;
   info.symtab = calloc (dso->shdr[i].sh_size / dso->shdr[i].sh_entsize,
 			sizeof (GElf_Sym));

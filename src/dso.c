@@ -166,7 +166,7 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
     if (dso->shdr[i].sh_offset
 	== dso->phdr[pt_dynamic].p_offset + dso->phdr[pt_dynamic].p_filesz)
       {
-	if (adjust_dso_nonalloc (dso,
+	if (adjust_dso_nonalloc (dso, 0,
 				 dso->phdr[pt_dynamic].p_offset
 				 + dso->phdr[pt_dynamic].p_filesz,
 				 dso->shdr[dso->dynamic].sh_entsize))
@@ -636,7 +636,7 @@ reopen_dso (DSO *dso, struct section_move *move)
   /* If shoff does not point after last section, we need to adjust the sections
      after it if we added or removed some sections.  */
   if (move->old_shnum != move->new_shnum
-      && adjust_dso_nonalloc (dso, dso->ehdr.e_shoff + 1,
+      && adjust_dso_nonalloc (dso, 0, dso->ehdr.e_shoff + 1,
 			      ((long) move->new_shnum - (long) move->old_shnum)
 			      * gelf_fsize (dso->elf, ELF_T_SHDR, 1,
 					    EV_CURRENT)))
@@ -869,7 +869,7 @@ adjust_rela (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 }
 
 int
-adjust_dso_nonalloc (DSO *dso, GElf_Addr start, GElf_Addr adjust)
+adjust_dso_nonalloc (DSO *dso, int first, GElf_Addr start, GElf_Addr adjust)
 {
   int i;
 
@@ -878,7 +878,8 @@ adjust_dso_nonalloc (DSO *dso, GElf_Addr start, GElf_Addr adjust)
       if (RELOCATE_SCN (dso->shdr[i].sh_flags))
 	continue;
 
-      if (dso->shdr[i].sh_offset >= start
+      if ((dso->shdr[i].sh_offset > start
+	   || (dso->shdr[i].sh_offset == start && i >= first))
 	  && (adjust & (dso->shdr[i].sh_addralign - 1)))
 	adjust = (adjust + dso->shdr[i].sh_addralign - 1)
 		 & ~(dso->shdr[i].sh_addralign - 1);
@@ -900,7 +901,8 @@ adjust_dso_nonalloc (DSO *dso, GElf_Addr start, GElf_Addr adjust)
       if (RELOCATE_SCN (dso->shdr[i].sh_flags))
 	continue;
 
-      if (dso->shdr[i].sh_offset >= start)
+      if (dso->shdr[i].sh_offset > start
+	  || (dso->shdr[i].sh_offset == start && i >= first))
 	{
 	  Elf_Scn *scn = elf_getscn (dso->elf, i);
 
@@ -1026,7 +1028,7 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 	}
     }
 
-  return start ? adjust_dso_nonalloc (dso, 0, adjust) : 0;
+  return start ? adjust_dso_nonalloc (dso, 0, 0, adjust) : 0;
 }
 
 int
@@ -1091,7 +1093,7 @@ shstrtabadd (DSO *dso, const char *name)
   data->d_size += len + 1;
   align = gelf_fsize (dso->elf, ELF_T_ADDR, 1, EV_CURRENT);
   adjust = (len + 1 + align - 1) & ~(align - 1);
-  if (adjust_dso_nonalloc (dso,
+  if (adjust_dso_nonalloc (dso, 0,
 			   dso->shdr[dso->ehdr.e_shstrndx].sh_offset
 			   + dso->shdr[dso->ehdr.e_shstrndx].sh_size,
 			   adjust))

@@ -9,9 +9,9 @@ INCLUDES = @GELFINCLUDE@
 sbin_PROGRAMS = prelink
 
 prelink_SYSDEPS = arch-i386.c
-prelink_SOURCES = cache.c data.c dso.c exec.c execle_open.c get.c gather.c \
-		  hashtab.c hashtab.h layout.c main.c prelink.c prelink.h \
-		  prelinktab.h reloc.c reloc.h crc32.c \
+prelink_SOURCES = cache.c data.c doit.c dso.c exec.c execle_open.c get.c \
+		  gather.c hashtab.c hashtab.h layout.c main.c prelink.c \
+		  prelink.h prelinktab.h reloc.c reloc.h crc32.c \
 		  $(prelink_SYSDEPS)
 prelink_LDADD = @LIBGELF@
 

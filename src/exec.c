@@ -460,7 +460,7 @@ static int
 readonly_space_adjust (DSO *dso, struct readonly_adjust *adjust)
 {
   if (adjust->nonalloc_adjust
-      && adjust_dso_nonalloc (dso, 0, adjust->nonalloc_adjust))
+      && adjust_dso_nonalloc (dso, 0, 0, adjust->nonalloc_adjust))
     return 1;
 
   if (adjust->basemove_adjust)
@@ -516,8 +516,7 @@ prelink_build_conflicts (struct prelink_info *info)
       /* Now check that the DSO matches what we recorded about it.  */
       if (ent->timestamp != dso->info_DT_GNU_PRELINKED
 	  || ent->checksum != dso->info_DT_CHECKSUM
-	  || ent->base != dso->base
-	  || ent->end != dso->end)
+	  || ent->base != dso->base)
 	{
 	  error (0, 0, "%s: Library %s has changed since it has been prelinked",
 		 info->dso->filename, ent->filename);
@@ -652,6 +651,8 @@ prelink_build_conflicts (struct prelink_info *info)
 	      goto error_out;
 	    }
 
+	  if (ndso->shdr[sec].sh_type == SHT_NOBITS)
+	    continue; /* We already initialized .dynbss with zeros.  */
 	  scn = elf_getscn (ndso->elf, sec);
 	  data = NULL;
 	  off = s->ent->base + s->value - ndso->shdr[sec].sh_addr;
@@ -1138,7 +1139,8 @@ prelink_exec (struct prelink_info *info)
 	  dso->shdr[new_dynbss + 1].sh_addr
 	    += dso->shdr[new_dynbss].sh_size;
 
-	  if (adjust_dso_nonalloc (dso, dso->shdr[new_dynbss + 1].sh_offset,
+	  if (adjust_dso_nonalloc (dso, new_dynbss + 1,
+				   dso->shdr[new_dynbss + 1].sh_offset,
 				   dso->shdr[new_dynbss].sh_size))
 	    goto error_out;
 

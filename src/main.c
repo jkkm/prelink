@@ -133,12 +133,16 @@ main (int argc, char *argv[])
   if (dynamic_linker == NULL)
     dynamic_linker = "/lib/ld-linux.so.2"; /* FIXME.  */
 
+  if (ld_library_path == NULL)
+    ld_library_path = getenv ("LD_LIBRARY_PATH");
+
   if (all)
     {
       prelink_init_cache ();
       if (gather_config (prelink_conf))
         return EXIT_FAILURE;
       layout_libs ();
+      prelink_all ();
       return 0;
     }
 
@@ -173,7 +177,7 @@ main (int argc, char *argv[])
 	  continue;
 	}
       if (! reloc_only)
-	if (prelink (dso))
+	if (prelink (dso, NULL))
 	  {
 	    close_dso (dso);
 	    ++failures;

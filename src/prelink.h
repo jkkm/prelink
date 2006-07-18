@@ -104,7 +104,8 @@ void read_dynamic (DSO *dso);
 int set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal);
 int addr_to_sec (DSO *dso, GElf_Addr addr);
 int adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust);
-int adjust_dso_nonalloc (DSO *dso, GElf_Addr start, GElf_Addr adjust);
+int adjust_dso_nonalloc (DSO *dso, int first, GElf_Addr start,
+			 GElf_Addr adjust);
 int relocate_dso (DSO *dso, GElf_Addr base);
 int update_dso (DSO *dso);
 int close_dso (DSO *dso);
@@ -225,7 +226,7 @@ struct prelink_info
 };
 
 int prelink_prepare (DSO *dso);
-int prelink (DSO *dso);
+int prelink (DSO *dso, struct prelink_entry *ent);
 int prelink_init_cache (void);
 int prelink_load_cache (void);
 int prelink_print_cache (void);
@@ -249,6 +250,8 @@ FILE *execve_open (const char *path, char *const argv[], char *const envp[]);
 int execve_close (FILE *f);
 
 int layout_libs (void);
+
+int prelink_all (void);
 
 extern struct prelink_entry *prelinked;
 extern const char *dynamic_linker;
