@@ -26,34 +26,35 @@
 #include "reloc.h"
 #include "space.h"
 
-static int
-update_dynamic_tags (DSO *dso, GElf_Shdr *old_shdr, struct section_move *move)
+int
+update_dynamic_tags (DSO *dso, GElf_Shdr *shdr, GElf_Shdr *old_shdr,
+		     struct section_move *move)
 {
   int i, j;
   
-  for (i = 1; i < dso->ehdr.e_shnum; ++i)
+  for (i = 1; i < move->new_shnum; ++i)
     {
       j = move->new_to_old[i];
       if (j == -1)
 	continue;
       if ((dynamic_info_is_set (dso, DT_HASH)
 	   && dso->info[DT_HASH] == old_shdr[j].sh_addr
-	   && set_dynamic (dso, DT_HASH, dso->shdr[i].sh_addr, 1))
+	   && set_dynamic (dso, DT_HASH, shdr[i].sh_addr, 1))
 	  || (dynamic_info_is_set (dso, DT_SYMTAB)
 	      && dso->info[DT_SYMTAB] == old_shdr[j].sh_addr
-	      && set_dynamic (dso, DT_SYMTAB, dso->shdr[i].sh_addr, 1))
+	      && set_dynamic (dso, DT_SYMTAB, shdr[i].sh_addr, 1))
 	  || (dynamic_info_is_set (dso, DT_STRTAB)
 	      && dso->info[DT_STRTAB] == old_shdr[j].sh_addr
-	      && set_dynamic (dso, DT_STRTAB, dso->shdr[i].sh_addr, 1))
+	      && set_dynamic (dso, DT_STRTAB, shdr[i].sh_addr, 1))
 	  || (dynamic_info_is_set (dso, DT_VERDEF_BIT)
 	      && dso->info_DT_VERDEF == old_shdr[j].sh_addr
-	      && set_dynamic (dso, DT_VERDEF, dso->shdr[i].sh_addr, 1))
+	      && set_dynamic (dso, DT_VERDEF, shdr[i].sh_addr, 1))
 	  || (dynamic_info_is_set (dso, DT_VERNEED_BIT)
 	      && dso->info_DT_VERNEED == old_shdr[j].sh_addr
-	      && set_dynamic (dso, DT_VERNEED, dso->shdr[i].sh_addr, 1)) 
+	      && set_dynamic (dso, DT_VERNEED, shdr[i].sh_addr, 1)) 
 	  || (dynamic_info_is_set (dso, DT_VERSYM_BIT)
 	      && dso->info_DT_VERSYM == old_shdr[j].sh_addr
-	      && set_dynamic (dso, DT_VERSYM, dso->shdr[i].sh_addr, 1)))
+	      && set_dynamic (dso, DT_VERSYM, shdr[i].sh_addr, 1)))
 	return 1;
     }
 
@@ -70,14 +71,14 @@ prelink_exec (struct prelink_info *info)
   int new_reloc = -1, new_plt = -1, new_dynstr = -1;
   int old_dynbss = -1, old_bss = -1, new_dynbss = -1;
   int old_sdynbss = -1, old_sbss = -1, new_sdynbss = -1;
-  int old[5], new[5];
+  int *old, *new;
   int addcnt, undo = 0;
   struct reloc_info rinfo;
   DSO *dso = info->dso;
   GElf_Ehdr ehdr;
   GElf_Phdr phdr[dso->ehdr.e_phnum + 1];
   GElf_Shdr old_shdr[dso->ehdr.e_shnum], new_shdr[dso->ehdr.e_shnum + 20];
-  GElf_Shdr *shdr, add[5];
+  GElf_Shdr *shdr, *add;
   Elf32_Lib *liblist = NULL;
   struct readonly_adjust adjust;
   struct section_move *move = NULL;
@@ -161,13 +162,6 @@ prelink_exec (struct prelink_info *info)
 	}
       else if (rinfo.rel_to_rela && i >= rinfo.first && i <= rinfo.last)
 	remove_section (move, move->old_to_new[i]);
-      else if (i > rinfo.first && i <= rinfo.last)
-	{
-	  shdr[j - 1].sh_size = dso->shdr[i].sh_addr
-				 + dso->shdr[i].sh_size
-				 - shdr[j - 1].sh_addr;
-	  remove_section (move, move->old_to_new[i]);
-	}
       else if (i == rinfo.plt
 	       && (rinfo.rel_to_rela || rinfo.rel_to_rela_plt))
 	remove_section (move, move->old_to_new[i]);
@@ -179,9 +173,12 @@ prelink_exec (struct prelink_info *info)
   assert (j == move->new_shnum);
   ehdr.e_shnum = j;
 
-  memset (add, 0, sizeof (add));
-  memset (old, 0, sizeof (old));
-  memset (new, 0, sizeof (new));
+  add = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*add));
+  old = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*old));
+  new = alloca ((rinfo.last - rinfo.first + 5) * sizeof (*new));
+  memset (add, 0, (rinfo.last - rinfo.first + 5) * sizeof (*add));
+  memset (old, 0, (rinfo.last - rinfo.first + 5) * sizeof (*old));
+  memset (new, 0, (rinfo.last - rinfo.first + 5) * sizeof (*new));
 
   i = 0;
   if (rinfo.rel_to_rela)
@@ -194,13 +191,19 @@ prelink_exec (struct prelink_info *info)
       add[i].sh_size = add[i].sh_size / 2 * 3;
       old[i] = rinfo.first;
       new_reloc = i++;
+      for (j = rinfo.first + 1; j <= rinfo.last; ++j)
+	{
+	  add[i] = dso->shdr[j];
+	  add[i].sh_size = add[i].sh_size / 2 * 3;
+	  old[i++] = j;
+	}
       if (rinfo.plt)
 	{
 	  add[i] = dso->shdr[rinfo.plt];
 	  if (rinfo.rel_to_rela_plt)
 	    add[i].sh_size = add[i].sh_size / 2 * 3;
 	  /* Temporarily merge them, so that they are allocated adjacently.  */
-	  add[i - 1].sh_size += add[i].sh_size;
+	  add[new_reloc].sh_size += add[i].sh_size;
 	  old[i] = rinfo.plt;
 	  new_plt = i++;
 	}
@@ -244,34 +247,36 @@ prelink_exec (struct prelink_info *info)
 
   for (i = 0; i < addcnt; ++i)
     {
-      int k = 1;
-
       new[i] = find_readonly_space (dso, add + i, &ehdr, phdr, shdr, &adjust);
       if (new[i] == 0)
 	goto error_out;
       add_section (move, new[i]);
-      if (i == new_reloc && new_plt != -1)
-	k = 2;
       ++adjust.newcount;
       if (old[i])
 	{
 	  move->old_to_new[old[i]] = new[i];
 	  move->new_to_old[new[i]] = old[i];
 	}
-      if (k == 2)
+      if (i == new_reloc)
 	{
-	  k = new[i];
-	  shdr[k].sh_size -= add[i+1].sh_size;
-	  insert_readonly_section (&ehdr, shdr, k + 1, &adjust);
-	  shdr[k + 1] = add[i + 1];
-	  shdr[k + 1].sh_addr = shdr[k].sh_addr + shdr[k].sh_size;
-	  shdr[k + 1].sh_offset = shdr[k].sh_offset + shdr[k].sh_size;
-	  new[i + 1] = k + 1;
-	  add_section (move, k + 1);
-	  move->old_to_new[rinfo.plt] = k + 1;
-	  move->new_to_old[k + 1] = rinfo.plt;
-	  ++i;
-	  ++adjust.newcount;
+	  int k, l = new[new_reloc];
+
+	  j = rinfo.last - rinfo.first + (new_plt != -1);
+	  shdr[l].sh_size = dso->shdr[rinfo.first].sh_size / 2 * 3;
+	  for (k = 1; k <= j; ++k)
+	    {
+	      insert_readonly_section (&ehdr, shdr, l + k, &adjust);
+	      shdr[l + k] = add[new_reloc + k];
+	      shdr[l + k].sh_addr = shdr[l + k - 1].sh_addr
+				    + shdr[l + k - 1].sh_size;
+	      shdr[l + k].sh_offset = shdr[l + k - 1].sh_offset
+				      + shdr[l + k - 1].sh_size;
+	      new[++i] = l + k;
+	      add_section (move, l + k);
+	      move->old_to_new[rinfo.first + k] = l + k;
+	      move->new_to_old[l + k] = rinfo.first + k;
+	      ++adjust.newcount;
+	    }
 	}
     }
 
@@ -500,19 +505,28 @@ prelink_exec (struct prelink_info *info)
 	  }
       }
 
-  /* Create .rel*.dyn if necessary.  */
+  /* Adjust .rel*.dyn (or .rel*.*) if necessary.  */
+  assert (new_reloc == -1
+	  || (rinfo.last - rinfo.first
+	      == (move->old_to_new[rinfo.last]
+		  - move->old_to_new[rinfo.first])));
   rinfo.first = move->old_to_new[rinfo.first];
+  rinfo.last = move->old_to_new[rinfo.last];
   assert (new_reloc == -1 || rinfo.first == new[new_reloc]);
 
   if (rinfo.rel_to_rela)
     {
       assert (sizeof (Elf32_Rel) * 3 == sizeof (Elf32_Rela) * 2);
       assert (sizeof (Elf64_Rel) * 3 == sizeof (Elf64_Rela) * 2);
-      dso->shdr[rinfo.first].sh_size
-	= dso->shdr[rinfo.first].sh_size / 3 * 2;
-      if (convert_rel_to_rela (dso, rinfo.first))
-	goto error_out;
-      dso->shdr[rinfo.first].sh_size = shdr[rinfo.first].sh_size;
+      assert (new_reloc != -1);
+      for (j = rinfo.first; j <= rinfo.last; ++j)
+	{
+	  dso->shdr[j].sh_size
+	    = dso->shdr[j].sh_size / 3 * 2;
+	  if (convert_rel_to_rela (dso, j))
+	    goto error_out;
+	  dso->shdr[j].sh_size = shdr[j].sh_size;
+	}
     }
 
   /* Adjust .rel*.plt if necessary.  */
@@ -866,7 +880,7 @@ prelink_exec (struct prelink_info *info)
       dso->undo.d_buf = NULL;
     }
 
-  if (update_dynamic_tags (dso, old_shdr, move))
+  if (update_dynamic_tags (dso, dso->shdr, old_shdr, move))
     goto error_out;
 
   if (update_dynamic_rel (dso, &rinfo))

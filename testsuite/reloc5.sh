@@ -6,7 +6,9 @@ rm -f reloc5 reloc5.log
 rm -f prelink.cache
 $CC -O2 -o reloc5.tmp $srcdir/reloc5.c
 ./reloc5.tmp > reloc5.tmp.c
+BINS="reloc5"
 $CCLINK -o reloc5 reloc5.tmp.c -Wl,--rpath-link,. reloc4lib3.so
+savelibs
 rm -f reloc5*.tmp reloc5*.tmp.c
 echo $PRELINK -vm ./reloc5 > reloc5.log
 $PRELINK -vm ./reloc5 >> reloc5.log 2>&1 || exit 1
@@ -15,3 +17,4 @@ LD_LIBRARY_PATH=. ./reloc5 || exit 3
 readelf -a ./reloc5 >> reloc5.log 2>&1 || exit 4
 # So that it is not prelinked again
 chmod -x ./reloc5
+comparelibs >> reloc5.log 2>&1 || exit 5

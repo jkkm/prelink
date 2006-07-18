@@ -334,6 +334,8 @@ struct prelink_conflict *
 GElf_Rela *prelink_conflict_add_rela (struct prelink_info *info);
 int prelink_get_relocations (struct prelink_info *info);
 int prelink_build_conflicts (struct prelink_info *info);
+int update_dynamic_tags (DSO *dso, GElf_Shdr *shdr, GElf_Shdr *old_shdr,
+			 struct section_move *move);
 int prelink_exec (struct prelink_info *info);
 int prelink_set_checksum (DSO *dso);
 int is_ldso_soname (const char *soname);

@@ -4,9 +4,10 @@ rm -f reloc3 reloc3lib*.so reloc3.log
 rm -f prelink.cache
 $CC -shared -O2 -fpic -o reloc3lib1.so $srcdir/reloc3lib1.c
 $CC -shared -O2 -fpic -o reloc3lib2.so $srcdir/reloc1lib2.c reloc3lib1.so
+BINS="reloc3"
 LIBS="reloc3lib1.so reloc3lib2.so"
-savelibs
 $CCLINK -o reloc3 $srcdir/reloc3.c -Wl,--rpath-link,. reloc3lib2.so
+savelibs
 echo $PRELINK -vm ./reloc3 > reloc3.log
 $PRELINK -vm ./reloc3 >> reloc3.log 2>&1 || exit 1
 grep -q ^`echo $PRELINK | sed 's/ .*$/: /'` reloc3.log && exit 2

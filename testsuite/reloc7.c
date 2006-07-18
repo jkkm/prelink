@@ -7,9 +7,10 @@ int j __attribute__((aligned (32)));
 int k[2048];
 int l = 26;
 int m[3] = { 28, 29, 30 };
+extern int baz[];
 
-struct A n = { 1, &n, &m[2] };
-static struct A o = { 2, &o, &m[1] };
+struct A n __attribute__((section("nsec"))) = { 1, &n, &m[2] };
+static struct A o __attribute__((section("osec"))) = { 2, &o, &baz[1] };
 
 void f5 (FILE *f)
 {
@@ -30,7 +31,7 @@ int main()
     abort ();
   if (n.a != 1 || n.b != &n || n.c != m + 2)
     abort ();
-  if (o.a != 2 || o.b != &o || o.c != m + 1)
+  if (o.a != 2 || o.b != &o || o.c != baz + 1)
     abort ();
   f5 (stdout);
   exit (0);
