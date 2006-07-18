@@ -26,8 +26,6 @@
 #include <sys/mman.h>
 #include "prelink.h"
 
-const char *prelink_cache = "/etc/prelink.cache";
-
 struct prelink_entry *prelinked;
 
 int

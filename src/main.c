@@ -26,12 +26,18 @@
 
 #include "prelink.h"
 
+#define PRELINK_CONF "/etc/prelink.conf"
+#define PRELINK_CACHE "/etc/prelink.cache"
+
+int all;
 int verbose;
 int print_cache;
 int reloc_only;
 int no_update;
 const char *dynamic_linker;
 const char *ld_library_path;
+const char *prelink_conf = PRELINK_CONF;
+const char *prelink_cache = PRELINK_CACHE;
 
 const char *argp_program_version = "prelink 1.0";
 
@@ -43,6 +49,9 @@ static char argp_doc[] = "prelink -- program to relocate and prelink an ELF shar
 #define OPT_LD_LIBRARY_PATH	0x81
 
 static struct argp_option options[] = {
+  {"all",		'a', 0, 0,  "Prelink all binaries" },
+  {"cache-file",	'C', "CACHE", 0, "Use CACHE as cache file" },
+  {"config-file",	'f', "CONF", 0, "Use CONF as configuration file" },
   {"no-update",		'n', 0, 0,  "Don't update prelink cache" },
   {"print-cache",	'p', 0,	0,  "Print prelink cache" },
   {"reloc-only",	'r', 0, 0,  "Relocate only, don't prelink" },
@@ -59,6 +68,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
 {
   switch (key)
     {
+    case 'a':
+      all = 1;
+      break;
     case 'p':
       print_cache = 1;
       break;
@@ -70,6 +82,12 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
     case 'n':
       no_update = 1;
+      break;
+    case 'C':
+      prelink_cache = arg;
+      break;
+    case 'f':
+      prelink_conf = arg;
       break;
     case OPT_DYNAMIC_LINKER:
       dynamic_linker = arg;
@@ -97,11 +115,20 @@ main (int argc, char *argv[])
 
   elf_version (EV_CURRENT);
 
+  if (dynamic_linker == NULL)
+    dynamic_linker = "/lib/ld-linux.so.2"; /* FIXME.  */
+
   prelink_load_cache ();
 
   if (print_cache)
     {
       prelink_print_cache ();
+      return 0;
+    }
+
+  if (all)
+    {
+      gather_config (prelink_conf);
       return 0;
     }
 

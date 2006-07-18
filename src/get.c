@@ -398,8 +398,6 @@ prelink_get_relocations (struct prelink_info *info)
       return 0;
     }
 
-  if (dynamic_linker == NULL)
-    dynamic_linker = "/lib/ld-linux.so.2"; /* FIXME.  */
   if (ld_library_path == NULL)
     {
       ld_library_path = getenv ("LD_LIBRARY_PATH");

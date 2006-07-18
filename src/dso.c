@@ -190,19 +190,26 @@ set_dynamic (DSO *dso, GElf_Word tag, GElf_Addr value, int fatal)
 DSO *
 open_dso (const char *name)
 {
-  Elf *elf = NULL;
-  GElf_Ehdr ehdr;
-  int fd, i;
-  DSO *dso = NULL;
-  struct PLArch *plarch;
-  extern struct PLArch __start_pl_arch[], __stop_pl_arch[];
+  int fd;
 
   fd = open (name, O_RDONLY);
   if (fd == -1)
     {
       error (0, errno, "cannot open \"%s\"", name);
-      goto error_out;
+      return NULL;
     }
+  return fdopen_dso (fd, name);
+}
+
+DSO *
+fdopen_dso (int fd, const char *name)
+{
+  Elf *elf = NULL;
+  GElf_Ehdr ehdr;
+  int i;
+  DSO *dso = NULL;
+  struct PLArch *plarch;
+  extern struct PLArch __start_pl_arch[], __stop_pl_arch[];
 
   elf = elf_begin (fd, ELF_C_READ, NULL);
   if (elf == NULL)

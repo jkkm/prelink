@@ -94,6 +94,7 @@ struct section_move
 };
 
 DSO * open_dso (const char *name);
+DSO * fdopen_dso (int fd, const char *name);
 struct section_move *init_section_move (DSO *dso);
 void add_section (struct section_move *move, int sec);
 void remove_section (struct section_move *move, int sec);
@@ -237,8 +238,13 @@ int prelink_get_relocations (struct prelink_info *info);
 int prelink_exec (struct prelink_info *info);
 int is_ldso_soname (const char *soname);
 
+int gather_dir (const char *dir, int deref, int onefs);
+int gather_config (const char *config);
+
 struct prelink_entry *prelinked;
 const char *dynamic_linker;
 const char *ld_library_path;
+const char *prelink_cache;
+const char *prelink_conf;
 
 #endif /* PRELINK_H */
