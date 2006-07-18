@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -152,23 +152,24 @@ opd_init (struct prelink_info *info)
 	       conflict = conflict->next)
 	    {
 	      if (conflict->symoff == ol->u.refs[j].symoff
-		  && conflict->reloc_class != RTYPE_CLASS_COPY)
+		  && conflict->reloc_class != RTYPE_CLASS_COPY
+		  && conflict->reloc_class != RTYPE_CLASS_TLS)
 		break;
 	    }
 
 	  if (conflict)
 	    {
 	      if (refent.val
-		  != conflict->conflictent->base + conflict->conflictval
-		  || refent.gp != conflict->conflictent->pltgot)
+		  != conflict->conflict.ent->base + conflict->conflictval
+		  || refent.gp != conflict->conflict.ent->pltgot)
 		{
 		  error (0, 0, "%s: OPD value changed during prelinking",
 			 info->ent->filename);
 		  goto error_out;
 		}
 
-	      refent.val = conflict->lookupent->base + conflict->lookupval;
-	      refent.gp = conflict->lookupent->pltgot;
+	      refent.val = conflict->lookup.ent->base + conflict->lookupval;
+	      refent.gp = conflict->lookup.ent->pltgot;
 	    }
 
 	  if (ol->u.refs[j].ent->opd & OPD_ENT_PLT)
@@ -194,9 +195,9 @@ opd_init (struct prelink_info *info)
 	      if (conflict)
 		{
 		  if (ol->u.refs[j].ent->val
-		      != conflict->conflictent->base + conflict->conflictval
+		      != conflict->conflict.ent->base + conflict->conflictval
 		      || ol->u.refs[j].ent->gp
-			 != conflict->conflictent->pltgot)
+			 != conflict->conflict.ent->pltgot)
 		    {
 		      error (0, 0, "%s: OPD value changed during prelinking",
 			     info->ent->filename);
@@ -206,8 +207,8 @@ opd_init (struct prelink_info *info)
 		  /* FPTR originally pointed into .plt, but since they
 		     now resolve to different values, this cannot be used.  */
 		  if (refent.val
-		      != conflict->lookupent->base + conflict->lookupval
-		      || refent.gp != conflict->lookupent->pltgot)
+		      != conflict->lookup.ent->base + conflict->lookupval
+		      || refent.gp != conflict->lookup.ent->pltgot)
 		    continue;
 		}
 	      else if (refent.val != ol->u.refs[j].ent->val

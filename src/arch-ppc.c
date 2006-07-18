@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -67,8 +67,8 @@ ppc_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 {
   if (GELF_R_TYPE (rela->r_info) == R_PPC_RELATIVE)
     {
-      if (rela->r_addend >= start)
-	rela->r_addend += adjust;
+      if ((Elf32_Word) rela->r_addend >= start)
+	rela->r_addend += (Elf32_Sword) adjust;
     }
   return 0;
 }
@@ -320,7 +320,7 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -381,7 +381,7 @@ ppc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       return 1;
     }
   ret->r_info = GELF_R_INFO (0, r_type);
-  ret->r_addend = value;
+  ret->r_addend = (Elf32_Sword) value;
   return 0;
 }
 

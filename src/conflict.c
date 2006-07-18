@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -648,12 +648,14 @@ prelink_build_conflicts (struct prelink_info *info)
 	  reloc_class
 	    = dso->arch->reloc_class (GELF_R_TYPE (cr.rela[i].r_info));
 
+	  assert (reloc_class != RTYPE_CLASS_TLS);
+
 	  for (s = & info->symbols[GELF_R_SYM (cr.rela[i].r_info)]; s;
 	       s = s->next)
 	    if (s->reloc_class == reloc_class)
 	      break;
 
-	  if (s == NULL || s->ent == NULL)
+	  if (s == NULL || s->u.ent == NULL)
 	    {
 	      error (0, 0, "%s: Could not find symbol copy reloc is against",
 		     dso->filename);
@@ -661,7 +663,7 @@ prelink_build_conflicts (struct prelink_info *info)
 	    }
 
 	  for (j = 1; j < ndeps; ++j)
-	    if (info->ent->depends[j - 1] == s->ent)
+	    if (info->ent->depends[j - 1] == s->u.ent)
 	      {
 		ndso = info->dsos[j];
 		break;
@@ -669,11 +671,11 @@ prelink_build_conflicts (struct prelink_info *info)
 
 	  assert (j < ndeps);
 	  if (i < firstbss2)
-	    j = get_relocated_mem (info, ndso, s->ent->base + s->value,
+	    j = get_relocated_mem (info, ndso, s->u.ent->base + s->value,
 				   info->sdynbss + cr.rela[i].r_offset
 				   - info->sdynbss_base, cr.rela[i].r_addend);
 	  else
-	    j = get_relocated_mem (info, ndso, s->ent->base + s->value,
+	    j = get_relocated_mem (info, ndso, s->u.ent->base + s->value,
 				   info->dynbss + cr.rela[i].r_offset
 				   - info->dynbss_base, cr.rela[i].r_addend);
 

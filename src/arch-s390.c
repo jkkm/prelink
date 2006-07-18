@@ -81,12 +81,12 @@ s390_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_390_RELATIVE:
-      if (rela->r_addend >= start)
+      if ((Elf32_Addr) rela->r_addend >= start)
 	{
 	  addr = read_ube32 (dso, rela->r_offset);
 	  if (addr == rela->r_addend)
 	    write_be32 (dso, rela->r_offset, addr + adjust);
-	  rela->r_addend += adjust;
+	  rela->r_addend += (Elf32_Sword) adjust;
 	}
       break;
     case R_390_JMP_SLOT:
@@ -225,7 +225,7 @@ s390_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -235,13 +235,13 @@ s390_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     {
     case R_390_GLOB_DAT:
     case R_390_JMP_SLOT:
-      ret->r_addend = value;
+      ret->r_addend = (Elf32_Sword) value;
       break;
     case R_390_32:
-      ret->r_addend = value + rela->r_addend;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend);
       break;
     case R_390_PC32:
-      ret->r_addend = value + rela->r_addend - rela->r_offset;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend - rela->r_offset);
       break;
     case R_390_COPY:
       error (0, 0, "R_390_COPY should not be present in shared libraries");

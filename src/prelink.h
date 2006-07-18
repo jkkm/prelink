@@ -128,6 +128,7 @@ struct PLArch
 #define RTYPE_CLASS_VALID	8
 #define RTYPE_CLASS_PLT		(8|1)
 #define RTYPE_CLASS_COPY	(8|2)
+#define RTYPE_CLASS_TLS		(8|4)
   int (*reloc_class) (int);
   int (*arch_prelink) (DSO *dso);
   int (*arch_undo_prelink) (DSO *dso);
@@ -274,9 +275,19 @@ struct prelink_dir
   char dir[0];
 };
 
+struct prelink_tls
+{
+  GElf_Addr modid;
+  GElf_Addr offset;
+};
+
 struct prelink_symbol
 {
-  struct prelink_entry *ent;
+  union
+    {
+      struct prelink_entry *ent;
+      struct prelink_tls *tls;
+    } u;
   struct prelink_symbol *next;
   GElf_Addr value;
   int reloc_class;
@@ -286,18 +297,26 @@ struct prelink_conflict
 {
   struct prelink_conflict *next;
   /* Object which it was relocated to.  */
-  struct prelink_entry *lookupent;
+  union
+    {
+      struct prelink_entry *ent;
+      struct prelink_tls *tls;
+    } lookup,
   /* Object which the relocation was prelinked to.  */
-  struct prelink_entry *conflictent;
+      conflict;
   /* Offset from start of owner to owner's symbol.  */
   GElf_Addr symoff;
-  /* Value it has in lookupent.  */
+  /* Value it has in lookup.ent.  */
   GElf_Addr lookupval;
-  /* Value it has in conflictent.  */
+  /* Value it has in conflict.ent.  */
   GElf_Addr conflictval;
   int reloc_class;
   int used;
 };
+
+#define conflict_lookup_value(cfl)					  \
+  (((cfl)->reloc_class != RTYPE_CLASS_TLS ? (cfl)->lookup.ent->base : 0)  \
+   + (cfl)->lookupval)
 
 struct prelink_info
 {
@@ -307,6 +326,7 @@ struct prelink_info
   struct prelink_symbol *symbols;
   struct prelink_conflict **conflicts;
   struct prelink_conflict *curconflicts;
+  struct prelink_tls *tls;
   const char **sonames;
   char *dynbss, *sdynbss;
   GElf_Addr dynbss_base, sdynbss_base;
@@ -319,6 +339,7 @@ struct prelink_info
   GElf_Addr (*resolve) (struct prelink_info *info, GElf_Word r_sym,
 			 int reloc_type);
   struct prelink_entry *resolveent;
+  struct prelink_tls *resolvetls;
 };
 
 int prelink_prepare (DSO *dso);

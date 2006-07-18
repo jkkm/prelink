@@ -37,6 +37,7 @@ resolve_ldso (struct prelink_info *info, GElf_Word r_sym,
   if (info->symtab[r_sym].st_shndx == SHN_UNDEF)
     {
       info->resolveent = NULL;
+      info->resolvetls = NULL;
       return 0;
     }
   else
@@ -44,6 +45,7 @@ resolve_ldso (struct prelink_info *info, GElf_Word r_sym,
       /* As the dynamic linker is relocated first,
 	 l_addr will be 0.  */
       info->resolveent = info->ent;
+      info->resolvetls = NULL; /* FIXME */
       return 0 + info->symtab[r_sym].st_value;
     }
 }
@@ -59,14 +61,20 @@ resolve_dso (struct prelink_info *info, GElf_Word r_sym,
     if (s->reloc_class == reloc_class)
       break;
 
-  if (s == NULL || s->ent == NULL)
+  info->resolveent = NULL;
+  info->resolvetls = NULL;
+
+  if (s == NULL || s->u.ent == NULL)
+    return 0;
+
+  if (reloc_class == RTYPE_CLASS_TLS)
     {
-      info->resolveent = NULL;
-      return 0;
+      info->resolvetls = s->u.tls;
+      return s->value;
     }
 
-  info->resolveent = s->ent;
-  return s->ent->base + s->value;
+  info->resolveent = s->u.ent;
+  return s->u.ent->base + s->value;
 }
 
 static int
@@ -847,6 +855,7 @@ free_info (struct prelink_info *info)
         free ((char *) info->sonames[i]);
       free (info->sonames);
     }
+  free (info->tls);
   if (info->symbols)
     {
       for (i = 0; i < info->symbol_count; ++i)

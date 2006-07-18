@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -197,7 +197,7 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
 	continue;
 
       for (k = 0; specials[k].prefix; ++k)
-	if (GELF_ST_VISIBILITY (fcs1.sym.st_other) == STV_DEFAULT
+	if (ELF32_ST_VISIBILITY (fcs1.sym.st_other) == STV_DEFAULT
 	    && fcs1.sym.st_info == specials[k].st_info
 	    && strncmp (name, specials[k].prefix, specials[k].prefix_len) == 0
 	    && strcmp (secname, specials[k].section) == 0)
@@ -235,7 +235,7 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
       if (conflict == NULL)
 	continue;
 
-      if (conflict->conflictent != fcs1.ent
+      if (conflict->conflict.ent != fcs1.ent
 	  || fcs1.dso->base + conflict->conflictval != fcs1.sym.st_value)
 	continue;
 
@@ -248,13 +248,13 @@ remove_redundant_cxx_conflicts (struct prelink_info *info)
       if (fcs1.sym.st_size > 16384)
 	continue;
 
-      o = find_cxx_sym (info, conflict->lookupent->base + conflict->lookupval,
+      o = find_cxx_sym (info, conflict->lookup.ent->base + conflict->lookupval,
 			&fcs2, fcs1.sym.st_size);
 
       if (o == -1
 	  || fcs1.sym.st_size != fcs2.sym.st_size
 	  || fcs1.sym.st_info != fcs2.sym.st_info
-	  || GELF_ST_VISIBILITY (fcs2.sym.st_other) != STV_DEFAULT
+	  || ELF32_ST_VISIBILITY (fcs2.sym.st_other) != STV_DEFAULT
 	  || strcmp (name, (char *) fcs2.strtab->d_buf + fcs2.sym.st_name) != 0)
 	continue;
 

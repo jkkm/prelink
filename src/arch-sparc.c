@@ -68,8 +68,8 @@ sparc_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
     {
       if (rela->r_addend)
 	{
-	  if (rela->r_addend >= start)
-	    rela->r_addend += adjust;
+	  if ((Elf32_Addr) rela->r_addend >= start)
+	    rela->r_addend += (Elf32_Sword) adjust;
 	}
       else
 	{
@@ -306,7 +306,7 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -357,7 +357,7 @@ sparc_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       return 1;
     }
   ret->r_info = GELF_R_INFO (0, r_type);
-  ret->r_addend = value;
+  ret->r_addend = (Elf32_Sword) value;
   return 0;
 }
 
@@ -402,7 +402,7 @@ sparc_undo_prelink_rela (DSO *dso, GElf_Rela *rela, GElf_Addr relaaddr)
 				       dso->shdr[sec].sh_name),
 			       ".got"))
 	{
-	  rela->r_addend = read_ube32 (dso, rela->r_offset);
+	  rela->r_addend = (Elf32_Sword) read_ube32 (dso, rela->r_offset);
 	  write_be32 (dso, rela->r_offset, 0);
 	  /* Tell undo_prelink_rela routine it should update the
 	     relocation.  */

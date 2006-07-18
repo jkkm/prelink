@@ -250,7 +250,7 @@ alpha_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;

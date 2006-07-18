@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -43,12 +43,15 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
   char buffer[8192];
   DSO *dso = info->dso;
   struct prelink_entry *ent, *ent2;
+  struct prelink_tls *tls;
   struct deps
     {
       struct prelink_entry *ent;
       char *soname;
       GElf_Addr start;
       GElf_Addr l_addr;
+      GElf_Addr tls_modid;
+      GElf_Addr tls_offset;
     } deps[info->ent->ndepends + 1];
   char *r;
   int i, ndeps = 0, undef = 0, seen = 0, tdeps = 0;
@@ -57,7 +60,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
   while ((r = fgets (buffer, 8192, f)) != NULL)
     {
       char *soname, *filename, *p, *q;
-      GElf_Addr start = 0, l_addr = 0;
+      GElf_Addr start = 0, l_addr = 0, tls_modid = 0, tls_offset = 0;
       unsigned long long l;
 
       if (buffer[0] != '\t' || (filename = strstr (buffer, " => ")) == NULL)
@@ -74,7 +77,24 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	    {
 	      l = strtoull (q + sizeof (", 0x") - 1, &q, 16);
 	      l_addr = (GElf_Addr) l;
-	      if (l_addr != l || strcmp (q, ")\n") || q[-1] == 'x')
+	      if (l_addr != l || q[-1] == 'x')
+		p = NULL;
+	      else if (strncmp (q, ") TLS(0x", sizeof (") TLS(0x") - 1) == 0)
+		{
+		  l = strtoull (q + sizeof (") TLS(0x") - 1, &q, 16);
+		  tls_modid = (GElf_Addr) l;
+		  if (tls_modid != l || q[-1] == 'x'
+		      || strncmp (q, ", 0x", sizeof (", 0x") - 1))
+		    p = NULL;
+		  else
+		    {
+		      l = strtoull (q + sizeof (", 0x") - 1, &q, 16);
+		      tls_offset = (GElf_Addr) l;
+		      if (tls_offset != l || q[-1] == 'x')
+			p = NULL;
+		    }
+		}
+	      if (p && strcmp (q, ")\n"))
 		p = NULL;
 	    }
 	}
@@ -147,6 +167,8 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	}
       deps[tdeps].start = start;
       deps[tdeps].l_addr = l_addr;
+      deps[tdeps].tls_modid = tls_modid;
+      deps[tdeps].tls_offset = tls_offset;
       ++ndeps;
     }
 
@@ -162,6 +184,20 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
       error (0, 0, "%s: %s did not print any lookup lines", info->ent->filename,
 	     dynamic_linker ?: dso->arch->dynamic_linker);
       goto error_out;
+    }
+
+  info->tls = malloc (ndeps * sizeof (struct prelink_tls));
+  if (info->tls == NULL)
+    {
+      error (0, ENOMEM, "%s: Could not record dependency TLS information",
+	     dso->filename);
+      goto error_out;
+    }
+
+  for (i = 0; i < ndeps; i++)
+    {
+      info->tls[i].modid = deps[i].tls_modid;
+      info->tls[i].offset = deps[i].tls_offset;
     }
 
   if (dso->ehdr.e_type == ET_EXEC || dso->arch->create_opd)
@@ -225,18 +261,23 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		     info->ent->filename, symname, symoff);
 	      goto error_out;
 	    }
-	  for (i = 0, ent = NULL; i < ndeps; i++)
+	  for (i = 0, ent = NULL, tls = NULL; i < ndeps; i++)
 	    if (deps[i].start == valstart[0])
 	      {
-		ent = deps[i].ent;
-		/* If the library the symbol is bound to is already prelinked,
-		   adjust the value so that it is relative to library
-		   base.  */
-		value[0] -= deps[i].start - deps[i].l_addr;
+		if (reloc_class == RTYPE_CLASS_TLS)
+		  tls = info->tls + i;
+		else
+		  {
+		    ent = deps[i].ent;
+		    /* If the library the symbol is bound to is already prelinked,
+		       adjust the value so that it is relative to library
+		       base.  */
+		    value[0] -= deps[i].start - deps[i].l_addr;
+		  }
 		break;
 	      }
 
-	  if (ent == NULL && valstart[0])
+	  if (ent == NULL && tls == NULL && valstart[0])
 	    {
 	      error (0, 0, "Could not find base 0x%08llx in the list of bases `%s'",
 		     valstart[0], buffer);
@@ -254,7 +295,9 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		s = s->next;
 	      if (s->reloc_class == reloc_class)
 		{
-		  if (s->ent != ent || s->value != value[0])
+		  if ((reloc_class != RTYPE_CLASS_TLS && s->u.ent != ent)
+		      || (reloc_class == RTYPE_CLASS_TLS && s->u.tls != tls)
+		      || s->value != value[0])
 		    {
 		      error (0, 0, "%s: Symbol `%s' with the same reloc type resolves to different values each time",
 			     info->ent->filename, symname);
@@ -276,7 +319,10 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	    }
 	  if (s)
 	    {
-	      s->ent = ent;
+	      if (reloc_class == RTYPE_CLASS_TLS)
+		s->u.tls = tls;
+	      else
+		s->u.ent = ent;
 	      s->value = value[0];
 	      s->reloc_class = reloc_class;
 	      s->next = NULL;
@@ -322,6 +368,7 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	  if (info->conflicts)
 	    {
 	      struct prelink_entry *ents[2];
+	      struct prelink_tls *tlss[2];
 	      struct prelink_conflict *conflict;
 	      int symowner, j;
 
@@ -338,17 +385,23 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 	      for (j = 0; j < 2; j++)
 		{
 		  ents[j] = NULL;
-		  for (i = 0, ent = NULL; i < ndeps; i++)
+		  tlss[j] = NULL;
+		  for (i = 0; i < ndeps; i++)
 		    if (deps[i].start == valstart[j])
 		      {
-			ents[j] = deps[i].ent;
-			/* If the library the symbol is bound to is already
-			   prelinked, adjust the value so that it is relative
-			   to library base.  */
-			value[j] -= deps[i].start - deps[i].l_addr;
+			if (reloc_class == RTYPE_CLASS_TLS)
+			  tlss[j] = info->tls + i;
+			else
+			  {
+			    ents[j] = deps[i].ent;
+			    /* If the library the symbol is bound to is already
+			       prelinked, adjust the value so that it is relative
+			       to library base.  */
+			    value[j] -= deps[i].start - deps[i].l_addr;
+			  }
 			break;
 		      }
-		  if (ents[j] == NULL && valstart[j])
+		  if (ents[j] == NULL && tlss[j] == NULL && valstart[j])
 		    {
 		      error (0, 0, "Could not find base 0x%08llx in the list of bases `%s'",
 			     valstart[j], buffer);
@@ -361,8 +414,12 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 		if (conflict->symoff == symoff
 		    && conflict->reloc_class == reloc_class)
 		  {
-		    if (conflict->lookupent != ents[0]
-			|| conflict->conflictent != ents[1]
+		    if ((reloc_class != RTYPE_CLASS_TLS
+			 && (conflict->lookup.ent != ents[0]
+			     || conflict->conflict.ent != ents[1]))
+			|| (reloc_class == RTYPE_CLASS_TLS
+			    && (conflict->lookup.tls != tlss[0]
+				|| conflict->conflict.tls != tlss[1]))
 			|| conflict->lookupval != value[0]
 			|| conflict->conflictval != value[1])
 		      {
@@ -383,8 +440,16 @@ prelink_record_relocations (struct prelink_info *info, FILE *f)
 
 		  conflict->next = info->conflicts[symowner];
 		  info->conflicts[symowner] = conflict;
-		  conflict->lookupent = ents[0];
-		  conflict->conflictent = ents[1];
+		  if (reloc_class != RTYPE_CLASS_TLS)
+		    {
+		      conflict->lookup.ent = ents[0];
+		      conflict->conflict.ent = ents[1];
+		    }
+		  else
+		    {
+		      conflict->lookup.tls = tlss[0];
+		      conflict->conflict.tls = tlss[1];
+		    }
 		  conflict->lookupval = value[0];
 		  conflict->conflictval = value[1];
 		  conflict->symoff = symoff;

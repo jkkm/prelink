@@ -108,9 +108,9 @@ sh_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_SH_RELATIVE:
-      if (rela->r_addend && rela->r_addend >= start)
+      if (rela->r_addend && (Elf32_Addr) rela->r_addend >= start)
 	{
-	  rela->r_addend += adjust;
+	  rela->r_addend += (Elf32_Sword) adjust;
 	  break;
 	}
       /* FALLTHROUGH */
@@ -254,7 +254,7 @@ sh_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -273,7 +273,7 @@ sh_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       /* FALLTHROUGH */
     case R_SH_GLOB_DAT:
     case R_SH_JMP_SLOT:
-      ret->r_addend = value + rela->r_addend;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend);
       break;
     case R_SH_COPY:
       error (0, 0, "R_SH_COPY should not be present in shared libraries");

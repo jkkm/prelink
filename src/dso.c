@@ -596,7 +596,25 @@ reopen_dso (DSO *dso, struct section_move *move)
 
     }
 
-  if ((e_ident = (char *) gelf_newehdr (elf, gelf_getclass (dso->elf))) == NULL
+#if 0
+  /* Some gelf_newehdr implementations don't return the resulting
+     ElfNN_Ehdr.  */
+  e_ident = (char *) gelf_newehdr (elf, gelf_getclass (dso->elf));
+#else
+  switch (gelf_getclass (dso->elf))
+    {
+    case ELFCLASS32:
+      e_ident = (char *) elf32_newehdr (elf);
+      break;
+    case ELFCLASS64:
+      e_ident = (char *) elf64_newehdr (elf);
+      break;
+    default:
+      e_ident = NULL;
+      break;
+    }
+#endif
+  if (e_ident == NULL
       /* This is here just for the gelfx wrapper, so that gelf_update_ehdr
 	 already has the correct ELF class.  */
       || memcpy (e_ident, dso->ehdr.e_ident, EI_NIDENT) == NULL
@@ -807,7 +825,8 @@ adjust_symtab (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 	    }
 
 	  if (sym.st_shndx <= SHN_UNDEF
-	      || sym.st_shndx >= dso->ehdr.e_shnum)
+	      || sym.st_shndx >= dso->ehdr.e_shnum
+	      || ELF32_ST_TYPE (sym.st_info) == STT_TLS)
 	    continue;
 
 	  if (! RELOCATE_SCN (dso->shdr[sym.st_shndx].sh_flags))

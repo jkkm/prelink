@@ -90,9 +90,9 @@ arm_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_ARM_RELATIVE:
-      if (rela->r_addend >= start)
+      if ((Elf32_Addr) rela->r_addend >= start)
 	{
-	  rela->r_addend += adjust;
+	  rela->r_addend += (Elf32_Sword) adjust;
 	  /* Write it to the memory location as well.
 	     Not necessary, but we can do it.  */
 	  write_le32 (dso, rela->r_offset, rela->r_addend);
@@ -324,7 +324,7 @@ arm_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
 			       GELF_R_TYPE (rel->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -334,7 +334,7 @@ arm_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
     {
     case R_ARM_GLOB_DAT:
     case R_ARM_JUMP_SLOT:
-      ret->r_addend = value;
+      ret->r_addend = (Elf32_Sword) value;
       break;
     case R_ARM_ABS32:
     case R_ARM_PC24:
@@ -369,7 +369,7 @@ arm_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -380,7 +380,7 @@ arm_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_ARM_GLOB_DAT:
     case R_ARM_JUMP_SLOT:
     case R_ARM_ABS32:
-      ret->r_addend = value + rela->r_addend;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend);
       break;
     case R_ARM_PC24:
       val = value + rela->r_addend - rela->r_offset;
@@ -391,7 +391,7 @@ arm_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 	  return 1;
 	}
       value = read_ule32 (dso, rela->r_offset) & 0xff000000;
-      ret->r_addend = value | (val & 0xffffff);
+      ret->r_addend = (Elf32_Sword) (value | (val & 0xffffff));
       ret->r_info = GELF_R_INFO (0, R_ARM_ABS32);
       break;
     case R_ARM_COPY:
@@ -417,7 +417,7 @@ arm_rel_to_rela (DSO *dso, GElf_Rel *rel, GElf_Rela *rela)
       abort ();
     case R_ARM_RELATIVE:
     case R_ARM_ABS32:
-      rela->r_addend = read_ule32 (dso, rel->r_offset);
+      rela->r_addend = (Elf32_Sword) read_ule32 (dso, rel->r_offset);
       break;
     case R_ARM_PC24:
       rela->r_addend = read_ule32 (dso, rel->r_offset) << 8;

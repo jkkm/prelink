@@ -1,4 +1,4 @@
-/* Copyright (C) 2001 Red Hat, Inc.
+/* Copyright (C) 2001, 2002 Red Hat, Inc.
    Written by Jakub Jelinek <jakub@redhat.com>, 2001.
 
    This program is free software; you can redistribute it and/or modify
@@ -81,8 +81,8 @@ cris_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_CRIS_RELATIVE:
-      if (rela->r_addend >= start)
-	rela->r_addend += adjust;
+      if ((Elf32_Addr) rela->r_addend >= start)
+	rela->r_addend += (Elf32_Sword) adjust;
       break;
     case R_CRIS_JUMP_SLOT:
       data = read_ule32 (dso, rela->r_offset);
@@ -253,7 +253,7 @@ cris_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -267,18 +267,21 @@ cris_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     case R_CRIS_32:
     case R_CRIS_16:
     case R_CRIS_8:
-      ret->r_addend = value + rela->r_addend;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend);
       break;
     case R_CRIS_32_PCREL:
-      ret->r_addend = value + rela->r_addend - rela->r_offset - 4;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend
+				     - rela->r_offset - 4);
       ret->r_info = GELF_R_INFO (0, R_CRIS_32);
       break;
     case R_CRIS_16_PCREL:
-      ret->r_addend = value + rela->r_addend - rela->r_offset - 2;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend
+				     - rela->r_offset - 2);
       ret->r_info = GELF_R_INFO (0, R_CRIS_16);
       break;
     case R_CRIS_8_PCREL:
-      ret->r_addend = value + rela->r_addend - rela->r_offset - 1;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend
+				     - rela->r_offset - 1);
       ret->r_info = GELF_R_INFO (0, R_CRIS_8);
       break;
     case R_CRIS_COPY:

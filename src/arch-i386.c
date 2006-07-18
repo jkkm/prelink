@@ -90,9 +90,9 @@ i386_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_386_RELATIVE:
-      if (rela->r_addend >= start)
+      if ((Elf32_Addr) rela->r_addend >= start)
 	{
-	  rela->r_addend += adjust;
+	  rela->r_addend += (Elf32_Sword) adjust;
 	  /* Write it to the memory location as well.
 	     Not necessary, but we can do it.  */
 	  write_le32 (dso, rela->r_offset, rela->r_addend);
@@ -144,6 +144,20 @@ i386_prelink_rel (struct prelink_info *info, GElf_Rel *rel, GElf_Addr reladdr)
       error (0, 0, "%s: R_386_PC32 relocs should not be present in prelinked REL sections",
 	     dso->filename);
       return 1;
+#if 0
+    case R_386_TLS_DTPMOD32:
+      write_le32 (dso, rel->r_offset, info->resolvetls ? info->resolvetls->modid : 0);
+      break;
+    case R_386_TLS_DTPOFF32:
+      write_le32 (dso, rel->r_offset, value);
+      break;
+    case R_386_TLS_TPOFF32:
+      if (info->resolvetls)
+	write_le32 (dso, rel->r_offset, -(value - info->resolvetls->offset));
+      else
+	write_le32 (dso, rel->r_offset, 0);
+      break;
+#endif
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
 	/* COPY relocs are handled specially in generic code.  */
@@ -184,6 +198,20 @@ i386_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_386_PC32:
       write_le32 (dso, rela->r_offset, value + rela->r_addend - rela->r_offset);
       break;
+#if 0
+    case R_386_TLS_DTPMOD32:
+      write_le32 (dso, rela->r_offset, info->resolvetls ? info->resolvetls->modid : 0);
+      break;
+    case R_386_TLS_DTPOFF32:
+      write_le32 (dso, rela->r_offset, value);
+      break;
+    case R_386_TLS_TPOFF32:
+      if (info->resolvetls)
+	write_le32 (dso, rela->r_offset, -(value - info->resolvetls->offset));
+      else
+	write_le32 (dso, rela->r_offset, 0);
+      break;
+#endif
     case R_386_COPY:
       if (dso->ehdr.e_type == ET_EXEC)
 	/* COPY relocs are handled specially in generic code.  */
@@ -294,7 +322,7 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
 			       GELF_R_TYPE (rel->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -304,13 +332,44 @@ i386_prelink_conflict_rel (DSO *dso, struct prelink_info *info, GElf_Rel *rel,
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
-      ret->r_addend = value;
+      ret->r_addend = (Elf32_Sword) value;
       break;
     case R_386_32:
     case R_386_PC32:
       error (0, 0, "%s: R_386_%s32 relocs should not be present in prelinked REL sections",
 	     dso->filename, GELF_R_TYPE (rel->r_info) == R_386_32 ? "" : "PC");
       return 1;
+#if 0
+    case R_386_TLS_DTPMOD32:
+    case R_386_TLS_DTPOFF32:
+    case R_386_TLS_TPOFF32:
+      if (conflict->reloc_class != RTYPE_CLASS_TLS || conflict->lookup.tls == NULL)
+	{
+	  error (0, 0, "%s: R_386_TLS_DTPMOD32 not resolving to STT_TLS symbol",
+		 dso->filename);
+	  return 1;
+	}
+      ret->r_info = GELF_R_INFO (0, R_386_32);
+      switch (GELF_R_TYPE (rel->r_info))
+	{
+	case R_386_TLS_DTPMOD32:
+	  ret->r_addend = conflict->lookup.tls->modid;
+	  break;
+	case R_386_TLS_DTPOFF32:
+	  XXX;
+      ret->r_addend
+      info->resolvetls ? info->resolvetls->modid : 0);
+      break;
+    case R_386_TLS_DTPOFF32:
+      write_le32 (dso, rela->r_offset, value);
+      break;
+    case R_386_TLS_TPOFF32:
+      if (info->resolvetls)
+	write_le32 (dso, rela->r_offset, -(value - info->resolvetls->offset));
+      else
+	write_le32 (dso, rela->r_offset, 0);
+      break;
+#endif
     case R_386_COPY:
       error (0, 0, "R_386_COPY should not be present in shared libraries");
       return 1;
@@ -338,7 +397,7 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
 			       GELF_R_TYPE (rela->r_info));
   if (conflict == NULL)
     return 0;
-  value = conflict->lookupent->base + conflict->lookupval;
+  value = conflict_lookup_value (conflict);
   ret = prelink_conflict_add_rela (info);
   if (ret == NULL)
     return 1;
@@ -348,14 +407,14 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
     {
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
-      ret->r_addend = value + rela->r_addend;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend);
       break;
     case R_386_32:
       value += rela->r_addend;
-      ret->r_addend = value;
+      ret->r_addend = (Elf32_Sword) value;
       break;
     case R_386_PC32:
-      ret->r_addend = value + rela->r_addend - rela->r_offset;
+      ret->r_addend = (Elf32_Sword) (value + rela->r_addend - rela->r_offset);
       ret->r_info = GELF_R_INFO (0, R_386_32);
       break;
     case R_386_COPY:
@@ -382,7 +441,7 @@ i386_rel_to_rela (DSO *dso, GElf_Rel *rel, GElf_Rela *rela)
     case R_386_RELATIVE:
     case R_386_32:
     case R_386_PC32:
-      rela->r_addend = read_ule32 (dso, rel->r_offset);
+      rela->r_addend = (Elf32_Sword) read_ule32 (dso, rel->r_offset);
       break;
     case R_386_COPY:
     case R_386_GLOB_DAT:
