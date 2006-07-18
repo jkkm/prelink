@@ -456,6 +456,13 @@ ppc_reloc_class (int reloc_type)
    0x40000 .. 0xe800000 bottom to top
    0x18000000 .. 0x30000000 bottom to top  */
 
+#define REG0S	0x0e800000
+#define REG0E	0x10000000
+#define REG1S	0x00040000
+#define REG1E	REG0S
+#define REG2S	0x18000000
+#define REG2E	0x30000000
+
 struct ppc_layout_data
 {
   int cnt;
@@ -518,24 +525,24 @@ list_sort (struct prelink_entry *x)
 static int
 ppc_layout_libs_pre (struct layout_libs *l)
 {
-  Elf32_Addr mmap_start = l->mmap_start - 0x40000;
-  Elf32_Addr first_start = 0xe800000, last_start = 0x18000000;
+  Elf32_Addr mmap_start = l->mmap_start - REG1S;
+  Elf32_Addr first_start = REG0S, last_start = REG2S;
   struct prelink_entry *e, e0, *next = NULL;
   struct ppc_layout_data *pld;
   int cnt;
 
-  mmap_start = 0x10000000 - (mmap_start & 0xff0000);
+  mmap_start = REG0E - (mmap_start & 0xff0000);
   for (cnt = 0, e = l->list; e != NULL; e = e->next, ++cnt)
     {
       if (e->base < mmap_start && e->end > mmap_start)
 	mmap_start = (e->end + 0xffff) & ~0xffff;
-      if (e->base < 0xe800000 && e->end > 0xe800000 && first_start > e->base)
+      if (e->base < REG0S && e->end > REG0S && first_start > e->base)
 	first_start = e->base;
-      if (e->base < 0x10000000 && e->end > 0x18000000 && last_start < e->end)
+      if (e->base < REG0E && e->end > REG2S && last_start < e->end)
 	last_start = e->end;
     }
-  if (mmap_start > 0x10000000)
-    mmap_start = 0x10000000;
+  if (mmap_start > REG0E)
+    mmap_start = REG0E;
 
   pld = calloc (sizeof (*pld) + cnt * sizeof (pld->ents[0]), 1);
   if (pld == NULL)
@@ -546,15 +553,15 @@ ppc_layout_libs_pre (struct layout_libs *l)
   e0.prev = &e0;
   pld->cnt = cnt;
   pld->e[0].u.tmp = -1;
-  pld->e[0].base = 0x40000 + 0x10000000 - mmap_start;
+  pld->e[0].base = REG1S + REG0E - mmap_start;
   pld->e[0].end = pld->e[0].base;
   pld->e[0].prev = &pld->e[0];
   pld->e[1].u.tmp = -1;
-  pld->e[1].base = pld->e[0].end + mmap_start - 0xe800000;
+  pld->e[1].base = pld->e[0].end + mmap_start - REG0S;
   pld->e[1].end = pld->e[1].base;
   pld->e[1].prev = &pld->e[1];
   pld->e[2].u.tmp = -1;
-  pld->e[2].base = pld->e[1].end + first_start - 0x40000;
+  pld->e[2].base = pld->e[1].end + first_start - REG1S;
   pld->e[2].end = pld->e[1].base;
   pld->e[2].prev = &pld->e[2];
   for (cnt = 0, e = l->list; e != NULL; e = next, ++cnt)
@@ -563,36 +570,36 @@ ppc_layout_libs_pre (struct layout_libs *l)
       pld->ents[cnt].e = e;
       pld->ents[cnt].base = e->base;
       pld->ents[cnt].end = e->end;
-      if (e->end <= 0xe800000)
+      if (e->end <= REG0S)
 	{
-	  if (e->base < 0x40000)
-	    e->base = 0x40000;
+	  if (e->base < REG1S)
+	    e->base = REG1S;
 	  else if (e->base > first_start)
 	    e->base = first_start;
-	  if (e->end < 0x40000)
-	    e->end = 0x40000;
+	  if (e->end < REG1S)
+	    e->end = REG1S;
 	  else if (e->end > first_start)
 	    e->end = first_start;
-	  e->base += pld->e[1].end - 0x40000;
-	  e->end += pld->e[1].end - 0x40000;
+	  e->base += pld->e[1].end - REG1S;
+	  e->end += pld->e[1].end - REG1S;
 	  list_append (&pld->e[1], e);
 	}
       else if (e->base < mmap_start)
 	{
-	  if (e->base < 0xe800000)
-	    e->base = 0xe800000;
+	  if (e->base < REG0S)
+	    e->base = REG0S;
 	  if (e->end > mmap_start)
 	    e->end = mmap_start;
 	  e->base = pld->e[0].end + mmap_start - e->end;
 	  e->end = pld->e[0].end + mmap_start - pld->ents[cnt].base;
 	  list_append (&pld->e[0], e);
 	}
-      else if (e->base < 0x1000000)
+      else if (e->base < REG0E)
 	{
-	  if (e->end > 0x1000000)
-	    e->end = 0x1000000;
-	  e->base = 0x40000 + 0x1000000 - e->end;
-	  e->end = 0x40000 + 0x1000000 - pld->ents[cnt].base;
+	  if (e->end > REG0E)
+	    e->end = REG0E;
+	  e->base = REG1S + REG0E - e->end;
+	  e->end = REG1S + REG0E - pld->ents[cnt].base;
 	  list_append (&e0, e);
 	}
       else if (e->end >= last_start)
@@ -631,8 +638,8 @@ ppc_layout_libs_pre (struct layout_libs *l)
   pld->first_start = first_start;
   pld->last_start = last_start;
 
-  l->mmap_start = 0x40000;
-  l->mmap_fin = pld->e[2].end + 0x30000000 - last_start;
+  l->mmap_start = REG1S;
+  l->mmap_fin = pld->e[2].end + REG2E - last_start;
   l->mmap_end = l->mmap_fin;
   l->fakecnt = 3;
   l->fake = pld->e;
@@ -669,8 +676,8 @@ ppc_layout_libs_post (struct layout_libs *l)
 	end = e->end;
 	if (e->base < pld->e[0].base)
 	  {
-	    e->base = 0x40000 + 0x1000000 - end;
-	    e->end = 0x40000 + 0x1000000 - base;
+	    e->base = REG1S + REG0E - end;
+	    e->end = REG1S + REG0E - base;
 	  }
 	else if (e->base < pld->e[1].base)
 	  {
@@ -679,8 +686,8 @@ ppc_layout_libs_post (struct layout_libs *l)
 	  }
 	else if (e->base < pld->e[2].base)
 	  {
-	    e->base -= pld->e[1].end - 0x40000;
-	    e->end -= pld->e[1].end - 0x40000;
+	    e->base -= pld->e[1].end - REG1S;
+	    e->end -= pld->e[1].end - REG1S;
 	  }
 	else
 	  {
@@ -688,6 +695,9 @@ ppc_layout_libs_post (struct layout_libs *l)
 	    e->end -= pld->e[2].end - pld->last_start;
 	  }
       }
+
+  for (i = 0; i < pld->cnt; ++i)
+    pld->ents[i].e->done &= ~0x40;
 
   free (l->arch_data);
   return 0;
@@ -720,9 +730,9 @@ PL_ARCH = {
   .layout_libs_pre = ppc_layout_libs_pre,
   .layout_libs_post = ppc_layout_libs_post,
   /* This will need some changes in layout.c.
-     PowerPC prefers addresses right below 0x10000000
-     and can use the region above say 0x18000000 if libs don't fit.  */
-  .mmap_base = 0x40000LL,
-  .mmap_end =  0x30000000LL,
+     PowerPC prefers addresses right below REG0E
+     and can use the region above REG2S if libs don't fit.  */
+  .mmap_base = REG1S,
+  .mmap_end =  REG2E,
   .page_size = 0x10000
 };

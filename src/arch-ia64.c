@@ -137,7 +137,8 @@ ia64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
   DSO *dso;
   GElf_Addr value;
 
-  if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_REL32MSB)
+  if ((GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_REL32MSB
+      || GELF_R_TYPE (rela->r_info) == R_IA64_NONE)
     /* Fast path: nothing to do.  */
     return 0;
   dso = info->dso;
@@ -152,25 +153,40 @@ ia64_prelink_rela (struct prelink_info *info, GElf_Rela *rela,
     {
       value -= rela->r_offset & -16;
     }
-  switch (GELF_R_TYPE (rela->r_info))    
+  else if (GELF_R_TYPE (rela->r_info) & ~3) == R_IA64_FPTR32MSB)
     {
-    case R_386_GLOB_DAT:
-    case R_386_JMP_SLOT:
-      write_le32 (dso, rela->r_offset, value + rela->r_addend);
-      break;
-    case R_386_32:
-      write_le32 (dso, rela->r_offset, value + rela->r_addend);
-      break;
-    case R_386_PC32:
-      write_le32 (dso, rela->r_offset, value + rela->r_addend - rela->r_offset);
-      break;
-    case R_386_COPY:
-      error (0, 0, "R_386_COPY not handled yet");
-      return 1;
-    default:
+      /* FIXME */
+    }
+  else if (GELF_R_TYPE (rela->r_info) & ~1) == R_IA64_IPLTMSB)
+    {
+      GElf_Addr gp = info->resolveent->pltgot;
+
+      if (GELF_R_TYPE (rela->r_info) & 1)
+	{
+	  write_le64 (dso, rela->r_offset, value);
+	  write_le64 (dso, rela->r_offset + 8, gp);
+	}
+      else
+	{
+	  write_be64 (dso, rela->r_offset, value);
+	  write_be64 (dso, rela->r_offset + 8, gp);
+	}
+
+      return 0;
+    }
+  else
+    {
       error (0, 0, "%s: Unknown ia64 relocation type %d", dso->filename,
 	     (int) GELF_R_TYPE (rela->r_info));
       return 1;
+    }
+
+  switch (GELF_R_TYPE (rela->r_info) & 3)
+    {
+    case 0: write_be32 (dso, rela->r_offset, value); break;
+    case 1: write_le32 (dso, rela->r_offset, value); break;
+    case 2: write_be64 (dso, rela->r_offset, value); break;
+    case 3: write_le64 (dso, rela->r_offset, value); break;
     }
   return 0;
 }
