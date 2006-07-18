@@ -425,7 +425,7 @@ prelink_prepare (DSO *dso)
       /* On REL architectures, we might need to convert some REL
 	 relocations to RELA relocs.  */
 
-      int safe = 1, align = 0;
+      int safe = 1, align = 0, last;
       GElf_Addr start, adjust, adjust1, adjust2;
 
       for (i = 1; i < (rinfo.plt ? rinfo.plt : rinfo.first); i++)
@@ -499,6 +499,33 @@ prelink_prepare (DSO *dso)
 	 aligned.  */
       if (align)
 	adjust = (adjust + align - 1) & ~(align - 1);
+
+      /* Need to make sure adjust doesn't cause different Phdr segments
+	 to overlap on the same page.  */
+      last = -1;
+      for (i = 0; i < dso->ehdr.e_phnum; ++i)
+	if (dso->phdr[i].p_type == PT_LOAD
+	    && dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz >= start)
+	  {
+	    if (last != -1
+		&& (((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz - 1)
+		     ^ dso->phdr[i].p_vaddr)
+		    & ~(dso->arch->max_page_size - 1))
+		&& !(((dso->phdr[last].p_vaddr + dso->phdr[last].p_memsz
+		       + adjust - 1)
+		      ^ (dso->phdr[i].p_vaddr + adjust))
+		     & ~(dso->arch->max_page_size - 1)))
+	      {
+		if (align >= dso->arch->max_page_size)
+		  {
+		    error (0, 0, "%s: Cannot grow reloc sections", dso->filename);
+		    return 1;
+		  }
+		adjust = (adjust + dso->arch->max_page_size - 1)
+			 & ~(dso->arch->max_page_size - 1);
+	      }
+	    last = i;
+	  }
 
       /* Adjust all addresses pointing into remaining sections.  */
       if (adjust_dso (dso, start, adjust))

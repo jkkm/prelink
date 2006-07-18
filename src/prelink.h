@@ -60,6 +60,7 @@ typedef struct
   GElf_Phdr *phdr;
   Elf_Scn **scn;
   GElf_Addr base, end, align;
+  GElf_Addr mask;
   GElf_Addr info[DT_NUM];
   GElf_Addr info_DT_GNU_PRELINKED;
   GElf_Addr info_DT_CHECKSUM;

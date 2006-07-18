@@ -394,7 +394,19 @@ find_readonly_space (DSO *dso, GElf_Shdr *add, GElf_Ehdr *ehdr,
 		    }
 
 		  if (shdr[k].sh_addr > add->sh_addr)
-		    break;
+		    {
+		      /* Don't allow inserting in between reloc sections
+			 if they are adjacent.  */
+		      if (shdr[k].sh_type != SHT_REL
+			  && shdr[k].sh_type != SHT_RELA)
+			break;
+		      if (shdr[k - 1].sh_type != SHT_REL
+			  && shdr[k - 1].sh_type != SHT_RELA)
+			break;
+		      if (shdr[k - 1].sh_addr + shdr[k - 1].sh_size
+			  != shdr[k].sh_addr)
+			break;
+		    }
 
 		  if (! readonly_is_movable (dso, ehdr, shdr, k))
 		    {

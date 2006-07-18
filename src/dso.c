@@ -275,6 +275,13 @@ fdopen_dso (int fd, const char *name)
   dso->ehdr = ehdr;
   dso->phdr = (GElf_Phdr *) &dso->shdr[ehdr.e_shnum + 20];
   dso->scn = (Elf_Scn **) &dso->phdr[ehdr.e_phnum + 1];
+  switch (ehdr.e_ident[EI_CLASS])
+    {
+    case ELFCLASS32:
+      dso->mask = 0xffffffff; break;
+    case ELFCLASS64:
+      dso->mask = 0xffffffffffffffffULL; break;
+    }
   for (i = 0; i < ehdr.e_phnum; ++i)
     gelf_getphdr (elf, i, dso->phdr + i);
   dso->fd = fd;
@@ -819,6 +826,7 @@ adjust_symtab (DSO *dso, int n, GElf_Addr start, GElf_Addr adjust)
 	      if (sym.st_value >= start)
 		{
 		  sym.st_value += adjust;
+		  sym.st_value &= dso->mask;
 		  gelfx_update_sym (dso->elf, data, ndx, &sym);
 		}
 	      continue;
