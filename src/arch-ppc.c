@@ -66,14 +66,47 @@ ppc_adjust_dyn (DSO *dso, int n, GElf_Dyn *dyn, GElf_Addr start,
 
       for (i = 1; i < dso->ehdr.e_shnum; ++i)
 	if (! strcmp (strptr (dso, dso->ehdr.e_shstrndx,
-			      dso->shdr[i].sh_name), ".got"))
+			      dso->shdr[i].sh_name), ".got")
+	    && dso->shdr[i].sh_size >= 16)
 	  {
-	    Elf32_Addr data;
+	    Elf32_Addr data, addr;
+	    int step;
 
-	    data = read_ube32 (dso, dso->shdr[i].sh_addr + 4);
-	    /* .got[1] points to _DYNAMIC, it needs to be adjusted.  */
-	    if (data == dso->shdr[n].sh_addr && data >= start)
-	      write_be32 (dso, dso->shdr[i].sh_addr + 4, data + adjust);
+	    /* If .got[1] points to _DYNAMIC, it needs to be adjusted.
+	       Other possible locations of the .got header are at the
+	       end of .got or around offset 32768 in it.  */
+	    for (addr = dso->shdr[i].sh_addr, step = 0; step < 18; step++)
+	      {
+		if (read_ube32 (dso, addr) == 0x4e800021
+		    && (data = read_ube32 (dso, addr + 4))
+		       == dso->shdr[n].sh_addr
+		    && data >= start
+		    && read_ube32 (dso, addr + 8) == 0
+		    && read_ube32 (dso, addr + 12) == 0)
+		  {
+		    /* Probably should use here a check that neither of
+		       the 4 addresses contains a dynamic relocation against
+		       it.  */
+		    write_be32 (dso, addr + 4, data + adjust);
+		    break;
+		  }
+		if (step == 0)
+		  addr = dso->shdr[i].sh_addr + dso->shdr[i].sh_size - 16;
+		else if (step == 1)
+		  {
+		    if (dso->shdr[i].sh_size >= 32768 - 32)
+		      addr = dso->shdr[i].sh_addr + 32768 - 32 - 16;
+		    else
+		      break;
+		  }
+		else
+		  {
+		    addr += 4;
+		    if (addr + 16
+			> dso->shdr[i].sh_addr + dso->shdr[i].sh_size)
+		      break;
+		  }
+	      }
 	    break;
 	  }
     }
@@ -651,7 +684,7 @@ ppc_arch_prelink (DSO *dso)
 	 lwz %r11, %r11, %lo(data)
 	 mtctr %r11
 	 bctr  */
-      write_be32 (dso, plt,  0x3d6b0000 | (((data + 0x8000) >> 16) & 0xffff));
+      write_be32 (dso, plt, 0x3d6b0000 | (((data + 0x8000) >> 16) & 0xffff));
       write_be32 (dso, plt + 4, 0x816b0000 | (data & 0xffff));
       write_be32 (dso, plt + 8, 0x7d6903a6);
       write_be32 (dso, plt + 12, 0x4e800420);

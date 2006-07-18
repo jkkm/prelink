@@ -1319,7 +1319,7 @@ adjust_dso (DSO *dso, GElf_Addr start, GElf_Addr adjust)
 	  dso->phdr[i].p_filesz += adjust;
 	  dso->phdr[i].p_memsz += adjust;
 	}
-      else if (start < dso->phdr[i].p_vaddr + dso->phdr[i].p_filesz)
+      else if (start < dso->phdr[i].p_vaddr + dso->phdr[i].p_memsz)
 	dso->phdr[i].p_memsz += adjust;
       else
 	continue;
