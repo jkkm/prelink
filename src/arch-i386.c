@@ -85,10 +85,11 @@ static int
 i386_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 		  GElf_Addr adjust)
 {
+  Elf32_Addr data;
+
   switch (GELF_R_TYPE (rela->r_info))
     {
     case R_386_RELATIVE:
-    case R_386_JMP_SLOT:
       if (rela->r_addend >= start)
 	{
 	  rela->r_addend += adjust;
@@ -96,6 +97,12 @@ i386_adjust_rela (DSO *dso, GElf_Rela *rela, GElf_Addr start,
 	     Not necessary, but we can do it.  */
 	  write_le32 (dso, rela->r_offset, rela->r_addend);
 	}
+      break;
+    case R_386_JMP_SLOT:
+      data = read_ule32 (dso, rela->r_offset);
+      if (data >= start)
+	write_le32 (dso, rela->r_offset, data + adjust);
+      break;
       break;
     }
   return 0;
@@ -200,7 +207,6 @@ i386_apply_conflict_rela (struct prelink_info *info, GElf_Rela *rela,
     case R_386_GLOB_DAT:
     case R_386_JMP_SLOT:
     case R_386_32:
-    case R_386_PC32:
       buf_write_le32 (buf, rela->r_addend);
       break;
     default:
@@ -344,9 +350,12 @@ i386_prelink_conflict_rela (DSO *dso, struct prelink_info *info,
       ret->r_addend = value + rela->r_addend;
       break;
     case R_386_32:
-    case R_386_PC32:
       value += rela->r_addend;
       ret->r_addend = value;
+      break;
+    case R_386_PC32:
+      ret->r_addend = value + rela->r_addend - rela->r_offset;
+      ret->r_info = GELF_R_INFO (0, R_386_32);
       break;
     case R_386_COPY:
       error (0, 0, "R_386_COPY should not be present in shared libraries");
